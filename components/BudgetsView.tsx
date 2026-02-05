@@ -16,7 +16,10 @@ import {
   Edit2,
   User as UserIcon,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  Package,
+  Truck,
+  MessageSquare
 } from 'lucide-react';
 
 interface BudgetsViewProps {
@@ -66,7 +69,8 @@ const BudgetsView: React.FC<BudgetsViewProps> = ({ budgets, theme, onSave, onDel
     setItems(budget.items.map(it => ({ 
       ...it, 
       serviceProvider: it.serviceProvider || '',
-      estimatedTime: it.estimatedTime || '' 
+      estimatedTime: it.estimatedTime || '',
+      materials: it.materials || []
     })));
     
     const budgetQuotes = budget.quotes || [];
@@ -105,7 +109,9 @@ const BudgetsView: React.FC<BudgetsViewProps> = ({ budgets, theme, onSave, onDel
             name: '', 
             quantity: 1, 
             price: 0,
-            unit: 'Un'
+            unit: 'Un',
+            supplier: '',
+            observation: ''
           }]
         };
       }
@@ -228,7 +234,7 @@ const BudgetsView: React.FC<BudgetsViewProps> = ({ budgets, theme, onSave, onDel
                       <h3 className="text-xs font-black text-slate-800 uppercase tracking-widest flex items-center">
                         <Layers size={16} className="mr-2 text-blue-500" /> Detalhamento de Serviços
                       </h3>
-                      <button type="button" onClick={addServiceItem} className="px-4 py-2 bg-blue-50 text-blue-600 rounded-xl font-black text-[10px] uppercase border border-blue-100 hover:bg-blue-100 transition-all">+ Novo Item</button>
+                      <button type="button" onClick={addServiceItem} className="px-4 py-2 bg-blue-50 text-blue-600 rounded-xl font-black text-[10px] uppercase border border-blue-100 hover:bg-blue-100 transition-all">+ Novo Serviço</button>
                    </div>
 
                    {items.map((item) => (
@@ -241,31 +247,48 @@ const BudgetsView: React.FC<BudgetsViewProps> = ({ budgets, theme, onSave, onDel
                             <input type="text" value={item.description} onChange={(e) => updateItem(item.id, 'description', e.target.value)} placeholder="Ex: Pintura da Sala de Estar" className="w-full px-4 py-3 rounded-xl border border-slate-100 bg-slate-50 outline-none focus:border-blue-300 text-sm font-bold" />
                           </div>
 
-                          <div className="space-y-3">
+                          <div className="space-y-4">
                             <div className="flex justify-between items-center">
-                               <p className="text-[9px] font-black text-slate-400 uppercase">Lista de Materiais</p>
-                               <button type="button" onClick={() => addMaterial(item.id)} className="text-[9px] font-black text-emerald-600 uppercase flex items-center"><Plus size={14} className="mr-1"/> Adicionar Material</button>
+                               <p className="text-[9px] font-black text-slate-400 uppercase flex items-center"><Package size={14} className="mr-1"/> Materiais Necessários</p>
+                               <button type="button" onClick={() => addMaterial(item.id)} className="text-[9px] font-black text-emerald-600 uppercase flex items-center hover:scale-105 transition-all"><Plus size={14} className="mr-1"/> Adicionar Material</button>
                             </div>
                             
-                            <div className="space-y-3">
+                            <div className="space-y-4">
                                {(item.materials || []).map((mat) => (
-                                 <div key={mat.id} className="p-4 bg-slate-50/50 rounded-2xl border border-slate-100 flex flex-wrap gap-3 items-end">
-                                    <div className="flex-1 min-w-[200px]">
-                                       <label className="block text-[8px] font-black text-slate-400 uppercase mb-1">Peça/Material</label>
-                                       <input type="text" value={mat.name} onChange={e => updateMaterial(item.id, mat.id, 'name', e.target.value)} className="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs font-bold" />
+                                 <div key={mat.id} className="p-5 bg-slate-50/50 rounded-[2rem] border border-slate-100 flex flex-col gap-4 animate-in fade-in slide-in-from-left-2">
+                                    <div className="flex flex-wrap gap-4 items-end">
+                                      <div className="flex-1 min-w-[200px]">
+                                         <label className="block text-[8px] font-black text-slate-400 uppercase mb-1">Peça / Material / Insumo</label>
+                                         <input type="text" value={mat.name} onChange={e => updateMaterial(item.id, mat.id, 'name', e.target.value)} placeholder="Nome do material" className="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs font-bold" />
+                                      </div>
+                                      <div className="w-20">
+                                         <label className="block text-[8px] font-black text-slate-400 uppercase mb-1">Unidade</label>
+                                         <input type="text" value={mat.unit || ''} onChange={e => updateMaterial(item.id, mat.id, 'unit', e.target.value)} placeholder="Ex: Un, Kg" className="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs font-bold text-center" />
+                                      </div>
+                                      <div className="w-20">
+                                         <label className="block text-[8px] font-black text-slate-400 uppercase mb-1">Qtd</label>
+                                         <input type="number" value={mat.quantity} onChange={e => updateMaterial(item.id, mat.id, 'quantity', parseFloat(e.target.value))} className="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs font-bold text-center" />
+                                      </div>
+                                      <div className="w-32">
+                                         <label className="block text-[8px] font-black text-slate-400 uppercase mb-1">R$ Unitário</label>
+                                         <div className="relative">
+                                            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] font-black text-slate-300">R$</span>
+                                            <input type="number" step="0.01" value={mat.price || ''} onChange={e => updateMaterial(item.id, mat.id, 'price', parseFloat(e.target.value))} className="w-full pl-7 pr-3 py-2 rounded-lg border border-slate-200 text-xs font-bold" />
+                                         </div>
+                                      </div>
+                                      <button type="button" onClick={() => removeMaterial(item.id, mat.id)} className="p-2 text-rose-300 hover:text-rose-500 transition-colors"><Trash2 size={18}/></button>
                                     </div>
-                                    <div className="w-20">
-                                       <label className="block text-[8px] font-black text-slate-400 uppercase mb-1">Qtd</label>
-                                       <input type="number" value={mat.quantity} onChange={e => updateMaterial(item.id, mat.id, 'quantity', parseFloat(e.target.value))} className="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs font-bold text-center" />
+
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                      <div className="relative">
+                                         <label className="block text-[8px] font-black text-slate-400 uppercase mb-1 flex items-center"><Truck size={10} className="mr-1"/> Fornecedor sugerido</label>
+                                         <input type="text" value={mat.supplier || ''} onChange={e => updateMaterial(item.id, mat.id, 'supplier', e.target.value)} placeholder="Nome do fornecedor" className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[10px] font-bold" />
+                                      </div>
+                                      <div className="relative">
+                                         <label className="block text-[8px] font-black text-slate-400 uppercase mb-1 flex items-center"><MessageSquare size={10} className="mr-1"/> Observação técnica</label>
+                                         <input type="text" value={mat.observation || ''} onChange={e => updateMaterial(item.id, mat.id, 'observation', e.target.value)} placeholder="Ex: Marca específica, cor, tamanho..." className="w-full px-3 py-2 rounded-lg border border-slate-200 text-[10px] font-bold" />
+                                      </div>
                                     </div>
-                                    <div className="w-32">
-                                       <label className="block text-[8px] font-black text-slate-400 uppercase mb-1">R$ Unitário</label>
-                                       <div className="relative">
-                                          <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] font-black text-slate-300">R$</span>
-                                          <input type="number" step="0.01" value={mat.price || ''} onChange={e => updateMaterial(item.id, mat.id, 'price', parseFloat(e.target.value))} className="w-full pl-7 pr-3 py-2 rounded-lg border border-slate-200 text-xs font-bold" />
-                                       </div>
-                                    </div>
-                                    <button type="button" onClick={() => removeMaterial(item.id, mat.id)} className="p-2 text-rose-300 hover:text-rose-500"><Trash2 size={18}/></button>
                                  </div>
                                ))}
                             </div>
@@ -273,11 +296,11 @@ const BudgetsView: React.FC<BudgetsViewProps> = ({ budgets, theme, onSave, onDel
 
                           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 pt-6 border-t border-slate-50 items-end">
                              <div className="md:col-span-1">
-                                <label className="block text-[9px] font-black text-slate-400 uppercase mb-2 flex items-center"><UserIcon size={10} className="mr-1"/> Prestador</label>
+                                <label className="block text-[9px] font-black text-slate-400 uppercase mb-2 flex items-center"><UserIcon size={10} className="mr-1"/> Prestador de Serviço</label>
                                 <input type="text" placeholder="Nome do Prestador" value={item.serviceProvider || ''} onChange={e => updateItem(item.id, 'serviceProvider', e.target.value)} className="w-full px-4 py-3 rounded-xl border border-slate-200 font-bold text-xs" />
                              </div>
                              <div className="md:col-span-1">
-                                <label className="block text-[9px] font-black text-slate-400 uppercase mb-2 flex items-center"><Wrench size={10} className="mr-1"/> Mão de Obra</label>
+                                <label className="block text-[9px] font-black text-slate-400 uppercase mb-2 flex items-center"><Wrench size={10} className="mr-1"/> Valor Mão de Obra</label>
                                 <div className="relative">
                                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300 font-bold text-xs">R$</span>
                                   <input type="number" step="0.01" value={item.laborCost || ''} onChange={e => updateItem(item.id, 'laborCost', e.target.value)} className="w-full pl-8 pr-4 py-3 rounded-xl border border-slate-200 font-bold text-xs" />
@@ -288,7 +311,7 @@ const BudgetsView: React.FC<BudgetsViewProps> = ({ budgets, theme, onSave, onDel
                                 <input type="text" placeholder="Ex: 5 dias" value={item.estimatedTime || ''} onChange={e => updateItem(item.id, 'estimatedTime', e.target.value)} className="w-full px-4 py-3 rounded-xl border-2 border-slate-50 bg-white font-bold text-xs focus:border-blue-400 outline-none shadow-inner" />
                              </div>
                              <div className="flex flex-col justify-end text-right">
-                                <p className="text-[8px] font-black text-slate-300 uppercase">Subtotal do Item</p>
+                                <p className="text-[8px] font-black text-slate-300 uppercase">Subtotal do Serviço</p>
                                 <p className="text-xl font-black text-blue-600">R$ {calculateItemSubtotal(item).toLocaleString('pt-BR')}</p>
                              </div>
                           </div>
@@ -301,14 +324,14 @@ const BudgetsView: React.FC<BudgetsViewProps> = ({ budgets, theme, onSave, onDel
                    <div className="flex items-center space-x-4">
                       <div className="p-4 bg-white/10 rounded-2xl"><Calculator size={32} className="text-emerald-400" /></div>
                       <div>
-                         <p className="text-[10px] font-black text-white/40 uppercase tracking-widest">Valor Total do Orçamento</p>
+                         <p className="text-[10px] font-black text-white/40 uppercase tracking-widest">Investimento Total do Projeto</p>
                          <h4 className="text-4xl font-black tracking-tighter text-emerald-400">R$ {totalCalculated.toLocaleString('pt-BR')}</h4>
                       </div>
                    </div>
                    <div className="flex gap-4 w-full md:w-auto">
-                      <button type="button" onClick={resetForm} className="flex-1 md:flex-none px-8 py-4 rounded-2xl font-black text-xs uppercase tracking-widest bg-white/5 hover:bg-white/10 transition-all">Cancelar</button>
+                      <button type="button" onClick={resetForm} className="flex-1 md:flex-none px-8 py-4 rounded-2xl font-black text-xs uppercase tracking-widest bg-white/5 hover:bg-white/10 transition-all">Descartar</button>
                       <button type="submit" className="flex-1 md:flex-none px-12 py-4 rounded-2xl font-black text-xs uppercase tracking-widest bg-emerald-500 hover:bg-emerald-400 shadow-lg shadow-emerald-500/20 transition-all active:scale-95">
-                        {editingBudget ? 'Salvar Alterações' : 'Salvar Orçamento'}
+                        {editingBudget ? 'Atualizar Orçamento' : 'Concluir Lançamento'}
                       </button>
                    </div>
                 </div>
@@ -379,14 +402,34 @@ const BudgetsView: React.FC<BudgetsViewProps> = ({ budgets, theme, onSave, onDel
                                 <span className="text-[10px] font-black text-blue-500 uppercase">Serviço {iIdx + 1}</span>
                               </div>
                               <h6 className="font-black text-slate-800 mb-3">{item.description}</h6>
+                              
                               <div className="space-y-2 mb-4">
                                 {(item.materials || []).map(m => (
-                                  <div key={m.id} className="p-3 bg-slate-50/50 rounded-xl space-y-1 border border-slate-100 flex justify-between items-center">
-                                    <span className="text-[10px] font-black text-slate-800">{m.quantity} {m.unit} • {m.name}</span>
-                                    <span className="text-blue-600 font-black text-[10px]">R$ {(m.quantity * (m.price || 0)).toLocaleString('pt-BR')}</span>
+                                  <div key={m.id} className="p-3 bg-slate-50/50 rounded-xl border border-slate-100">
+                                    <div className="flex justify-between items-center mb-1">
+                                      <span className="text-[10px] font-black text-slate-800">
+                                        {m.quantity} {m.unit || 'Un'} • {m.name}
+                                      </span>
+                                      <span className="text-blue-600 font-black text-[10px]">
+                                        R$ {(m.quantity * (m.price || 0)).toLocaleString('pt-BR')}
+                                      </span>
+                                    </div>
+                                    <div className="flex flex-col gap-0.5 ml-1">
+                                      {m.supplier && (
+                                        <div className="flex items-center text-[8px] font-bold text-slate-400 uppercase tracking-widest">
+                                          <Truck size={10} className="mr-1 opacity-50"/> Fornecedor: {m.supplier}
+                                        </div>
+                                      )}
+                                      {m.observation && (
+                                        <div className="flex items-center text-[8px] font-medium text-slate-400 italic">
+                                          <MessageSquare size={10} className="mr-1 opacity-50"/> Obs: {m.observation}
+                                        </div>
+                                      )}
+                                    </div>
                                   </div>
                                 ))}
                               </div>
+
                               <div className="flex flex-col space-y-1 pt-2 border-t border-slate-50">
                                 <div className="flex justify-between items-center text-[10px] font-black uppercase">
                                   <span className="text-slate-400 flex items-center"><UserIcon size={10} className="mr-1"/> Prestador</span>
@@ -402,7 +445,7 @@ const BudgetsView: React.FC<BudgetsViewProps> = ({ budgets, theme, onSave, onDel
                                 </div>
                               </div>
                               <div className="flex justify-between items-center text-xs font-black uppercase pt-3 border-t border-slate-100 mt-2">
-                                <span className="text-blue-600">Total do Item</span>
+                                <span className="text-blue-600">Total do Serviço</span>
                                 <span className="text-blue-600 font-black">R$ {calculateItemSubtotal(item).toLocaleString('pt-BR')}</span>
                               </div>
                             </div>
