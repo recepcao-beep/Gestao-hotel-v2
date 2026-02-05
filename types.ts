@@ -9,14 +9,12 @@ export enum ViewType {
   REPORTS = 'REPORTS'
 }
 
-export type UserRole = 'ROUPARIA' | 'GERENCIA' | 'DIRETORIA' | 'FUNCIONARIO';
+export type UserRole = 'GESTOR' | 'FUNCIONARIO';
 
 export interface User {
   role: UserRole;
   hotel?: HotelType;
   name?: string;
-  sectorId?: string;
-  sectorName?: string;
 }
 
 export type HotelType = 'VILLAGE' | 'GOLDEN_PARK' | 'THERMAL_RESORT';
@@ -56,6 +54,7 @@ export interface BudgetItem {
   materials: MaterialItem[];
   laborCost: number;
   estimatedTime: string;
+  serviceProvider?: string;
 }
 
 export interface BudgetFile {

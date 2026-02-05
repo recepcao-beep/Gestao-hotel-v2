@@ -15,22 +15,16 @@ interface BottomNavProps {
   onViewChange: (view: ViewType) => void;
   theme: HotelTheme;
   role: UserRole;
-  sectorId?: string;
-  sectorName?: string;
 }
 
-const BottomNav: React.FC<BottomNavProps> = ({ currentView, onViewChange, theme, role, sectorId, sectorName }) => {
-  const normalizedSector = (sectorName || '').toLowerCase();
-  const isAuthSector = normalizedSector.includes('governança') || normalizedSector.includes('rouparia');
-  const canSeeReports = role === 'GERENCIA' || role === 'DIRETORIA' || (role === 'FUNCIONARIO' && isAuthSector);
-
+const BottomNav: React.FC<BottomNavProps> = ({ currentView, onViewChange, theme, role }) => {
   const menuItems = [
-    { id: ViewType.DASHBOARD, label: 'Início', icon: LayoutDashboard, visible: role === 'GERENCIA' || role === 'DIRETORIA' },
+    { id: ViewType.DASHBOARD, label: 'Início', icon: LayoutDashboard, visible: role === 'GESTOR' },
     { id: ViewType.APARTMENTS, label: 'Aptos', icon: Hotel, visible: true },
-    { id: ViewType.REPORTS, label: 'Rels', icon: FileBarChart, visible: canSeeReports },
-    { id: ViewType.BUDGETS, label: 'Orcas', icon: ReceiptPoundSterling, visible: role === 'GERENCIA' || role === 'DIRETORIA' },
-    { id: ViewType.INVENTORY, label: 'Stock', icon: Package, visible: true },
-    { id: ViewType.EMPLOYEES, label: 'Equipe', icon: Users, visible: role === 'GERENCIA' || role === 'DIRETORIA' },
+    { id: ViewType.REPORTS, label: 'Rels', icon: FileBarChart, visible: true },
+    { id: ViewType.BUDGETS, label: 'Orcas', icon: ReceiptPoundSterling, visible: role === 'GESTOR' },
+    { id: ViewType.INVENTORY, label: 'Estoque', icon: Package, visible: true },
+    { id: ViewType.EMPLOYEES, label: 'Equipe', icon: Users, visible: role === 'GESTOR' },
   ];
 
   return (

@@ -6,21 +6,17 @@ import {
   Search, 
   Receipt, 
   Trash2, 
-  DollarSign, 
   ChevronDown,
   ChevronUp,
   X,
   Clock,
-  Paperclip,
-  File,
-  Info,
   Layers,
   Wrench,
-  Calendar,
-  MessageSquare,
-  Truck,
   Calculator,
-  Edit2
+  Edit2,
+  User as UserIcon,
+  CheckCircle2,
+  AlertCircle
 } from 'lucide-react';
 
 interface BudgetsViewProps {
@@ -40,7 +36,7 @@ const BudgetsView: React.FC<BudgetsViewProps> = ({ budgets, theme, onSave, onDel
   const [title, setTitle] = useState('');
   const [objective, setObjective] = useState('');
   const [items, setItems] = useState<BudgetItem[]>([
-    { id: '1', description: '', materials: [], laborCost: 0, estimatedTime: '' }
+    { id: '1', description: '', materials: [], laborCost: 0, estimatedTime: '', serviceProvider: '' }
   ]);
   const [quotes, setQuotes] = useState<Partial<Quote>[]>([
     { id: '1', supplier: '', value: 0, files: [] },
@@ -48,14 +44,11 @@ const BudgetsView: React.FC<BudgetsViewProps> = ({ budgets, theme, onSave, onDel
     { id: '3', supplier: '', value: 0, files: [] }
   ]);
   const [status, setStatus] = useState<'Pendente' | 'Aprovado' | 'Rejeitado'>('Pendente');
-  
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const currentQuoteIndexRef = useRef<number | null>(null);
 
   const resetForm = () => {
     setTitle('');
     setObjective('');
-    setItems([{ id: '1', description: '', materials: [], laborCost: 0, estimatedTime: '' }]);
+    setItems([{ id: '1', description: '', materials: [], laborCost: 0, estimatedTime: '', serviceProvider: '' }]);
     setQuotes([
       { id: '1', supplier: '', value: 0, files: [] },
       { id: '2', supplier: '', value: 0, files: [] },
@@ -70,21 +63,28 @@ const BudgetsView: React.FC<BudgetsViewProps> = ({ budgets, theme, onSave, onDel
     setEditingBudget(budget);
     setTitle(budget.title);
     setObjective(budget.objective);
-    setItems(budget.items || []);
+    setItems(budget.items.map(it => ({ 
+      ...it, 
+      serviceProvider: it.serviceProvider || '',
+      estimatedTime: it.estimatedTime || '' 
+    })));
     
-    // Garantir que sempre existam 3 slots de cotação para o formulário
     const budgetQuotes = budget.quotes || [];
     const filledQuotes = [...budgetQuotes];
     while (filledQuotes.length < 3) {
-      filledQuotes.push({ id: Date.now().toString() + filledQuotes.length, supplier: '', value: 0, files: [] });
+      filledQuotes.push({ id: (Date.now() + filledQuotes.length).toString(), supplier: '', value: 0, files: [] });
     }
     setQuotes(filledQuotes);
     setStatus(budget.status);
     setIsAdding(true);
   };
 
+  const updateStatus = (budget: Budget, newStatus: 'Pendente' | 'Aprovado' | 'Rejeitado') => {
+    onSave({ ...budget, status: newStatus });
+  };
+
   const addServiceItem = () => {
-    setItems([...items, { id: Date.now().toString(), description: '', materials: [], laborCost: 0, estimatedTime: '' }]);
+    setItems([...items, { id: Date.now().toString(), description: '', materials: [], laborCost: 0, estimatedTime: '', serviceProvider: '' }]);
   };
 
   const removeServiceItem = (id: string) => {
@@ -105,9 +105,7 @@ const BudgetsView: React.FC<BudgetsViewProps> = ({ budgets, theme, onSave, onDel
             name: '', 
             quantity: 1, 
             price: 0,
-            unit: 'Un',
-            supplier: '',
-            observation: ''
+            unit: 'Un'
           }]
         };
       }
@@ -136,12 +134,6 @@ const BudgetsView: React.FC<BudgetsViewProps> = ({ budgets, theme, onSave, onDel
     }));
   };
 
-  const updateQuote = (index: number, field: keyof Quote, value: any) => {
-    const newQuotes = [...quotes];
-    newQuotes[index] = { ...newQuotes[index], [field]: value };
-    setQuotes(newQuotes);
-  };
-
   const calculateItemSubtotal = (item: BudgetItem) => {
     const materialsTotal = (item.materials || []).reduce((acc, m) => acc + (m.quantity * (m.price || 0)), 0);
     return materialsTotal + (Number(item.laborCost) || 0);
@@ -164,45 +156,8 @@ const BudgetsView: React.FC<BudgetsViewProps> = ({ budgets, theme, onSave, onDel
       createdAt: editingBudget?.createdAt || Date.now()
     };
 
-    const allFilesForSync: {data: string, mimeType: string, fileName: string}[] = [];
-    quotes.forEach(q => {
-      q.files?.forEach(f => {
-        if (f.data) {
-          allFilesForSync.push({ data: f.data, mimeType: f.fileType!, fileName: f.fileName! });
-        }
-      });
-    });
-
-    onSave(finalBudget, allFilesForSync);
+    onSave(finalBudget);
     resetForm();
-  };
-
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    const quoteIndex = currentQuoteIndexRef.current;
-    if (file && quoteIndex !== null) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const base64Data = reader.result?.toString().split(',')[1] || '';
-        const newBudgetFile: BudgetFile = {
-          id: Date.now().toString(),
-          driveLink: 'pendente',
-          timestamp: Date.now(),
-          fileName: file.name,
-          fileType: file.type,
-          data: base64Data
-        };
-        const newQuotes = [...quotes];
-        newQuotes[quoteIndex].files = [...(newQuotes[quoteIndex].files || []), newBudgetFile];
-        setQuotes(newQuotes);
-        if (fileInputRef.current) fileInputRef.current.value = '';
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const updateStatus = (budget: Budget, newStatus: 'Pendente' | 'Aprovado' | 'Rejeitado') => {
-    onSave({ ...budget, status: newStatus });
   };
 
   const filteredBudgets = budgets.filter(b => 
@@ -211,9 +166,9 @@ const BudgetsView: React.FC<BudgetsViewProps> = ({ budgets, theme, onSave, onDel
 
   const getStatusStyle = (s: string) => {
     switch(s) {
-      case 'Aprovado': return 'bg-emerald-500 text-white border-emerald-500';
-      case 'Rejeitado': return 'bg-rose-500 text-white border-rose-500';
-      default: return 'bg-amber-400 text-slate-800 border-amber-400';
+      case 'Aprovado': return 'bg-emerald-500 text-white border-emerald-500 shadow-emerald-200';
+      case 'Rejeitado': return 'bg-rose-500 text-white border-rose-500 shadow-rose-200';
+      default: return 'bg-amber-400 text-slate-800 border-amber-400 shadow-amber-200';
     }
   };
 
@@ -248,7 +203,7 @@ const BudgetsView: React.FC<BudgetsViewProps> = ({ budgets, theme, onSave, onDel
                 <div>
                   <h2 className="text-2xl font-black text-slate-800">{editingBudget ? 'Editar Orçamento' : 'Novo Orçamento'}</h2>
                   <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest mt-1">
-                    {editingBudget ? `ID: ${editingBudget.id}` : 'Integração Total com Planilha e Drive'}
+                    {editingBudget ? `ID: ${editingBudget.id}` : 'Detalhamento de Execução'}
                   </p>
                 </div>
                 <button onClick={resetForm} className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400">
@@ -257,7 +212,6 @@ const BudgetsView: React.FC<BudgetsViewProps> = ({ budgets, theme, onSave, onDel
               </div>
 
               <form onSubmit={handleSubmit} className="space-y-8">
-                {/* Cabeçalho do Orçamento */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-slate-50 p-6 rounded-[2rem] border border-slate-100">
                   <div className="col-span-2">
                     <label className="block text-[10px] font-black text-slate-500 uppercase mb-2 ml-1">Título do Projeto</label>
@@ -265,94 +219,73 @@ const BudgetsView: React.FC<BudgetsViewProps> = ({ budgets, theme, onSave, onDel
                   </div>
                   <div className="col-span-2">
                     <label className="block text-[10px] font-black text-slate-500 uppercase mb-2 ml-1">Objetivo / Justificativa</label>
-                    <textarea value={objective} onChange={(e) => setObjective(e.target.value)} placeholder="Por que este orçamento é necessário?" className="w-full px-5 py-3 rounded-xl border-2 border-white focus:border-blue-400 outline-none transition-all h-20 font-bold text-slate-800" />
+                    <textarea value={objective} onChange={(e) => setObjective(e.target.value)} placeholder="Justificativa do investimento..." className="w-full px-5 py-3 rounded-xl border-2 border-white focus:border-blue-400 outline-none transition-all h-20 font-bold text-slate-800" />
                   </div>
                 </div>
 
-                {/* Itens e Materiais */}
                 <div className="space-y-6">
-                   <div className="flex justify-between items-center">
+                   <div className="flex justify-between items-center px-2">
                       <h3 className="text-xs font-black text-slate-800 uppercase tracking-widest flex items-center">
-                        <Layers size={16} className="mr-2 text-blue-500" /> Detalhamento de Itens
+                        <Layers size={16} className="mr-2 text-blue-500" /> Detalhamento de Serviços
                       </h3>
-                      <button type="button" onClick={addServiceItem} className="px-4 py-2 bg-blue-50 text-blue-600 rounded-xl font-black text-[10px] uppercase border border-blue-100 hover:bg-blue-100 transition-all">+ Item de Serviço</button>
+                      <button type="button" onClick={addServiceItem} className="px-4 py-2 bg-blue-50 text-blue-600 rounded-xl font-black text-[10px] uppercase border border-blue-100 hover:bg-blue-100 transition-all">+ Novo Item</button>
                    </div>
 
-                   {items.map((item, idx) => (
+                   {items.map((item) => (
                      <div key={item.id} className="p-6 bg-white rounded-[2rem] border border-slate-200 relative shadow-sm">
                         <button type="button" onClick={() => removeServiceItem(item.id)} className="absolute top-6 right-6 text-slate-300 hover:text-rose-500 transition-colors"><Trash2 size={20}/></button>
                         
                         <div className="space-y-6">
                           <div>
                             <label className="block text-[9px] font-black text-slate-400 uppercase mb-2">Descrição do Serviço / Local</label>
-                            <input type="text" value={item.description} onChange={(e) => updateItem(item.id, 'description', e.target.value)} placeholder="Ex: Pintura e Reparo de Alvenaria" className="w-full px-4 py-3 rounded-xl border border-slate-100 bg-slate-50 outline-none focus:border-blue-300 text-sm font-bold" />
+                            <input type="text" value={item.description} onChange={(e) => updateItem(item.id, 'description', e.target.value)} placeholder="Ex: Pintura da Sala de Estar" className="w-full px-4 py-3 rounded-xl border border-slate-100 bg-slate-50 outline-none focus:border-blue-300 text-sm font-bold" />
                           </div>
 
-                          <div className="space-y-4">
+                          <div className="space-y-3">
                             <div className="flex justify-between items-center">
-                               <p className="text-[9px] font-black text-slate-400 uppercase">Materiais e Insumos</p>
+                               <p className="text-[9px] font-black text-slate-400 uppercase">Lista de Materiais</p>
                                <button type="button" onClick={() => addMaterial(item.id)} className="text-[9px] font-black text-emerald-600 uppercase flex items-center"><Plus size={14} className="mr-1"/> Adicionar Material</button>
                             </div>
                             
                             <div className="space-y-3">
-                               {(item.materials || []).map((mat, mIdx) => (
-                                 <div key={mat.id} className="p-4 bg-slate-50/50 rounded-2xl border border-slate-100 space-y-3">
-                                    <div className="flex flex-wrap md:flex-nowrap gap-3 items-end">
-                                       <div className="flex-1 min-w-[150px]">
-                                          <label className="block text-[8px] font-black text-slate-400 uppercase mb-1">Nome do Material</label>
-                                          <input type="text" value={mat.name} onChange={e => updateMaterial(item.id, mat.id, 'name', e.target.value)} className="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs font-bold" placeholder="Ex: Tinta Branca" />
-                                       </div>
-                                       <div className="w-20">
-                                          <label className="block text-[8px] font-black text-slate-400 uppercase mb-1">Qtd</label>
-                                          <input type="number" value={mat.quantity} onChange={e => updateMaterial(item.id, mat.id, 'quantity', parseFloat(e.target.value))} className="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs font-bold text-center" />
-                                       </div>
-                                       <div className="w-24">
-                                          <label className="block text-[8px] font-black text-slate-400 uppercase mb-1">Medida</label>
-                                          <select value={mat.unit} onChange={e => updateMaterial(item.id, mat.id, 'unit', e.target.value)} className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white text-xs font-bold">
-                                             <option value="Un">Un</option>
-                                             <option value="pct">pct</option>
-                                             <option value="L">L</option>
-                                             <option value="kg">kg</option>
-                                             <option value="m">m</option>
-                                             <option value="cx">cx</option>
-                                             <option value="m2">m²</option>
-                                          </select>
-                                       </div>
-                                       <div className="w-32">
-                                          <label className="block text-[8px] font-black text-slate-400 uppercase mb-1">R$ Unitário</label>
-                                          <div className="relative">
-                                             <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] font-black text-slate-300">R$</span>
-                                             <input type="number" step="0.01" value={mat.price || ''} onChange={e => updateMaterial(item.id, mat.id, 'price', parseFloat(e.target.value))} className="w-full pl-7 pr-3 py-2 rounded-lg border border-slate-200 text-xs font-bold" />
-                                          </div>
-                                       </div>
-                                       <button type="button" onClick={() => removeMaterial(item.id, mat.id)} className="p-2 text-rose-300 hover:text-rose-500"><Trash2 size={18}/></button>
+                               {(item.materials || []).map((mat) => (
+                                 <div key={mat.id} className="p-4 bg-slate-50/50 rounded-2xl border border-slate-100 flex flex-wrap gap-3 items-end">
+                                    <div className="flex-1 min-w-[200px]">
+                                       <label className="block text-[8px] font-black text-slate-400 uppercase mb-1">Peça/Material</label>
+                                       <input type="text" value={mat.name} onChange={e => updateMaterial(item.id, mat.id, 'name', e.target.value)} className="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs font-bold" />
                                     </div>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                    <div className="w-20">
+                                       <label className="block text-[8px] font-black text-slate-400 uppercase mb-1">Qtd</label>
+                                       <input type="number" value={mat.quantity} onChange={e => updateMaterial(item.id, mat.id, 'quantity', parseFloat(e.target.value))} className="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs font-bold text-center" />
+                                    </div>
+                                    <div className="w-32">
+                                       <label className="block text-[8px] font-black text-slate-400 uppercase mb-1">R$ Unitário</label>
                                        <div className="relative">
-                                          <Truck size={12} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" />
-                                          <input type="text" placeholder="Fornecedor sugerido" value={mat.supplier} onChange={e => updateMaterial(item.id, mat.id, 'supplier', e.target.value)} className="w-full pl-9 pr-4 py-2 rounded-lg border border-slate-200 text-[10px] font-bold" />
-                                       </div>
-                                       <div className="relative">
-                                          <MessageSquare size={12} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" />
-                                          <input type="text" placeholder="Observação técnica" value={mat.observation} onChange={e => updateMaterial(item.id, mat.id, 'observation', e.target.value)} className="w-full pl-9 pr-4 py-2 rounded-lg border border-slate-200 text-[10px] font-bold" />
+                                          <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] font-black text-slate-300">R$</span>
+                                          <input type="number" step="0.01" value={mat.price || ''} onChange={e => updateMaterial(item.id, mat.id, 'price', parseFloat(e.target.value))} className="w-full pl-7 pr-3 py-2 rounded-lg border border-slate-200 text-xs font-bold" />
                                        </div>
                                     </div>
+                                    <button type="button" onClick={() => removeMaterial(item.id, mat.id)} className="p-2 text-rose-300 hover:text-rose-500"><Trash2 size={18}/></button>
                                  </div>
                                ))}
                             </div>
                           </div>
 
-                          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-6 border-t border-slate-50">
-                             <div>
-                                <label className="block text-[9px] font-black text-slate-400 uppercase mb-2 flex items-center"><Wrench size={10} className="mr-1"/> Valor Mão de Obra</label>
+                          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 pt-6 border-t border-slate-50 items-end">
+                             <div className="md:col-span-1">
+                                <label className="block text-[9px] font-black text-slate-400 uppercase mb-2 flex items-center"><UserIcon size={10} className="mr-1"/> Prestador</label>
+                                <input type="text" placeholder="Nome do Prestador" value={item.serviceProvider || ''} onChange={e => updateItem(item.id, 'serviceProvider', e.target.value)} className="w-full px-4 py-3 rounded-xl border border-slate-200 font-bold text-xs" />
+                             </div>
+                             <div className="md:col-span-1">
+                                <label className="block text-[9px] font-black text-slate-400 uppercase mb-2 flex items-center"><Wrench size={10} className="mr-1"/> Mão de Obra</label>
                                 <div className="relative">
-                                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300 font-bold">R$</span>
-                                  <input type="number" step="0.01" value={item.laborCost || ''} onChange={e => updateItem(item.id, 'laborCost', e.target.value)} className="w-full pl-8 pr-4 py-3 rounded-xl border border-slate-200 font-bold text-sm" />
+                                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300 font-bold text-xs">R$</span>
+                                  <input type="number" step="0.01" value={item.laborCost || ''} onChange={e => updateItem(item.id, 'laborCost', e.target.value)} className="w-full pl-8 pr-4 py-3 rounded-xl border border-slate-200 font-bold text-xs" />
                                 </div>
                              </div>
-                             <div>
-                                <label className="block text-[9px] font-black text-slate-400 uppercase mb-2 flex items-center"><Clock size={10} className="mr-1"/> Tempo Estimado</label>
-                                <input type="text" placeholder="Ex: 5 dias" value={item.estimatedTime} onChange={e => updateItem(item.id, 'estimatedTime', e.target.value)} className="w-full px-4 py-3 rounded-xl border border-slate-200 font-bold text-sm" />
+                             <div className="md:col-span-1">
+                                <label className="block text-[9px] font-black text-slate-400 uppercase mb-2 flex items-center"><Clock size={10} className="mr-1 text-blue-500"/> Tempo Estimado</label>
+                                <input type="text" placeholder="Ex: 5 dias" value={item.estimatedTime || ''} onChange={e => updateItem(item.id, 'estimatedTime', e.target.value)} className="w-full px-4 py-3 rounded-xl border-2 border-slate-50 bg-white font-bold text-xs focus:border-blue-400 outline-none shadow-inner" />
                              </div>
                              <div className="flex flex-col justify-end text-right">
                                 <p className="text-[8px] font-black text-slate-300 uppercase">Subtotal do Item</p>
@@ -364,19 +297,18 @@ const BudgetsView: React.FC<BudgetsViewProps> = ({ budgets, theme, onSave, onDel
                    ))}
                 </div>
 
-                {/* Resumo Financeiro */}
                 <div className="bg-slate-900 text-white p-8 rounded-[2.5rem] flex flex-col md:flex-row justify-between items-center gap-6 shadow-2xl">
                    <div className="flex items-center space-x-4">
                       <div className="p-4 bg-white/10 rounded-2xl"><Calculator size={32} className="text-emerald-400" /></div>
                       <div>
-                         <p className="text-[10px] font-black text-white/40 uppercase tracking-widest">Valor Total Calculado (Interno)</p>
+                         <p className="text-[10px] font-black text-white/40 uppercase tracking-widest">Valor Total do Orçamento</p>
                          <h4 className="text-4xl font-black tracking-tighter text-emerald-400">R$ {totalCalculated.toLocaleString('pt-BR')}</h4>
                       </div>
                    </div>
                    <div className="flex gap-4 w-full md:w-auto">
                       <button type="button" onClick={resetForm} className="flex-1 md:flex-none px-8 py-4 rounded-2xl font-black text-xs uppercase tracking-widest bg-white/5 hover:bg-white/10 transition-all">Cancelar</button>
                       <button type="submit" className="flex-1 md:flex-none px-12 py-4 rounded-2xl font-black text-xs uppercase tracking-widest bg-emerald-500 hover:bg-emerald-400 shadow-lg shadow-emerald-500/20 transition-all active:scale-95">
-                        {editingBudget ? 'Atualizar Alterações' : 'Salvar Orçamento'}
+                        {editingBudget ? 'Salvar Alterações' : 'Salvar Orçamento'}
                       </button>
                    </div>
                 </div>
@@ -386,19 +318,15 @@ const BudgetsView: React.FC<BudgetsViewProps> = ({ budgets, theme, onSave, onDel
         </div>
       )}
 
-      {/* Lista de Orçamentos */}
       <div className="space-y-4">
         {filteredBudgets.length === 0 ? (
           <div className="bg-white p-20 rounded-[3rem] border border-dashed border-slate-200 flex flex-col items-center justify-center text-slate-300">
             <Receipt size={64} className="mb-4 opacity-10" />
-            <p className="text-xl font-black italic uppercase tracking-tighter">Nenhum orçamento em aberto</p>
+            <p className="text-xl font-black italic uppercase tracking-tighter">Nenhum orçamento encontrado</p>
           </div>
         ) : (
           filteredBudgets.map(budget => {
-            const budgetTotal = (budget.items || []).reduce((acc, item) => {
-                const materialsTotal = (item.materials || []).reduce((mAcc, m) => mAcc + (m.quantity * (m.price || 0)), 0);
-                return acc + materialsTotal + (Number(item.laborCost) || 0);
-            }, 0);
+            const budgetTotal = (budget.items || []).reduce((acc, item) => acc + calculateItemSubtotal(item), 0);
             
             return (
               <div key={budget.id} className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm hover:shadow-xl transition-all overflow-hidden group">
@@ -411,7 +339,7 @@ const BudgetsView: React.FC<BudgetsViewProps> = ({ budgets, theme, onSave, onDel
                       <div>
                         <h4 className="font-black text-slate-800 text-xl leading-none mb-2">{budget.title}</h4>
                         <div className="flex items-center space-x-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                          <span className="flex items-center"><Layers size={12} className="mr-1" /> {budget.items?.length || 0} Itens</span>
+                          <span className="flex items-center"><Layers size={12} className="mr-1" /> {budget.items?.length || 0} Serviços</span>
                           <span className="w-1.5 h-1.5 bg-slate-200 rounded-full"></span>
                           <span>{new Date(budget.createdAt).toLocaleDateString('pt-BR')}</span>
                         </div>
@@ -423,7 +351,7 @@ const BudgetsView: React.FC<BudgetsViewProps> = ({ budgets, theme, onSave, onDel
                         <p className="text-[9px] text-slate-400 font-black uppercase tracking-widest">Valor do Projeto</p>
                         <p className="text-2xl font-black text-blue-600 leading-none mt-1">R$ {budgetTotal.toLocaleString('pt-BR')}</p>
                       </div>
-                      <div className={`px-5 py-2.5 rounded-2xl text-[10px] font-black uppercase border-2 ${getStatusStyle(budget.status)}`}>
+                      <div className={`px-5 py-2.5 rounded-2xl text-[10px] font-black uppercase border-2 shadow-sm ${getStatusStyle(budget.status)}`}>
                         {budget.status}
                       </div>
                       
@@ -446,29 +374,32 @@ const BudgetsView: React.FC<BudgetsViewProps> = ({ budgets, theme, onSave, onDel
                       <div className="lg:col-span-3 space-y-6">
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           {(budget.items || []).map((item, iIdx) => (
-                            <div key={item.id} className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
+                            <div key={item.id} className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm hover:border-blue-100 transition-colors">
                               <div className="flex justify-between items-start mb-4">
-                                <span className="text-[10px] font-black text-blue-500 uppercase">Item {iIdx + 1}</span>
-                                <span className="text-[10px] font-bold text-slate-400 flex items-center"><Clock size={10} className="mr-1"/> {item.estimatedTime || '---'}</span>
+                                <span className="text-[10px] font-black text-blue-500 uppercase">Serviço {iIdx + 1}</span>
                               </div>
                               <h6 className="font-black text-slate-800 mb-3">{item.description}</h6>
                               <div className="space-y-2 mb-4">
                                 {(item.materials || []).map(m => (
-                                  <div key={m.id} className="p-3 bg-slate-50/50 rounded-xl space-y-1 border border-slate-100">
-                                    <div className="flex justify-between text-[10px] font-black">
-                                      <span className="text-slate-800">{m.quantity}{m.unit} • {m.name}</span>
-                                      <span className="text-blue-600">R$ {(m.quantity * (m.price || 0)).toLocaleString('pt-BR')}</span>
-                                    </div>
-                                    <div className="flex flex-col gap-0.5 opacity-60">
-                                      {m.supplier && <p className="text-[8px] font-bold uppercase flex items-center"><Truck size={8} className="mr-1"/> {m.supplier}</p>}
-                                      {m.observation && <p className="text-[8px] italic flex items-center"><MessageSquare size={8} className="mr-1"/> {m.observation}</p>}
-                                    </div>
+                                  <div key={m.id} className="p-3 bg-slate-50/50 rounded-xl space-y-1 border border-slate-100 flex justify-between items-center">
+                                    <span className="text-[10px] font-black text-slate-800">{m.quantity} {m.unit} • {m.name}</span>
+                                    <span className="text-blue-600 font-black text-[10px]">R$ {(m.quantity * (m.price || 0)).toLocaleString('pt-BR')}</span>
                                   </div>
                                 ))}
                               </div>
-                              <div className="flex justify-between items-center text-[10px] font-black uppercase pt-2 border-t border-slate-50">
-                                <span className="text-slate-400">Mão de Obra</span>
-                                <span className="text-slate-800">R$ {(Number(item.laborCost) || 0).toLocaleString('pt-BR')}</span>
+                              <div className="flex flex-col space-y-1 pt-2 border-t border-slate-50">
+                                <div className="flex justify-between items-center text-[10px] font-black uppercase">
+                                  <span className="text-slate-400 flex items-center"><UserIcon size={10} className="mr-1"/> Prestador</span>
+                                  <span className="text-slate-800">{item.serviceProvider || 'Não informado'}</span>
+                                </div>
+                                <div className="flex justify-between items-center text-[10px] font-black uppercase">
+                                  <span className="text-slate-400 flex items-center"><Clock size={10} className="mr-1"/> Tempo de Execução</span>
+                                  <span className="text-blue-600 font-black">{item.estimatedTime || 'Não informado'}</span>
+                                </div>
+                                <div className="flex justify-between items-center text-[10px] font-black uppercase">
+                                  <span className="text-slate-400 flex items-center"><Wrench size={10} className="mr-1"/> Mão de Obra</span>
+                                  <span className="text-slate-800">R$ {(Number(item.laborCost) || 0).toLocaleString('pt-BR')}</span>
+                                </div>
                               </div>
                               <div className="flex justify-between items-center text-xs font-black uppercase pt-3 border-t border-slate-100 mt-2">
                                 <span className="text-blue-600">Total do Item</span>
@@ -479,7 +410,7 @@ const BudgetsView: React.FC<BudgetsViewProps> = ({ budgets, theme, onSave, onDel
                         </div>
                         {budget.objective && (
                           <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
-                            <h5 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Justificativa do Projeto</h5>
+                            <h5 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 flex items-center"><AlertCircle size={14} className="mr-1 text-blue-500" /> Justificativa do Projeto</h5>
                             <p className="text-sm text-slate-600 font-medium">{budget.objective}</p>
                           </div>
                         )}
@@ -487,14 +418,18 @@ const BudgetsView: React.FC<BudgetsViewProps> = ({ budgets, theme, onSave, onDel
 
                       <div className="lg:col-span-1 space-y-4">
                         <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm text-center">
-                          <p className="text-[10px] font-black text-slate-400 uppercase mb-4">Ações de Gestão</p>
+                          <p className="text-[10px] font-black text-slate-400 uppercase mb-4 tracking-widest">Controle Gestão</p>
                           <div className="space-y-2">
-                             <button onClick={() => handleEdit(budget)} className="w-full py-4 rounded-xl bg-slate-800 text-white font-black text-xs uppercase shadow-lg active:scale-95 transition-all mb-2">Editar Orçamento</button>
-                             <button onClick={() => updateStatus(budget, 'Aprovado')} className="w-full py-4 rounded-xl bg-emerald-500 text-white font-black text-xs uppercase shadow-lg shadow-emerald-500/20 active:scale-95 transition-all">Aprovar Projeto</button>
-                             <button onClick={() => updateStatus(budget, 'Rejeitado')} className="w-full py-4 rounded-xl bg-white border-2 border-rose-100 text-rose-500 font-black text-xs uppercase hover:bg-rose-50 active:scale-95 transition-all">Rejeitar</button>
+                             <button onClick={() => handleEdit(budget)} className="w-full py-4 rounded-xl bg-slate-800 text-white font-black text-xs uppercase shadow-lg active:scale-95 transition-all mb-2">Editar Tudo</button>
+                             <button onClick={() => updateStatus(budget, 'Aprovado')} className="w-full py-4 rounded-xl bg-emerald-500 text-white font-black text-xs uppercase shadow-lg active:scale-95 transition-all flex items-center justify-center space-x-2">
+                               <CheckCircle2 size={16}/> <span>Aprovar</span>
+                             </button>
+                             <button onClick={() => updateStatus(budget, 'Rejeitado')} className="w-full py-4 rounded-xl bg-white border-2 border-rose-100 text-rose-500 font-black text-xs uppercase active:scale-95 transition-all flex items-center justify-center space-x-2">
+                               <X size={16}/> <span>Rejeitar</span>
+                             </button>
                           </div>
                           <button onClick={() => onDelete(budget.id)} className="w-full mt-8 flex items-center justify-center space-x-2 text-[10px] font-black text-slate-300 hover:text-rose-500 uppercase transition-colors">
-                            <Trash2 size={16} /> <span>Excluir do Sistema</span>
+                            <Trash2 size={16} /> <span>Excluir Permanentemente</span>
                           </button>
                         </div>
                       </div>

@@ -23,8 +23,6 @@ interface SidebarProps {
   onLogout: () => void;
   theme: HotelTheme;
   role: UserRole;
-  sectorId?: string;
-  sectorName?: string;
 }
 
 const HotelLogo = ({ type }: { type: HotelType }) => {
@@ -57,22 +55,16 @@ const HotelLogo = ({ type }: { type: HotelType }) => {
   );
 };
 
-const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange, currentHotel, onHotelChange, onLogout, theme, role, sectorId, sectorName }) => {
+const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange, currentHotel, onHotelChange, onLogout, theme, role }) => {
   const [isHotelOpen, setIsHotelOpen] = useState(true);
 
-  // Permissão robusta baseada no nome do setor conforme solicitado pelo usuário
-  const normalizedSector = (sectorName || '').toLowerCase();
-  const isAuthSector = normalizedSector.includes('governança') || normalizedSector.includes('rouparia');
-  
-  const canSeeReports = role === 'GERENCIA' || role === 'DIRETORIA' || (role === 'FUNCIONARIO' && isAuthSector);
-
   const menuItems = [
-    { id: ViewType.DASHBOARD, label: 'Dashboard', icon: LayoutDashboard, visible: role === 'GERENCIA' || role === 'DIRETORIA' },
+    { id: ViewType.DASHBOARD, label: 'Dashboard', icon: LayoutDashboard, visible: role === 'GESTOR' },
     { id: ViewType.APARTMENTS, label: 'Apartamentos', icon: Hotel, visible: true },
-    { id: ViewType.REPORTS, label: 'Relatórios', icon: FileBarChart, visible: canSeeReports },
-    { id: ViewType.BUDGETS, label: 'Orçamentos', icon: ReceiptPoundSterling, visible: role === 'GERENCIA' || role === 'DIRETORIA' },
+    { id: ViewType.REPORTS, label: 'Relatórios', icon: FileBarChart, visible: true },
+    { id: ViewType.BUDGETS, label: 'Orçamentos', icon: ReceiptPoundSterling, visible: role === 'GESTOR' },
     { id: ViewType.INVENTORY, label: 'Estoque', icon: Package, visible: true },
-    { id: ViewType.EMPLOYEES, label: 'Funcionários', icon: Users, visible: role === 'GERENCIA' || role === 'DIRETORIA' },
+    { id: ViewType.EMPLOYEES, label: 'Funcionários', icon: Users, visible: role === 'GESTOR' },
   ];
 
   const hotels: { id: HotelType; label: string }[] = [
@@ -90,7 +82,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange, currentHot
           </div>
         </div>
 
-        {(role === 'DIRETORIA' || role === 'GERENCIA') && (
+        {role === 'GESTOR' && (
           <div className="mb-6">
             <button 
               onClick={() => setIsHotelOpen(!isHotelOpen)}
@@ -158,7 +150,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange, currentHot
       </div>
 
       <div className="p-6 border-t border-slate-800/50 bg-slate-900/50 flex flex-col space-y-2">
-        {role !== 'FUNCIONARIO' && (
+        {role === 'GESTOR' && (
           <button 
             onClick={() => onViewChange(ViewType.SETTINGS)}
             className={`w-full flex items-center space-x-3 transition-colors px-2 py-3 rounded-xl ${
