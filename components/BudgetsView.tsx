@@ -19,7 +19,8 @@ import {
   Calendar,
   MessageSquare,
   Truck,
-  Calculator
+  Calculator,
+  Edit2
 } from 'lucide-react';
 
 interface BudgetsViewProps {
@@ -31,6 +32,7 @@ interface BudgetsViewProps {
 
 const BudgetsView: React.FC<BudgetsViewProps> = ({ budgets, theme, onSave, onDelete }) => {
   const [isAdding, setIsAdding] = useState(false);
+  const [editingBudget, setEditingBudget] = useState<Budget | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   
@@ -61,6 +63,24 @@ const BudgetsView: React.FC<BudgetsViewProps> = ({ budgets, theme, onSave, onDel
     ]);
     setStatus('Pendente');
     setIsAdding(false);
+    setEditingBudget(null);
+  };
+
+  const handleEdit = (budget: Budget) => {
+    setEditingBudget(budget);
+    setTitle(budget.title);
+    setObjective(budget.objective);
+    setItems(budget.items || []);
+    
+    // Garantir que sempre existam 3 slots de cotação para o formulário
+    const budgetQuotes = budget.quotes || [];
+    const filledQuotes = [...budgetQuotes];
+    while (filledQuotes.length < 3) {
+      filledQuotes.push({ id: Date.now().toString() + filledQuotes.length, supplier: '', value: 0, files: [] });
+    }
+    setQuotes(filledQuotes);
+    setStatus(budget.status);
+    setIsAdding(true);
   };
 
   const addServiceItem = () => {
@@ -80,7 +100,7 @@ const BudgetsView: React.FC<BudgetsViewProps> = ({ budgets, theme, onSave, onDel
       if (item.id === itemId) {
         return {
           ...item,
-          materials: [...item.materials, { 
+          materials: [...(item.materials || []), { 
             id: Date.now().toString(), 
             name: '', 
             quantity: 1, 
@@ -123,7 +143,7 @@ const BudgetsView: React.FC<BudgetsViewProps> = ({ budgets, theme, onSave, onDel
   };
 
   const calculateItemSubtotal = (item: BudgetItem) => {
-    const materialsTotal = item.materials.reduce((acc, m) => acc + (m.quantity * (m.price || 0)), 0);
+    const materialsTotal = (item.materials || []).reduce((acc, m) => acc + (m.quantity * (m.price || 0)), 0);
     return materialsTotal + (Number(item.laborCost) || 0);
   };
 
@@ -135,13 +155,13 @@ const BudgetsView: React.FC<BudgetsViewProps> = ({ budgets, theme, onSave, onDel
     e.preventDefault();
     
     const finalBudget: Budget = {
-      id: Date.now().toString(),
+      id: editingBudget?.id || Date.now().toString(),
       title: title || 'Novo Orçamento',
       objective,
       items,
       quotes: (quotes as Quote[]).filter(q => q.supplier || q.value > 0),
       status,
-      createdAt: Date.now()
+      createdAt: editingBudget?.createdAt || Date.now()
     };
 
     const allFilesForSync: {data: string, mimeType: string, fileName: string}[] = [];
@@ -211,7 +231,7 @@ const BudgetsView: React.FC<BudgetsViewProps> = ({ budgets, theme, onSave, onDel
           />
         </div>
         <button 
-          onClick={() => setIsAdding(true)}
+          onClick={() => { resetForm(); setIsAdding(true); }}
           className="w-full md:w-auto text-white px-6 py-3 rounded-xl font-bold flex items-center justify-center space-x-2 shadow-lg transition-all active:scale-95"
           style={{ backgroundColor: theme.primary, boxShadow: `0 10px 15px -3px ${theme.primary}40` }}
         >
@@ -226,8 +246,10 @@ const BudgetsView: React.FC<BudgetsViewProps> = ({ budgets, theme, onSave, onDel
             <div className="p-8">
               <div className="flex justify-between items-center mb-8 border-b border-slate-50 pb-6">
                 <div>
-                  <h2 className="text-2xl font-black text-slate-800">Novo Orçamento</h2>
-                  <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest mt-1">Integração Total com Planilha e Drive</p>
+                  <h2 className="text-2xl font-black text-slate-800">{editingBudget ? 'Editar Orçamento' : 'Novo Orçamento'}</h2>
+                  <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest mt-1">
+                    {editingBudget ? `ID: ${editingBudget.id}` : 'Integração Total com Planilha e Drive'}
+                  </p>
                 </div>
                 <button onClick={resetForm} className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400">
                   <X size={24} />
@@ -273,7 +295,7 @@ const BudgetsView: React.FC<BudgetsViewProps> = ({ budgets, theme, onSave, onDel
                             </div>
                             
                             <div className="space-y-3">
-                               {item.materials.map((mat, mIdx) => (
+                               {(item.materials || []).map((mat, mIdx) => (
                                  <div key={mat.id} className="p-4 bg-slate-50/50 rounded-2xl border border-slate-100 space-y-3">
                                     <div className="flex flex-wrap md:flex-nowrap gap-3 items-end">
                                        <div className="flex-1 min-w-[150px]">
@@ -353,7 +375,9 @@ const BudgetsView: React.FC<BudgetsViewProps> = ({ budgets, theme, onSave, onDel
                    </div>
                    <div className="flex gap-4 w-full md:w-auto">
                       <button type="button" onClick={resetForm} className="flex-1 md:flex-none px-8 py-4 rounded-2xl font-black text-xs uppercase tracking-widest bg-white/5 hover:bg-white/10 transition-all">Cancelar</button>
-                      <button type="submit" className="flex-1 md:flex-none px-12 py-4 rounded-2xl font-black text-xs uppercase tracking-widest bg-emerald-500 hover:bg-emerald-400 shadow-lg shadow-emerald-500/20 transition-all active:scale-95">Salvar Orçamento</button>
+                      <button type="submit" className="flex-1 md:flex-none px-12 py-4 rounded-2xl font-black text-xs uppercase tracking-widest bg-emerald-500 hover:bg-emerald-400 shadow-lg shadow-emerald-500/20 transition-all active:scale-95">
+                        {editingBudget ? 'Atualizar Alterações' : 'Salvar Orçamento'}
+                      </button>
                    </div>
                 </div>
               </form>
@@ -371,8 +395,8 @@ const BudgetsView: React.FC<BudgetsViewProps> = ({ budgets, theme, onSave, onDel
           </div>
         ) : (
           filteredBudgets.map(budget => {
-            const budgetTotal = budget.items.reduce((acc, item) => {
-                const materialsTotal = item.materials.reduce((mAcc, m) => mAcc + (m.quantity * (m.price || 0)), 0);
+            const budgetTotal = (budget.items || []).reduce((acc, item) => {
+                const materialsTotal = (item.materials || []).reduce((mAcc, m) => mAcc + (m.quantity * (m.price || 0)), 0);
                 return acc + materialsTotal + (Number(item.laborCost) || 0);
             }, 0);
             
@@ -402,7 +426,16 @@ const BudgetsView: React.FC<BudgetsViewProps> = ({ budgets, theme, onSave, onDel
                       <div className={`px-5 py-2.5 rounded-2xl text-[10px] font-black uppercase border-2 ${getStatusStyle(budget.status)}`}>
                         {budget.status}
                       </div>
-                      {expandedId === budget.id ? <ChevronUp size={24} className="text-slate-300" /> : <ChevronDown size={24} className="text-slate-300" />}
+                      
+                      <div className="flex items-center space-x-3">
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); handleEdit(budget); }}
+                          className="p-3 text-slate-300 hover:text-blue-500 hover:bg-blue-50 rounded-xl transition-all"
+                        >
+                          <Edit2 size={20} />
+                        </button>
+                        {expandedId === budget.id ? <ChevronUp size={24} className="text-slate-300" /> : <ChevronDown size={24} className="text-slate-300" />}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -420,7 +453,7 @@ const BudgetsView: React.FC<BudgetsViewProps> = ({ budgets, theme, onSave, onDel
                               </div>
                               <h6 className="font-black text-slate-800 mb-3">{item.description}</h6>
                               <div className="space-y-2 mb-4">
-                                {item.materials.map(m => (
+                                {(item.materials || []).map(m => (
                                   <div key={m.id} className="p-3 bg-slate-50/50 rounded-xl space-y-1 border border-slate-100">
                                     <div className="flex justify-between text-[10px] font-black">
                                       <span className="text-slate-800">{m.quantity}{m.unit} • {m.name}</span>
@@ -456,6 +489,7 @@ const BudgetsView: React.FC<BudgetsViewProps> = ({ budgets, theme, onSave, onDel
                         <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm text-center">
                           <p className="text-[10px] font-black text-slate-400 uppercase mb-4">Ações de Gestão</p>
                           <div className="space-y-2">
+                             <button onClick={() => handleEdit(budget)} className="w-full py-4 rounded-xl bg-slate-800 text-white font-black text-xs uppercase shadow-lg active:scale-95 transition-all mb-2">Editar Orçamento</button>
                              <button onClick={() => updateStatus(budget, 'Aprovado')} className="w-full py-4 rounded-xl bg-emerald-500 text-white font-black text-xs uppercase shadow-lg shadow-emerald-500/20 active:scale-95 transition-all">Aprovar Projeto</button>
                              <button onClick={() => updateStatus(budget, 'Rejeitado')} className="w-full py-4 rounded-xl bg-white border-2 border-rose-100 text-rose-500 font-black text-xs uppercase hover:bg-rose-50 active:scale-95 transition-all">Rejeitar</button>
                           </div>
