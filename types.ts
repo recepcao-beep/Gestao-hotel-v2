@@ -183,7 +183,7 @@ export interface Apartment {
   cortinaCoverage?: 'Dois lados' | 'Um lado';
   temEspelhoCorpo?: boolean;
   espelhoCorpoStatus?: 'Bom estado' | 'Manchado' | 'Danificado';
-  acBrand?: 'Midea' | 'LG' | 'Grey';
+  acBrand?: 'Midea' | 'LG' | 'Gree';
   moveisStatus?: 'Bom estado' | 'Danificado';
   moveisDetalhes?: string[];
   beds?: BedConfig[];

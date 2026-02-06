@@ -103,7 +103,7 @@ const App: React.FC = () => {
       if (result && result.status === 'success') {
         const incomingData = result.data;
         
-        // Normalização Robusta
+        // 1. Normalização de Funcionários e Setores
         const normalizedEmployees = (incomingData.employees || []).map((emp: any) => ({
           ...emp,
           id: emp.id?.toString() || '',
@@ -117,6 +117,7 @@ const App: React.FC = () => {
           standardUniform: typeof sec.standardUniform === 'string' ? JSON.parse(sec.standardUniform) : (sec.standardUniform || [])
         }));
 
+        // 2. Normalização de Orçamentos (Novos Campos Técnicos)
         const normalizedBudgets = (incomingData.budgets || []).map((b: any) => ({
           ...b,
           id: b.id?.toString() || '',
@@ -126,6 +127,7 @@ const App: React.FC = () => {
             estimatedTime: it.estimatedTime || '',
             materials: (it.materials || []).map((m: any) => ({
               ...m,
+              observation: m.observation || '',
               quotes: m.quotes || [{ supplier: '', value: 0 }, { supplier: '', value: 0 }, { supplier: '', value: 0 }]
             }))
           })),
@@ -133,11 +135,14 @@ const App: React.FC = () => {
           createdAt: typeof b.createdAt === 'string' ? new Date(b.createdAt).getTime() : (b.createdAt || Date.now())
         }));
 
+        // 3. Normalização de Apartamentos (Novas Opções Visuais)
         const normalizedApartments: Record<string, Apartment> = {};
         Object.entries(incomingData.apartments || {}).forEach(([id, apt]: [string, any]) => {
           normalizedApartments[id] = {
             ...apt,
-            defects: Array.isArray(apt.defects) ? apt.defects : []
+            defects: Array.isArray(apt.defects) ? apt.defects : [],
+            beds: Array.isArray(apt.beds) ? apt.beds : [],
+            moveisDetalhes: Array.isArray(apt.moveisDetalhes) ? apt.moveisDetalhes : []
           };
         });
 
@@ -192,8 +197,9 @@ const App: React.FC = () => {
         body: JSON.stringify({ dataType, hotel: state.currentHotel, ...data, newFiles: files }) 
       });
       setState(prev => ({ ...prev, integrations: prev.integrations.map(i => i.id === 'global-sync' ? { ...i, lastSync: Date.now() } : i) }));
+      // Recarrega dados após sincronização crítica
       if(['EMPLOYEE', 'SECTOR', 'DELETE', 'BUDGET', 'APARTMENT'].includes(dataType)) {
-         setTimeout(() => loadDataFromSheet(), 4000);
+         setTimeout(() => loadDataFromSheet(), 4500);
       }
     } catch (err) { 
       console.error('Erro no envio:', err);

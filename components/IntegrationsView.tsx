@@ -10,14 +10,13 @@ interface IntegrationsViewProps {
 }
 
 const APPS_SCRIPT_CODE = `/**
- * Google Apps Script para Gestão Hotel Village - V25 (Concurrence Fix)
- * Sincronização Otimizada com LockService para evitar erros de invocação simultânea.
+ * Google Apps Script para Gestão Hotel Village - V26 (Total Sync & Media)
+ * Sincronização Otimizada com suporte para novos campos visuais e acessórios.
  */
 
 function doGet(e) {
   var lock = LockService.getScriptLock();
   try {
-    // Tenta obter o lock por até 10 segundos
     lock.waitLock(10000);
     
     var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -26,7 +25,7 @@ function doGet(e) {
       apartments: {}, budgets: [], employees: [], sectors: [], inventory: [], inventoryHistory: [], suppliers: [], config: {}
     };
 
-    // 1. Apartamentos
+    // 1. Apartamentos (Mapeamento de 27 Colunas)
     var sheetApts = ss.getSheetByName('Apartamentos_' + hotel);
     if (sheetApts) {
       var data = sheetApts.getDataRange().getValues();
@@ -135,11 +134,6 @@ function doPost(e) {
         if (req.dataType === 'APARTMENT') {
            req.defects.forEach(function(d) { if(d.fileName === f.fileName) { d.driveLink = driveUrl; delete d.data; } });
         }
-        if (req.dataType === 'BUDGET') {
-           req.quotes.forEach(function(q) { 
-             if(q.files) q.files.forEach(function(bf) { if(bf.fileName === f.fileName) { bf.driveLink = driveUrl; delete bf.data; } });
-           });
-        }
       });
     }
 
@@ -203,14 +197,14 @@ const IntegrationsView: React.FC<IntegrationsViewProps> = ({ integrations, theme
 
   const saveUrl = () => {
     onUpdate({ ...globalInt, url, status: url ? 'Connected' : 'Disconnected', lastSync: Date.now() });
-    alert('Conexão V25 configurada!');
+    alert('Conexão Global V26 configurada!');
   };
 
   return (
     <div className="space-y-6">
       <div className="p-8 rounded-[2.5rem] text-white relative overflow-hidden shadow-lg" style={{ backgroundColor: theme.primary }}>
         <h2 className="text-xl font-black mb-1">Google Sheets & Drive Sync</h2>
-        <p className="opacity-80 text-[10px] font-bold uppercase tracking-widest">Versão V25: Conexão Total Restaurada</p>
+        <p className="opacity-80 text-[10px] font-bold uppercase tracking-widest">Versão V26: Sincronização de Vistoria Detalhada</p>
         <FileSpreadsheet className="absolute right-[-20px] bottom-[-20px] text-white/10" size={160} />
       </div>
 
@@ -218,7 +212,7 @@ const IntegrationsView: React.FC<IntegrationsViewProps> = ({ integrations, theme
         <input type="text" value={url} onChange={e => setUrl(e.target.value)} placeholder="Link do Apps Script Web App..." className="w-full px-4 py-3 rounded-xl border-2 border-slate-50 focus:border-blue-400 outline-none text-sm font-bold bg-slate-50" />
         <button onClick={saveUrl} className="w-full py-4 text-white rounded-xl font-black text-xs uppercase tracking-widest shadow-lg active:scale-95 transition-all" style={{ backgroundColor: theme.primary }}>Atualizar Conexão Global</button>
         <div className="p-5 bg-amber-50 rounded-2xl border border-amber-100">
-           <button onClick={() => setShowScriptModal(true)} className="text-[9px] font-black text-blue-600 underline uppercase tracking-widest mt-2 hover:text-blue-800 transition-colors">Copiar Novo Código V25 (Concurrence Fix)</button>
+           <button onClick={() => setShowScriptModal(true)} className="text-[9px] font-black text-blue-600 underline uppercase tracking-widest mt-2 hover:text-blue-800 transition-colors">Copiar Novo Código V26 (Total Sync)</button>
         </div>
       </div>
 
@@ -226,13 +220,13 @@ const IntegrationsView: React.FC<IntegrationsViewProps> = ({ integrations, theme
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[300] flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-4xl rounded-[3rem] shadow-2xl max-h-[85vh] overflow-hidden flex flex-col animate-in zoom-in duration-300">
             <div className="p-8 border-b border-slate-50 flex justify-between items-center bg-slate-50/30">
-              <h3 className="text-xl font-black text-slate-800">Apps Script V25 - Concurrence Fix</h3>
+              <h3 className="text-xl font-black text-slate-800">Apps Script V26 - Total Sync</h3>
               <button onClick={() => setShowScriptModal(false)} className="p-3 hover:bg-slate-100 rounded-full transition-colors text-slate-400"><XCircle size={32} /></button>
             </div>
             <div className="p-8 overflow-y-auto flex-1">
               <div className="relative">
-                <button onClick={() => { navigator.clipboard.writeText(APPS_SCRIPT_CODE); alert('Código V25 copiado!'); }} className="absolute top-4 right-4 p-3 bg-slate-900 text-white rounded-2xl shadow-xl flex items-center space-x-2 text-[10px] font-black uppercase">
-                  <Copy size={16} /> <span>Copiar V25</span>
+                <button onClick={() => { navigator.clipboard.writeText(APPS_SCRIPT_CODE); alert('Código V26 copiado!'); }} className="absolute top-4 right-4 p-3 bg-slate-900 text-white rounded-2xl shadow-xl flex items-center space-x-2 text-[10px] font-black uppercase">
+                  <Copy size={16} /> <span>Copiar V26</span>
                 </button>
                 <pre className="bg-slate-950 text-emerald-400 p-10 rounded-[2.5rem] overflow-x-auto text-[10px] leading-relaxed font-mono shadow-inner border border-slate-800">
                   {APPS_SCRIPT_CODE}
