@@ -42,8 +42,12 @@ const App: React.FC = () => {
   const [state, setState] = useState<AppState>(() => {
     const saved = localStorage.getItem('hotel_village_state_v33');
     if (saved) {
-      const parsed = JSON.parse(saved);
-      return { ...parsed, currentUser: null };
+      try {
+        const parsed = JSON.parse(saved);
+        return { ...parsed, currentUser: null };
+      } catch (e) {
+        console.error("Erro ao carregar estado salvo:", e);
+      }
     }
     return {
       currentView: ViewType.DASHBOARD,
@@ -99,6 +103,7 @@ const App: React.FC = () => {
       if (result && result.status === 'success') {
         const incomingData = result.data;
         
+        // Normalização Robusta
         const normalizedEmployees = (incomingData.employees || []).map((emp: any) => ({
           ...emp,
           id: emp.id?.toString() || '',
@@ -118,11 +123,23 @@ const App: React.FC = () => {
           items: (typeof b.items === 'string' ? JSON.parse(b.items) : (b.items || [])).map((it: any) => ({
             ...it,
             serviceProvider: it.serviceProvider || '',
-            estimatedTime: it.estimatedTime || ''
+            estimatedTime: it.estimatedTime || '',
+            materials: (it.materials || []).map((m: any) => ({
+              ...m,
+              quotes: m.quotes || [{ supplier: '', value: 0 }, { supplier: '', value: 0 }, { supplier: '', value: 0 }]
+            }))
           })),
           quotes: typeof b.quotes === 'string' ? JSON.parse(b.quotes) : (b.quotes || []),
           createdAt: typeof b.createdAt === 'string' ? new Date(b.createdAt).getTime() : (b.createdAt || Date.now())
         }));
+
+        const normalizedApartments: Record<string, Apartment> = {};
+        Object.entries(incomingData.apartments || {}).forEach(([id, apt]: [string, any]) => {
+          normalizedApartments[id] = {
+            ...apt,
+            defects: Array.isArray(apt.defects) ? apt.defects : []
+          };
+        });
 
         setState(prev => ({
           ...prev,
@@ -131,6 +148,7 @@ const App: React.FC = () => {
             [targetHotel]: {
               ...prev.hotels[targetHotel],
               ...incomingData,
+              apartments: normalizedApartments,
               employees: normalizedEmployees,
               sectors: normalizedSectors,
               budgets: normalizedBudgets
@@ -206,8 +224,7 @@ const App: React.FC = () => {
       if (state.selectedFloor !== null) return <FloorDetailView floor={state.selectedFloor} theme={theme} apartments={currentHotelData.apartments} onBack={() => setState(prev => ({ ...prev, selectedFloor: null }))} onSelectApartment={id => setState(prev => ({...prev, selectedApartmentId: id}))} />;
       return <ApartmentsView onSelectFloor={f => setState(prev => ({...prev, selectedFloor: f}))} theme={theme} hotelName={state.currentHotel} />;
     }
-    if (state.currentView === ViewType.BUDGETS) return <BudgetsView budgets={currentHotelData.budgets} theme={theme} onSave={(b, f) => { setState(prev => { const hotel = prev.hotels[prev.currentHotel]; const exists = hotel.budgets.find(ex => ex.id === b.id); return { ...prev, hotels: { ...prev.hotels, [prev.currentHotel]: { ...hotel, budgets: exists ? hotel.budgets.map(ex => ex.id === b.id ? b : ex) : [b, ...hotel.budgets] } } }; }); syncToSheet('BUDGET', b, f); }} onDelete={(id) => { setState(prev => ({ ...prev, hotels: { ...prev.hotels, [prev.currentHotel]: { ...prev.hotels[prev.currentHotel], budgets: prev.hotels[prev.currentHotel].budgets.filter(b => b.id !== id) } } })); syncToSheet('DELETE', { targetType: 'BUDGET', id }); }} />;
-    // Fix: In the onSaveSector callback below, replaced 'x.id' with 'ex.id' to correctly reference the map iterator variable
+    if (state.currentView === ViewType.BUDGETS) return <BudgetsView budgets={currentHotelData.budgets} theme={theme} onSave={(b, f) => { setState(prev => { const hotel = prev.hotels[prev.currentHotel]; const exists = hotel.budgets.find(ex => ex.id === b.id); return { ...prev, hotels: { ...prev.hotels, [prev.currentHotel]: { ...hotel, budgets: exists ? hotel.budgets.map(ex => ex.id === b.id ? b : ex) : [b, ...hotel.budgets] } } }; }); syncToSheet('BUDGET', b, f); }} onDelete={(id) => { setState(prev => ({ ...prev, hotels: { ...prev.hotels, [prev.currentHotel]: { ...prev.hotels[prev.currentHotel], budgets: (prev.hotels[prev.currentHotel].budgets || []).filter(b => b.id !== id) } } })); syncToSheet('DELETE', { targetType: 'BUDGET', id }); }} />;
     if (state.currentView === ViewType.EMPLOYEES) return <EmployeesView employees={currentHotelData.employees} sectors={currentHotelData.sectors} selectedSectorId={state.selectedSectorId} onSelectSector={id => setState(prev => ({...prev, selectedSectorId: id}))} theme={theme} onSave={(e) => { setState(prev => ({...prev, hotels: {...prev.hotels, [prev.currentHotel]: {...prev.hotels[prev.currentHotel], employees: prev.hotels[prev.currentHotel].employees.find(ex => ex.id === e.id) ? prev.hotels[prev.currentHotel].employees.map(ex => ex.id === e.id ? e : ex) : [e, ...prev.hotels[prev.currentHotel].employees]}}})); syncToSheet('EMPLOYEE', e); }} onDelete={(id) => { setState(prev => ({...prev, hotels: {...prev.hotels, [prev.currentHotel]: {...prev.hotels[prev.currentHotel], employees: prev.hotels[prev.currentHotel].employees.filter(e => e.id !== id)}}})); syncToSheet('DELETE', { targetType: 'EMPLOYEE', id }); }} onSaveSector={(s) => { setState(prev => ({...prev, hotels: {...prev.hotels, [prev.currentHotel]: {...prev.hotels[prev.currentHotel], sectors: prev.hotels[prev.currentHotel].sectors.find(ex => ex.id === s.id) ? prev.hotels[prev.currentHotel].sectors.map(ex => ex.id === s.id ? s : ex) : [...prev.hotels[prev.currentHotel].sectors, s]}}})); syncToSheet('SECTOR', s); }} onDeleteSector={(id) => { setState(prev => ({...prev, hotels: {...prev.hotels, [prev.currentHotel]: {...prev.hotels[prev.currentHotel], sectors: prev.hotels[prev.currentHotel].sectors.filter(s => s.id !== id)}}})); syncToSheet('DELETE', { targetType: 'SECTOR', id }); }} />;
     if (state.currentView === ViewType.INVENTORY) return <InventoryView inventory={currentHotelData.inventory} history={currentHotelData.inventoryHistory} suppliers={currentHotelData.suppliers} showSuppliersTab={currentHotelData.config?.showSuppliersTab} theme={theme} onSave={(item) => { setState(prev => { const hotel = prev.hotels[prev.currentHotel]; const exists = hotel.inventory.find(i => i.id === item.id); return { ...prev, hotels: { ...prev.hotels, [prev.currentHotel]: { ...hotel, inventory: exists ? hotel.inventory.map(i => i.id === item.id ? item : i) : [...hotel.inventory, item] } } }; }); syncToSheet('INVENTORY', item); }} onDelete={(id) => { setState(prev => { const hotel = prev.hotels[prev.currentHotel]; return { ...prev, hotels: { ...prev.hotels, [prev.currentHotel]: { ...hotel, inventory: hotel.inventory.filter(i => i.id !== id) } } }; }); syncToSheet('DELETE', { targetType: 'INVENTORY', id }); }} onOperation={(op) => { setState(prev => { const hotel = prev.hotels[prev.currentHotel]; const item = hotel.inventory.find(i => i.id === op.itemId); if (!item) return prev; const updatedItem = { ...item, quantity: op.type === 'Entrada' ? item.quantity + op.quantity : item.quantity - op.quantity, lastUpdate: Date.now() }; return { ...prev, hotels: { ...prev.hotels, [prev.currentHotel]: { ...hotel, inventory: hotel.inventory.map(i => i.id === op.itemId ? updatedItem : i), inventoryHistory: [op, ...hotel.inventoryHistory] } } }; }); syncToSheet('INVENTORY_OP', op); }} onSaveSupplier={(supplier) => { setState(prev => { const hotel = prev.hotels[prev.currentHotel]; const exists = hotel.suppliers.find(s => s.id === supplier.id); return { ...prev, hotels: { ...prev.hotels, [prev.currentHotel]: { ...hotel, suppliers: exists ? hotel.suppliers.map(s => s.id === supplier.id ? supplier : s) : [...hotel.suppliers, supplier] } } }; }); syncToSheet('SUPPLIER', supplier); }} onDeleteSupplier={(id) => { setState(prev => { const hotel = prev.hotels[prev.currentHotel]; return { ...prev, hotels: { ...prev.hotels, [prev.currentHotel]: { ...hotel, suppliers: hotel.suppliers.filter(s => s.id !== id) } } }; }); syncToSheet('DELETE', { targetType: 'SUPPLIER', id }); }} role={state.currentUser?.role} currentUser={state.currentUser?.name} />;
     if (state.currentView === ViewType.REPORTS) return <ReportsView apartments={currentHotelData.apartments} theme={theme} onSelectApartment={id => setState(prev => ({ ...prev, currentView: ViewType.APARTMENTS, selectedApartmentId: id }))} />;

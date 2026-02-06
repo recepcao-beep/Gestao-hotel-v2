@@ -38,14 +38,18 @@ export interface Defect {
   data?: string;
 }
 
+export interface MaterialQuote {
+  supplier: string;
+  value: number;
+}
+
 export interface MaterialItem {
   id: string;
   name: string;
   quantity: number;
-  price: number;
   unit?: string;
-  supplier?: string;
   observation?: string;
+  quotes: MaterialQuote[]; // Array fixo de 3 fornecedores
 }
 
 export interface BudgetItem {

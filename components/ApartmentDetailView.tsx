@@ -18,7 +18,8 @@ import {
   ExternalLink,
   Plus,
   Minus,
-  Scissors
+  X,
+  Maximize2
 } from 'lucide-react';
 
 interface ApartmentDetailViewProps {
@@ -47,12 +48,14 @@ const ApartmentDetailView: React.FC<ApartmentDetailViewProps> = ({ apartment, th
       }
     }
     if (!initial.moveisDetalhes) initial.moveisDetalhes = [];
+    if (!initial.defects) initial.defects = [];
     return initial;
   });
 
   const [newDefectText, setNewDefectText] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [newFiles, setNewFiles] = useState<{data: string, mimeType: string, fileName: string}[]>([]);
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const updateField = (field: keyof Apartment, value: any) => {
@@ -73,28 +76,29 @@ const ApartmentDetailView: React.FC<ApartmentDetailViewProps> = ({ apartment, th
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file && newDefectText.trim()) {
+    if (file) {
       const reader = new FileReader();
       reader.onloadend = () => {
         const fullBase64 = reader.result?.toString() || '';
         const base64Data = fullBase64.split(',')[1] || '';
+        const desc = newDefectText.trim() || 'Avaria sem descrição';
+        
         const newDefect: Defect = {
           id: `${data.id}-${Date.now()}`,
-          description: newDefectText,
+          description: desc,
           driveLink: 'pendente',
           timestamp: Date.now(),
           fileName: file.name,
           fileType: file.type,
           data: fullBase64
         };
+        
         setNewFiles(prev => [...prev, { data: base64Data, mimeType: file.type, fileName: file.name }]);
-        setData(prev => ({ ...prev, defects: [...prev.defects, newDefect] }));
+        setData(prev => ({ ...prev, defects: [...(prev.defects || []), newDefect] }));
         setNewDefectText('');
         if (fileInputRef.current) fileInputRef.current.value = '';
       };
       reader.readAsDataURL(file);
-    } else if (!newDefectText.trim()) {
-      alert('Relate a avaria ou observação antes de fotografar.');
     }
   };
 
@@ -122,6 +126,23 @@ const ApartmentDetailView: React.FC<ApartmentDetailViewProps> = ({ apartment, th
 
   return (
     <div className="bg-slate-50 min-h-screen pb-40 font-sans text-slate-900">
+      {/* Lightbox Modal */}
+      {selectedImage && (
+        <div className="fixed inset-0 bg-black/95 z-[500] flex items-center justify-center p-4 animate-in fade-in duration-300">
+          <button 
+            onClick={() => setSelectedImage(null)}
+            className="absolute top-6 right-6 p-3 bg-white/10 hover:bg-white/20 text-white rounded-full transition-all"
+          >
+            <X size={32} />
+          </button>
+          <img 
+            src={selectedImage} 
+            alt="Visualização" 
+            className="max-w-full max-h-full object-contain rounded-lg shadow-2xl animate-in zoom-in duration-300"
+          />
+        </div>
+      )}
+
       <div className="sticky top-0 z-[110] bg-white border-b border-slate-100 px-4 py-4 flex items-center justify-between shadow-sm">
         <div className="flex items-center space-x-3">
           <button onClick={onBack} className="p-2 -ml-2 text-slate-400 active:bg-slate-100 rounded-full transition-colors">
@@ -240,7 +261,7 @@ const ApartmentDetailView: React.FC<ApartmentDetailViewProps> = ({ apartment, th
               )}
             </div>
 
-            {/* Cortina (Ajustado conforme a imagem enviada) */}
+            {/* Cortina */}
             <div className="p-5 bg-slate-50 rounded-[2rem] space-y-4">
               <div className="flex items-center justify-between px-1">
                 <span className="text-[10px] font-black text-slate-400 uppercase tracking-tighter">CORTINA</span>
@@ -307,7 +328,7 @@ const ApartmentDetailView: React.FC<ApartmentDetailViewProps> = ({ apartment, th
             </button>
         </section>
 
-        {/* ILUMINAÇÃO (Corrigido conforme a foto) */}
+        {/* ILUMINAÇÃO */}
         <section className="bg-white p-6 rounded-[2.5rem] border border-slate-50 shadow-sm space-y-4">
           <SectionTitle icon={Lightbulb} title="Iluminação" color="text-yellow-600" />
           <p className="text-[9px] font-black text-slate-300 uppercase mb-2 ml-1">Luminária:</p>
@@ -328,7 +349,7 @@ const ApartmentDetailView: React.FC<ApartmentDetailViewProps> = ({ apartment, th
           )}
         </section>
 
-        {/* CONFIGURAÇÃO DAS CAMAS (Ajustado conforme as fotos) */}
+        {/* CONFIGURAÇÃO DAS CAMAS */}
         <div className="pt-2 space-y-4">
           <SectionTitle icon={Bed} title="Configuração das Camas" color="text-emerald-600" />
           
@@ -433,19 +454,24 @@ const ApartmentDetailView: React.FC<ApartmentDetailViewProps> = ({ apartment, th
             <ImageIcon size={20} />
             <span>FOTOGRAFAR AVARIA</span>
           </button>
-          <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" accept="image/*" />
+          <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" accept="image/*" capture="environment" />
           
           <div className="space-y-4 pt-2">
-            {data.defects.map(defect => (
+            {(data.defects || []).map(defect => (
               <div key={defect.id} className="flex flex-col p-4 bg-slate-50 rounded-2xl border border-slate-100 animate-in slide-in-from-right-2">
                 <div className="flex items-start justify-between gap-4">
                    <div className="flex items-start space-x-3 flex-1">
                       {(defect.data || (defect.driveLink && defect.driveLink !== 'pendente')) && (
-                        <img 
-                          src={defect.data || defect.driveLink} 
-                          className="w-20 h-20 rounded-xl object-cover shadow-sm border" 
-                          alt="Evidência"
-                        />
+                        <div className="relative group cursor-pointer" onClick={() => setSelectedImage(defect.data || defect.driveLink || null)}>
+                          <img 
+                            src={defect.data || defect.driveLink} 
+                            className="w-20 h-20 rounded-xl object-cover shadow-sm border group-hover:brightness-75 transition-all" 
+                            alt="Evidência"
+                          />
+                          <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                            <Maximize2 size={20} className="text-white" />
+                          </div>
+                        </div>
                       )}
                       <div className="flex-1">
                         <p className="text-[11px] font-black text-slate-800 uppercase leading-tight">{defect.description}</p>
