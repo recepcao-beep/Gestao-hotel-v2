@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo } from 'react';
-import { Employee, HotelTheme, Sector, UniformItem } from '../types';
+import { Employee, HotelTheme, Sector, UniformItem, ExtraLabor } from '../types';
 import { 
   Search, 
   UserPlus, 
@@ -11,47 +11,64 @@ import {
   Clock,
   AlertTriangle,
   CheckCircle2,
-  Layers,
   ChevronLeft,
-  Shirt,
   Edit2,
-  Package,
-  Info
+  Calendar as CalendarIcon,
+  Filter,
+  User as UserIcon,
+  Printer,
+  CalendarDays,
+  Briefcase,
+  Users,
+  Star,
+  MessageSquare,
+  Phone,
+  ToggleLeft,
+  ToggleRight
 } from 'lucide-react';
 
 interface EmployeesViewProps {
   employees: Employee[];
+  extras: ExtraLabor[];
   sectors: Sector[];
   selectedSectorId: string | null;
   onSelectSector: (id: string | null) => void;
   theme: HotelTheme;
   onSave: (employee: Employee) => void;
   onDelete: (id: string) => void;
+  onSaveExtra: (extra: ExtraLabor) => void;
+  onDeleteExtra: (id: string) => void;
   onSaveSector: (sector: Sector) => void;
   onDeleteSector: (id: string) => void;
 }
 
 const EmployeesView: React.FC<EmployeesViewProps> = ({ 
   employees, 
+  extras,
   sectors, 
   selectedSectorId, 
   onSelectSector, 
   theme, 
   onSave, 
   onDelete, 
+  onSaveExtra,
+  onDeleteExtra,
   onSaveSector, 
   onDeleteSector 
 }) => {
   const [isAddingEmployee, setIsAddingEmployee] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
+  const [isAddingExtra, setIsAddingExtra] = useState(false);
+  const [editingExtra, setEditingExtra] = useState<ExtraLabor | null>(null);
   const [isAddingSector, setIsAddingSector] = useState(false);
-  const [editingSector, setEditingSector] = useState<Sector | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [activeTab, setActiveTab] = useState<'DADOS' | 'UNIFORMES'>('DADOS');
+  const [viewMode, setViewMode] = useState<'LIST' | 'SCALE' | 'TODAY' | 'EXTRAS'>('LIST');
+  const [activeFormTab, setActiveFormTab] = useState<'DADOS' | 'ESCALA' | 'UNIFORMES'>('DADOS');
 
   // Form State Employee
   const [name, setName] = useState('');
   const [role, setRole] = useState('');
+  const [gender, setGender] = useState<'M' | 'F'>('M');
   const [contact, setContact] = useState('');
   const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
   const [salary, setSalary] = useState('');
@@ -59,434 +76,693 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
   const [scheduleType, setScheduleType] = useState<'6x1' | '12x36' | 'Intermitente'>('6x1');
   const [shiftType, setShiftType] = useState<'Par' | 'Ímpar'>('Par');
   const [workingHours, setWorkingHours] = useState('08:00 - 16:20');
-  const [weeklyDayOff, setWeeklyDayOff] = useState('Segunda-feira');
-  const [monthlySundayOff, setMonthlySundayOff] = useState('1º Domingo');
+  const [fixedDayOff, setFixedDayOff] = useState('Segunda-feira');
+  const [sundayOffs, setSundayOffs] = useState<number[]>([]);
   const [vacationStatus, setVacationStatus] = useState<'Pendente' | 'Concedida'>('Pendente');
 
-  // Form State Sector
-  const [sectorName, setSectorName] = useState('');
-  const [standardUniforms, setStandardUniforms] = useState<UniformItem[]>([]);
+  // Form State Extra
+  const [extraName, setExtraName] = useState('');
+  const [extraPhone, setExtraPhone] = useState('');
+  const [extraAvailability, setExtraAvailability] = useState<string[]>([]);
+  const [extraQuality, setExtraQuality] = useState(5);
+  const [extraObservation, setExtraObservation] = useState('');
+
+  const weekDays = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo'];
 
   const resetEmployeeForm = () => {
-    setName('');
-    setRole('');
-    setContact('');
+    setName(''); setRole(''); setGender('M'); setContact(''); setSalary('');
     setStartDate(new Date().toISOString().split('T')[0]);
-    setSalary('');
-    setUniforms([]);
-    setScheduleType('6x1');
-    setShiftType('Par');
-    setWorkingHours('08:00 - 16:20');
-    setWeeklyDayOff('Segunda-feira');
-    setMonthlySundayOff('1º Domingo');
-    setVacationStatus('Pendente');
-    setIsAddingEmployee(false);
-    setEditingEmployee(null);
-    setActiveTab('DADOS');
+    setUniforms([]); setScheduleType('6x1'); setShiftType('Par');
+    setWorkingHours('08:00 - 16:20'); setFixedDayOff('Segunda-feira');
+    setSundayOffs([]); setVacationStatus('Pendente');
+    setIsAddingEmployee(false); setEditingEmployee(null); setActiveFormTab('DADOS');
   };
 
-  const resetSectorForm = () => {
-    setSectorName('');
-    setStandardUniforms([]);
-    setIsAddingSector(false);
-    setEditingSector(null);
+  const resetExtraForm = () => {
+    setExtraName(''); setExtraPhone(''); setExtraAvailability([]); setExtraQuality(5); setExtraObservation('');
+    setIsAddingExtra(false); setEditingExtra(null);
   };
 
   const handleEditEmployee = (emp: Employee) => {
     setEditingEmployee(emp);
-    setName(emp.name);
-    setRole(emp.role);
-    setContact(emp.contact);
-    setStartDate(emp.startDate);
-    setSalary(emp.salary.toString());
-    setUniforms(emp.uniforms || []);
-    setScheduleType(emp.scheduleType);
-    setShiftType(emp.shiftType || 'Par');
-    setWorkingHours(emp.workingHours);
-    setWeeklyDayOff(emp.weeklyDayOff);
-    setMonthlySundayOff(emp.monthlySundayOff);
-    setVacationStatus(emp.vacationStatus);
+    setName(emp.name || ''); setRole(emp.role || ''); setGender(emp.gender || 'M');
+    setContact(emp.contact || ''); setStartDate(emp.startDate || ''); setSalary((emp.salary || 0).toString());
+    setUniforms(emp.uniforms || []); setScheduleType(emp.scheduleType || '6x1');
+    setShiftType(emp.shiftType || 'Par'); setWorkingHours(emp.workingHours || '08:00 - 16:20');
+    setFixedDayOff(emp.fixedDayOff || 'Segunda-feira');
+    setSundayOffs(emp.sundayOffs || []); setVacationStatus(emp.vacationStatus || 'Pendente');
     setIsAddingEmployee(true);
   };
 
-  const handleEditSector = (e: React.MouseEvent, sec: Sector) => {
-    e.stopPropagation();
-    setEditingSector(sec);
-    setSectorName(sec.name);
-    setStandardUniforms(sec.standardUniform || []);
-    setIsAddingSector(true);
+  const handleEditExtra = (ext: ExtraLabor) => {
+    setEditingExtra(ext);
+    setExtraName(ext.name || ''); setExtraPhone(ext.phone || ''); 
+    setExtraAvailability(ext.availability || []); setExtraQuality(ext.serviceQuality || 5);
+    setExtraObservation(ext.observation || '');
+    setIsAddingExtra(true);
   };
 
   const handleSaveEmployeeSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name && !role) { // Non-mandatory logic
-       // alert("Pelo menos o nome ou cargo deve ser informado.");
-    }
+    if (!selectedSectorId && !editingEmployee) return;
 
     const newEmp: Employee = {
       id: editingEmployee?.id || Date.now().toString(),
-      name: name || 'Funcionário sem Nome',
-      role: role || 'Cargo não informado',
-      contact,
+      name: name || 'Sem Nome', 
+      role: role || 'Cargo', 
+      gender, 
+      contact, 
       startDate,
-      salary: parseFloat(salary) || 0,
-      department: sectors.find(s => s.id === selectedSectorId)?.name || '',
-      sectorId: selectedSectorId!,
-      status: 'Ativo',
-      scheduleType,
+      salary: parseFloat(salary) || 0, 
+      department: sectors.find(s => s.id === (selectedSectorId || editingEmployee?.sectorId))?.name || '',
+      sectorId: (selectedSectorId || editingEmployee?.sectorId)!, 
+      status: 'Ativo', 
+      scheduleType, 
       shiftType: scheduleType === '12x36' ? shiftType : undefined,
-      workingHours,
-      weeklyDayOff,
-      monthlySundayOff,
-      vacationStatus,
+      workingHours: scheduleType === 'Intermitente' ? '' : workingHours, 
+      fixedDayOff: scheduleType === '6x1' ? fixedDayOff : '', 
+      sundayOffs: scheduleType === '6x1' ? sundayOffs : [], 
+      weeklyDayOff: scheduleType === '6x1' ? fixedDayOff : '', 
+      monthlySundayOff: '', 
+      vacationStatus, 
       uniforms
     };
-
     onSave(newEmp);
     resetEmployeeForm();
   };
 
-  const handleSaveSectorSubmit = (e: React.FormEvent) => {
+  const handleSaveExtraSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!sectorName) return;
+    if (!selectedSectorId && !editingExtra) return;
 
-    const newSec: Sector = {
-      id: editingSector?.id || Date.now().toString(),
-      name: sectorName,
-      standardUniform: standardUniforms
+    const newExtra: ExtraLabor = {
+      id: editingExtra?.id || Date.now().toString(),
+      name: extraName,
+      phone: extraPhone,
+      availability: extraAvailability,
+      serviceQuality: extraQuality,
+      observation: extraObservation,
+      sectorId: selectedSectorId || editingExtra?.sectorId || ''
     };
-
-    onSaveSector(newSec);
-    resetSectorForm();
+    onSaveExtra(newExtra);
+    resetExtraForm();
   };
 
-  const addUniformItem = (type: 'STANDARD' | 'EMPLOYEE') => {
-    if (type === 'STANDARD') {
-      setStandardUniforms([...standardUniforms, { name: '', quantity: 1 }]);
-    } else {
-      setUniforms([...uniforms, { name: '', quantity: 1 }]);
-    }
-  };
+  const filteredEmployees = employees.filter(e => 
+    e.sectorId === selectedSectorId && 
+    (e.name || '').toLowerCase().includes(searchTerm.toLowerCase())
+  );
 
-  const updateUniformItem = (type: 'STANDARD' | 'EMPLOYEE', idx: number, field: keyof UniformItem, val: any) => {
-    if (type === 'STANDARD') {
-      const next = [...standardUniforms];
-      next[idx] = { ...next[idx], [field]: val };
-      setStandardUniforms(next);
-    } else {
-      const next = [...uniforms];
-      next[idx] = { ...next[idx], [field]: val };
-      setUniforms(next);
-    }
-  };
-
-  const removeUniformItem = (type: 'STANDARD' | 'EMPLOYEE', idx: number) => {
-    if (type === 'STANDARD') {
-      setStandardUniforms(standardUniforms.filter((_, i) => i !== idx));
-    } else {
-      setUniforms(uniforms.filter((_, i) => i !== idx));
-    }
-  };
-
-  const filteredEmployees = employees.filter(e => e.sectorId === selectedSectorId && e.name.toLowerCase().includes(searchTerm.toLowerCase()));
+  const filteredExtras = extras.filter(ext => 
+    ext.sectorId === selectedSectorId &&
+    (ext.name || '').toLowerCase().includes(searchTerm.toLowerCase())
+  );
   
   const currentSector = sectors.find(s => s.id === selectedSectorId);
 
-  const calculateDiscrepancy = (emp: Employee, sec: Sector) => {
-    return (sec.standardUniform || []).map(std => {
-      const has = (emp.uniforms || []).find(u => u.name.toLowerCase().trim() === std.name.toLowerCase().trim());
-      const missing = Math.max(0, std.quantity - (has?.quantity || 0));
-      return { name: std.name, needed: std.quantity, has: has?.quantity || 0, missing };
-    }).filter(d => d.missing > 0);
+  // Escala Logic
+  const daysArray = useMemo(() => {
+    const now = new Date();
+    const days = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    return Array.from({ length: days }, (_, i) => ({
+      day: i + 1,
+      name: new Date(now.getFullYear(), now.getMonth(), i + 1).toLocaleDateString('pt-BR', { weekday: 'long' }),
+      isSunday: new Date(now.getFullYear(), now.getMonth(), i + 1).getDay() === 0
+    }));
+  }, []);
+
+  const getSundayIndex = (day: number) => {
+    const now = new Date();
+    let count = 0;
+    for(let i = 1; i <= day; i++) {
+       if(new Date(now.getFullYear(), now.getMonth(), i).getDay() === 0) count++;
+    }
+    return count;
   };
 
-  if (!selectedSectorId) {
+  const todayInfo = useMemo(() => {
+    const now = new Date();
+    const weekday = now.toLocaleDateString('pt-BR', { weekday: 'long' });
+    const day = now.getDate();
+    let sundayIdx = 0;
+    if (now.getDay() === 0) {
+      let count = 0;
+      for(let i = 1; i <= day; i++) {
+        const d = new Date(now.getFullYear(), now.getMonth(), i);
+        if(d.getDay() === 0) count++;
+      }
+      sundayIdx = count;
+    }
+    return { weekday, isSunday: now.getDay() === 0, sundayIdx, fullDate: now.toLocaleDateString('pt-BR', { day: '2-digit', month: 'long' }) };
+  }, []);
+
+  const scheduledToday = useMemo(() => {
+    return employees.filter(emp => {
+      const isFixedOff = emp.fixedDayOff?.toLowerCase() === todayInfo.weekday.toLowerCase();
+      const isSundayOff = todayInfo.isSunday && (emp.sundayOffs || []).includes(todayInfo.sundayIdx);
+      return !isFixedOff && !isSundayOff && emp.status === 'Ativo';
+    });
+  }, [employees, todayInfo]);
+
+  const groupedBySector = useMemo(() => {
+    const groups: Record<string, Employee[]> = {};
+    scheduledToday.forEach(emp => {
+      const sector = sectors.find(s => s.id === emp.sectorId)?.name || 'Outros';
+      if (!groups[sector]) groups[sector] = [];
+      groups[sector].push(emp);
+    });
+    return groups;
+  }, [scheduledToday, sectors]);
+
+  // Lista de funcionários para a tabela de escala (exclui intermitentes)
+  const scaleEmployees = useMemo(() => {
+    return filteredEmployees.filter(e => e.scheduleType !== 'Intermitente');
+  }, [filteredEmployees]);
+
+  if (!selectedSectorId && viewMode !== 'TODAY') {
     return (
       <div className="space-y-8 animate-in fade-in duration-500">
-        <div className="flex justify-between items-center">
-          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Escolha o setor para gerenciar</p>
-          <button 
-            onClick={() => setIsAddingSector(true)}
-            className="text-white px-6 py-3 rounded-xl font-bold flex items-center justify-center space-x-2 shadow-lg transition-all active:scale-95"
-            style={{ backgroundColor: theme.primary }}
-          >
-            <Plus size={18} />
-            <span>Novo Setor</span>
-          </button>
+        <div className="flex flex-col md:flex-row justify-between items-center gap-4">
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Painel de Equipe</p>
+          <div className="flex gap-2">
+            <button 
+              onClick={() => setViewMode('TODAY')} 
+              className="bg-white border-2 border-slate-100 text-slate-600 px-6 py-3 rounded-xl font-bold flex items-center space-x-2 shadow-sm hover:border-blue-200 transition-all"
+            >
+              <CalendarDays size={18} /> <span>Escalados Hoje</span>
+            </button>
+            <button 
+              onClick={() => setIsAddingSector(true)} 
+              className="text-white px-6 py-3 rounded-xl font-bold flex items-center space-x-2 shadow-lg" 
+              style={{ backgroundColor: theme.primary }}
+            >
+              <Plus size={18} /> <span>Novo Setor</span>
+            </button>
+          </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 md:gap-8">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
           {sectors.map((sec) => (
-            <button
-              key={sec.id}
-              onClick={() => onSelectSector(sec.id)}
-              className="group relative bg-white h-48 md:h-72 rounded-[2.5rem] shadow-sm hover:shadow-2xl transition-all duration-500 flex flex-col items-center justify-center border border-slate-50 overflow-hidden transform active:scale-95 md:hover:-translate-y-2"
-            >
-              <div className="absolute top-0 left-0 w-full h-1.5 transition-all duration-500" style={{ backgroundColor: theme.primary }}></div>
-              <div 
-                className="p-5 md:p-8 rounded-2xl md:rounded-3xl mb-3 md:mb-6 group-hover:scale-110 transition-transform duration-500"
-                style={{ backgroundColor: theme.primary + '10', color: theme.primary }}
-              >
-                <Building2 size={32} strokeWidth={1.5} className="md:w-14 md:h-14" />
-              </div>
-              <div className="text-center">
-                <h3 className="text-xl md:text-3xl font-black text-slate-800">{sec.name}</h3>
-                <p className="text-slate-400 mt-1 font-black uppercase tracking-[0.2em] text-[8px] md:text-[10px]">
+            <div key={sec.id} className="relative group">
+              <button onClick={() => onSelectSector(sec.id)} className="w-full bg-white h-48 rounded-[2.5rem] shadow-sm hover:shadow-xl transition-all border border-slate-50 flex flex-col items-center justify-center overflow-hidden">
+                <div className="absolute top-0 left-0 w-full h-1.5" style={{ backgroundColor: theme.primary }}></div>
+                <div className="p-5 rounded-2xl mb-3 bg-slate-50 text-slate-400 group-hover:scale-110 transition-transform">
+                  <Building2 size={32} />
+                </div>
+                <h3 className="text-xl font-black text-slate-800">{sec.name}</h3>
+                <p className="text-slate-400 text-[10px] font-black uppercase mt-1">
                   {employees.filter(e => e.sectorId === sec.id).length} Colaboradores
                 </p>
-              </div>
-              
-              <div className="absolute top-4 right-4 flex space-x-2">
-                <button 
-                  onClick={(e) => handleEditSector(e, sec)}
-                  className="p-2 bg-white/80 text-slate-400 hover:text-blue-500 rounded-full transition-colors border shadow-sm"
-                >
-                  <Edit2 size={14} />
-                </button>
-                <button 
-                  onClick={(e) => { e.stopPropagation(); onDeleteSector(sec.id); }}
-                  className="p-2 bg-white/80 text-slate-400 hover:text-red-500 rounded-full transition-colors border shadow-sm"
-                >
-                  <Trash2 size={14} />
-                </button>
-              </div>
-            </button>
+              </button>
+            </div>
           ))}
-          {sectors.length === 0 && (
-            <div className="col-span-full py-20 text-center text-slate-300 italic font-bold">Nenhum setor cadastrado.</div>
-          )}
         </div>
+      </div>
+    );
+  }
 
-        {isAddingSector && (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[300] flex items-center justify-center p-4">
-            <div className="bg-white w-full max-w-lg rounded-[2.5rem] shadow-2xl animate-in zoom-in duration-200 overflow-hidden">
-               <div className="p-8 border-b border-slate-50 flex justify-between items-center">
-                  <h2 className="text-xl font-black text-slate-800">{editingSector ? 'Editar Setor' : 'Novo Setor'}</h2>
-                  <button onClick={resetSectorForm} className="text-slate-300 hover:text-slate-500"><X size={24}/></button>
-               </div>
-               <form onSubmit={handleSaveSectorSubmit} className="p-8 space-y-6">
-                  <div>
-                    <label className="block text-[10px] font-black text-slate-400 uppercase mb-2">Nome do Setor</label>
-                    <input type="text" value={sectorName} onChange={e => setSectorName(e.target.value)} className="w-full px-4 py-3 rounded-xl border-2 border-slate-50 focus:border-blue-400 outline-none font-bold text-slate-800 bg-white" placeholder="Ex: Recepção" />
-                  </div>
-                  <div>
-                    <div className="flex justify-between items-center mb-3">
-                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest">Enxoval de Uniforme Padrão</label>
-                      <button type="button" onClick={() => addUniformItem('STANDARD')} className="text-[8px] font-black text-emerald-600 uppercase">+ Adicionar Peça</button>
-                    </div>
-                    <div className="space-y-2 max-h-40 overflow-y-auto pr-2">
-                       {standardUniforms.map((item, idx) => (
-                         <div key={idx} className="flex gap-2 animate-in slide-in-from-left-2">
-                           <input type="text" placeholder="Peça" value={item.name} onChange={e => updateUniformItem('STANDARD', idx, 'name', e.target.value)} className="flex-1 px-3 py-2 rounded-lg border bg-white text-[10px] font-bold" />
-                           <input type="number" placeholder="Qtd" value={item.quantity} onChange={e => updateUniformItem('STANDARD', idx, 'quantity', parseInt(e.target.value))} className="w-16 px-3 py-2 rounded-lg border bg-white text-[10px] font-bold" />
-                           <button type="button" onClick={() => removeUniformItem('STANDARD', idx)} className="text-rose-300 hover:text-rose-500"><Trash2 size={14}/></button>
-                         </div>
-                       ))}
-                       {standardUniforms.length === 0 && <p className="text-[9px] text-slate-300 text-center py-4 italic border-2 border-dashed rounded-xl">Defina as peças que o funcionário deste setor deve ter.</p>}
-                    </div>
-                  </div>
-                  <button type="submit" className="w-full py-4 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl transition-all" style={{ backgroundColor: theme.primary }}>Salvar Configuração de Setor</button>
-               </form>
+  if (viewMode === 'TODAY') {
+    return (
+      <div className="space-y-6 animate-in fade-in duration-500 pb-20">
+        <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm flex justify-between items-center">
+          <div className="flex items-center space-x-4">
+            <button onClick={() => setViewMode('LIST')} className="p-2 bg-slate-50 rounded-xl text-slate-400"><ChevronLeft size={20} /></button>
+            <div>
+              <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tighter">Escalados Hoje</h2>
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{todayInfo.weekday} • {todayInfo.fullDate}</p>
             </div>
           </div>
-        )}
+          <div className="bg-slate-50 px-4 py-2 rounded-xl border">
+             <span className="text-lg font-black text-slate-800">{scheduledToday.length}</span>
+             <span className="ml-2 text-[9px] font-black text-slate-400 uppercase">Presentes</span>
+          </div>
+        </div>
+
+        <div className="space-y-8">
+           {(Object.entries(groupedBySector) as [string, Employee[]][]).sort().map(([sectorName, list]) => (
+             <div key={sectorName} className="space-y-4">
+                <div className="flex items-center space-x-2 px-2">
+                   <Briefcase size={16} className="text-slate-400" />
+                   <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest">{sectorName} ({list.length})</h3>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                   {list.map(emp => (
+                     <div key={emp.id} className="bg-white p-5 rounded-[2rem] border border-slate-100 shadow-sm flex items-center justify-between group">
+                        <div className="flex items-center space-x-4">
+                           <div className={`w-12 h-12 rounded-2xl flex items-center justify-center font-black text-lg text-white shadow-md ${emp.gender === 'F' ? 'bg-rose-400' : 'bg-blue-400'}`}>
+                              {(emp.name || 'S')[0]}
+                           </div>
+                           <div>
+                              <p className="font-black text-slate-800 leading-none mb-1">{emp.name}</p>
+                              <div className="flex items-center text-[9px] font-bold text-slate-400 uppercase tracking-tighter">
+                                 <Clock size={10} className="mr-1" /> {emp.workingHours}
+                              </div>
+                           </div>
+                        </div>
+                     </div>
+                   ))}
+                </div>
+             </div>
+           ))}
+        </div>
       </div>
     );
   }
 
   return (
     <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-500 pb-20">
-      <div className="flex flex-col md:flex-row gap-4 justify-between items-center">
+      <div className="flex flex-col md:flex-row gap-4 justify-between items-center bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm">
         <div className="flex items-center space-x-3">
-          <button onClick={() => onSelectSector(null)} className="p-2 bg-white rounded-xl shadow-sm text-slate-400 hover:text-slate-600 transition-colors">
+          <button onClick={() => onSelectSector(null)} className="p-2 bg-slate-50 rounded-xl text-slate-400 hover:text-slate-600 transition-colors">
             <ChevronLeft size={20} />
           </button>
           <div>
-            <h2 className="text-xl font-black text-slate-800">{currentSector?.name}</h2>
-            <p className="text-[10px] text-slate-400 font-bold uppercase">{filteredEmployees.length} Colaboradores registrados</p>
+            <h2 className="text-xl font-black text-slate-800 uppercase tracking-tighter">{currentSector?.name}</h2>
+            <p className="text-[9px] text-slate-400 font-black uppercase tracking-widest">
+                {viewMode === 'EXTRAS' ? `${filteredExtras.length} Profissionais` : `${filteredEmployees.length} Colaboradores`}
+            </p>
           </div>
         </div>
         
-        <div className="flex gap-3 w-full md:w-auto">
-          <div className="relative flex-1 md:w-64">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" size={16} />
-            <input 
-              type="text"
-              placeholder="Buscar por nome..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-9 pr-4 py-3 rounded-xl border border-slate-100 focus:border-blue-500 outline-none shadow-sm transition-all text-sm font-bold bg-white"
-            />
-          </div>
-          <button 
-            onClick={() => setIsAddingEmployee(true)}
-            className="text-white px-6 py-3 rounded-xl font-bold flex items-center justify-center space-x-2 shadow-lg transition-all active:scale-95"
-            style={{ backgroundColor: theme.primary }}
-          >
-            <UserPlus size={18} />
-            <span className="hidden sm:inline">Adicionar Funcionário</span>
-          </button>
+        <div className="flex bg-slate-50 p-1.5 rounded-2xl border border-slate-100">
+          <button onClick={() => setViewMode('LIST')} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all ${viewMode === 'LIST' ? 'bg-white shadow-md text-slate-900' : 'text-slate-400'}`}>Listagem</button>
+          <button onClick={() => setViewMode('SCALE')} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all ${viewMode === 'SCALE' ? 'bg-white shadow-md text-slate-900' : 'text-slate-400'}`}>Escala</button>
+          <button onClick={() => setViewMode('EXTRAS')} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all ${viewMode === 'EXTRAS' ? 'bg-white shadow-md text-slate-900' : 'text-slate-400'}`}>Extras</button>
         </div>
-      </div>
 
-      <div className="grid grid-cols-1 gap-4">
-        {filteredEmployees.map(emp => {
-          const discrepancies = currentSector ? calculateDiscrepancy(emp, currentSector) : [];
-          return (
-            <div key={emp.id} className="bg-white rounded-[2rem] border border-slate-100 shadow-sm p-6 flex flex-col md:flex-row gap-6 hover:shadow-md transition-all">
-              <div className="flex items-center space-x-4 min-w-[200px]">
-                <div className="w-14 h-14 rounded-2xl flex items-center justify-center font-black text-xl text-white shadow-lg" style={{ backgroundColor: theme.primary }}>
-                  {(emp.name || "U")[0]}
-                </div>
-                <div>
-                  <h4 className="font-black text-slate-800 leading-tight">{emp.name}</h4>
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">{emp.role}</p>
-                </div>
-              </div>
-
-              <div className="flex-1 grid grid-cols-2 md:grid-cols-4 gap-4 border-t md:border-t-0 md:border-l border-slate-50 pt-4 md:pt-0 md:pl-6">
-                <div>
-                  <p className="text-[8px] font-black text-slate-400 uppercase mb-1">Horário & Escala</p>
-                  <div className="flex items-center text-xs font-black text-slate-900">
-                    <Clock size={12} className="mr-1.5 text-slate-300" />
-                    {emp.scheduleType} {emp.shiftType && `(${emp.shiftType})`}
-                  </div>
-                  <div className="flex items-center text-[10px] font-bold text-slate-500 mt-1">{emp.workingHours}</div>
-                </div>
-                <div>
-                  <p className="text-[8px] font-black text-slate-400 uppercase mb-1">Uniformes Possuídos</p>
-                  <div className="flex items-center text-xs font-bold text-slate-700">
-                    <Shirt size={12} className="mr-1.5 text-slate-300" />
-                    {emp.uniforms?.reduce((acc, u) => acc + u.quantity, 0) || 0} Peças no total
-                  </div>
-                </div>
-                <div className="col-span-2">
-                  <p className="text-[8px] font-black text-slate-400 uppercase mb-1">Necessidade de Uniforme</p>
-                  {discrepancies.length > 0 ? (
-                    <div className="flex flex-wrap gap-1.5">
-                      {discrepancies.map((d, di) => (
-                        <div key={di} className="px-2 py-0.5 bg-rose-50 border border-rose-100 text-rose-600 rounded-lg text-[8px] font-black uppercase flex items-center">
-                          <AlertTriangle size={8} className="mr-1" /> Faltam {d.missing} {d.name}
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="flex items-center text-emerald-500 text-[9px] font-black uppercase">
-                      <CheckCircle2 size={12} className="mr-1.5" /> Enxoval Completo
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div className="flex items-center justify-end space-x-2">
-                <button onClick={() => handleEditEmployee(emp)} className="p-3 text-slate-300 hover:text-blue-500 transition-colors bg-slate-50 rounded-xl">
-                  <Edit2 size={20} />
-                </button>
-                <button onClick={() => onDelete(emp.id)} className="p-3 text-slate-300 hover:text-rose-500 transition-colors bg-slate-50 rounded-xl">
-                  <Trash2 size={20} />
-                </button>
-              </div>
-            </div>
-          );
-        })}
-        {filteredEmployees.length === 0 && (
-          <div className="bg-white p-20 rounded-[3rem] border border-dashed border-slate-100 flex flex-col items-center justify-center text-slate-300">
-             <Package size={64} className="mb-4 opacity-10" />
-             <p className="text-xl font-black italic uppercase tracking-tighter">Nenhum funcionário cadastrado aqui</p>
-          </div>
+        {viewMode === 'EXTRAS' ? (
+            <button onClick={() => setIsAddingExtra(true)} className="text-white px-6 py-3 rounded-xl font-bold flex items-center space-x-2 shadow-lg" style={{ backgroundColor: theme.primary }}>
+                <UserPlus size={18} /> <span className="hidden sm:inline">Cadastrar Extra</span>
+            </button>
+        ) : (
+            <button onClick={() => setIsAddingEmployee(true)} className="text-white px-6 py-3 rounded-xl font-bold flex items-center space-x-2 shadow-lg" style={{ backgroundColor: theme.primary }}>
+                <UserPlus size={18} /> <span className="hidden sm:inline">Adicionar</span>
+            </button>
         )}
       </div>
 
-      {isAddingEmployee && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[300] flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-3xl rounded-[2.5rem] shadow-2xl max-h-[90vh] overflow-hidden flex flex-col animate-in zoom-in duration-200">
-             <div className="p-8 border-b border-slate-50 flex justify-between items-center">
-                <div>
-                  <h2 className="text-2xl font-black text-slate-800">{editingEmployee ? 'Editar Cadastro' : 'Novo Cadastro'}</h2>
-                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Setor: {currentSector?.name}</p>
-                </div>
-                <button onClick={resetEmployeeForm} className="text-slate-300 hover:text-slate-500"><X size={24}/></button>
-             </div>
-
-             <div className="flex bg-slate-50 p-2 mx-8 mt-6 rounded-2xl border border-slate-100">
-                <button onClick={() => setActiveTab('DADOS')} className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase transition-all ${activeTab === 'DADOS' ? 'bg-white shadow-md text-blue-600' : 'text-slate-400'}`}>Dados & Escala</button>
-                <button onClick={() => setActiveTab('UNIFORMES')} className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase transition-all ${activeTab === 'UNIFORMES' ? 'bg-white shadow-md text-blue-600' : 'text-slate-400'}`}>Uniforme (O que possui)</button>
-             </div>
-
-             <form onSubmit={handleSaveEmployeeSubmit} className="flex-1 overflow-y-auto p-8 space-y-8">
-                {activeTab === 'DADOS' ? (
-                  <div className="space-y-6 animate-in slide-in-from-left-4 duration-300">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="col-span-1 md:col-span-2">
-                        <label className="block text-[9px] font-black text-slate-500 uppercase mb-1.5 ml-1">Nome Completo</label>
-                        <input type="text" value={name} onChange={e => setName(e.target.value)} className="w-full px-4 py-3 rounded-xl border-2 border-slate-50 focus:border-blue-400 outline-none bg-white font-bold text-slate-900" />
-                      </div>
-                      <div>
-                        <label className="block text-[9px] font-black text-slate-500 uppercase mb-1.5 ml-1">Cargo</label>
-                        <input type="text" value={role} onChange={e => setRole(e.target.value)} className="w-full px-4 py-3 rounded-xl border-2 border-slate-50 focus:border-blue-400 outline-none bg-white font-bold text-slate-900" />
-                      </div>
-                      <div>
-                        <label className="block text-[9px] font-black text-slate-500 uppercase mb-1.5 ml-1">Data de Admissão</label>
-                        <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="w-full px-4 py-3 rounded-xl border-2 border-slate-50 focus:border-blue-400 outline-none bg-white font-bold text-slate-900" />
-                      </div>
-                      <div>
-                        <label className="block text-[9px] font-black text-slate-500 uppercase mb-1.5 ml-1">Salário Base (R$)</label>
-                        <input type="number" step="0.01" value={salary} onChange={e => setSalary(e.target.value)} className="w-full px-4 py-3 rounded-xl border-2 border-slate-50 focus:border-blue-400 outline-none bg-white font-bold text-slate-900" />
-                      </div>
-                      <div>
-                        <label className="block text-[9px] font-black text-slate-500 uppercase mb-1.5 ml-1">Tipo de Escala</label>
-                        <select value={scheduleType} onChange={e => setScheduleType(e.target.value as any)} className="w-full px-4 py-3 rounded-xl border-2 border-slate-50 bg-white font-bold text-slate-800 outline-none">
-                          <option value="6x1">6x1</option>
-                          <option value="12x36">12x36</option>
-                          <option value="Intermitente">Intermitente</option>
-                        </select>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="space-y-6 animate-in slide-in-from-right-4 duration-300">
-                    <div className="bg-blue-50/50 p-6 rounded-[2rem] border border-blue-100">
-                       <h4 className="text-[10px] font-black text-blue-700 uppercase tracking-widest flex items-center mb-4">
-                         <Package size={14} className="mr-2" /> Peças em posse do funcionário:
-                       </h4>
-                       <div className="space-y-3">
-                          {uniforms.map((u, ui) => (
-                            <div key={ui} className="flex gap-2 animate-in slide-in-from-left-2">
-                              <input type="text" placeholder="Nome da Peça (Ex: Camisa G)" value={u.name} onChange={e => updateUniformItem('EMPLOYEE', ui, 'name', e.target.value)} className="flex-1 px-4 py-3 rounded-xl border border-slate-200 bg-white text-xs font-bold" />
-                              <input type="number" placeholder="Qtd" value={u.quantity} onChange={e => updateUniformItem('EMPLOYEE', ui, 'quantity', parseInt(e.target.value))} className="w-20 px-4 py-3 rounded-xl border border-slate-200 bg-white text-xs font-bold" />
-                              <button type="button" onClick={() => removeUniformItem('EMPLOYEE', ui)} className="text-rose-300 hover:text-rose-500"><Trash2 size={18}/></button>
-                            </div>
-                          ))}
-                          <button type="button" onClick={() => addUniformItem('EMPLOYEE')} className="w-full py-3 border-2 border-dashed border-blue-200 rounded-xl text-blue-400 text-[10px] font-black uppercase hover:bg-white transition-all">+ Adicionar Peça Recebida</button>
-                       </div>
-                    </div>
-
-                    <div className="bg-slate-50 p-6 rounded-[2rem] border border-slate-100">
-                       <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center mb-4">
-                         <Info size={14} className="mr-2" /> Enxoval Obrigatório do Setor:
-                       </h4>
-                       <div className="flex flex-wrap gap-2">
-                          {currentSector?.standardUniform?.map((std, si) => (
-                            <div key={si} className="bg-white px-3 py-1.5 rounded-lg border border-slate-100 text-[10px] font-bold text-slate-600">
-                              {std.quantity}x {std.name}
-                            </div>
-                          ))}
-                          {(!currentSector?.standardUniform || currentSector?.standardUniform.length === 0) && (
-                            <p className="text-[9px] text-slate-300 italic">Nenhum enxoval padrão configurado.</p>
-                          )}
-                       </div>
-                    </div>
-                  </div>
-                )}
-                
-                <div className="flex gap-4 pt-4">
-                   <button type="button" onClick={resetEmployeeForm} className="flex-1 py-4 text-[10px] font-black uppercase text-slate-400 tracking-widest">Cancelar</button>
-                   <button type="submit" className="flex-1 py-4 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl transition-all" style={{ backgroundColor: theme.primary }}>
-                     {editingEmployee ? 'Atualizar Cadastro' : 'Salvar Cadastro'}
-                   </button>
-                </div>
-             </form>
+      {viewMode === 'LIST' && (
+        <div className="space-y-4">
+          <div className="relative max-w-md">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" size={16} />
+            <input type="text" placeholder="Buscar colaborador..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-9 pr-4 py-3 rounded-xl border border-slate-100 text-sm font-bold bg-white shadow-inner" />
           </div>
+
+          <div className="grid grid-cols-1 gap-4">
+            {filteredEmployees.map(emp => (
+              <div key={emp.id} className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm flex flex-col md:flex-row items-center gap-6 group hover:border-blue-200 transition-all">
+                <div className="flex items-center space-x-4 flex-1">
+                  <div className={`w-14 h-14 rounded-2xl flex items-center justify-center font-black text-xl text-white shadow-md ${emp.gender === 'F' ? 'bg-rose-400' : 'bg-blue-400'}`}>
+                    {(emp.name || 'S')[0]}
+                  </div>
+                  <div>
+                    <h4 className="font-black text-slate-800">{emp.name || 'Sem Nome'}</h4>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                       {emp.role} • {emp.scheduleType === 'Intermitente' ? 'Intermitente' : `Folga: ${emp.fixedDayOff || 'Rodízio'}`}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex gap-4 items-center">
+                  <div className="text-right">
+                    <p className="text-[8px] font-black text-slate-300 uppercase">Status</p>
+                    <span className="text-[9px] font-black text-emerald-500 uppercase flex items-center"><CheckCircle2 size={10} className="mr-1"/> Ativo</span>
+                  </div>
+                  <div className="flex space-x-2">
+                    <button onClick={() => handleEditEmployee(emp)} className="p-3 bg-slate-50 text-slate-400 hover:text-blue-500 rounded-xl transition-all"><Edit2 size={18}/></button>
+                    <button onClick={() => onDelete(emp.id)} className="p-3 bg-slate-50 text-slate-400 hover:text-rose-500 rounded-xl transition-all"><Trash2 size={18}/></button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {viewMode === 'SCALE' && (
+        <div className="bg-white rounded-[2.5rem] border border-slate-200 shadow-xl overflow-hidden animate-in zoom-in-95">
+          <div className="p-8 border-b bg-slate-50/50 flex justify-between items-center">
+             <div>
+                <h3 className="text-xl font-black text-slate-800 uppercase tracking-tighter">ESCALA {currentSector?.name}</h3>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{new Date().toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}</p>
+             </div>
+             <button onClick={() => window.print()} className="p-3 bg-white rounded-xl border text-slate-400 hover:text-slate-900 transition-all"><Printer size={20}/></button>
+          </div>
+          
+          <div className="overflow-x-auto">
+             <table className="w-full border-collapse text-[9px] md:text-[10px]">
+                <thead>
+                   <tr className="bg-slate-100">
+                      {/* Coluna NOME fixa */}
+                      <th className="sticky left-0 z-30 bg-slate-100 border-b border-r border-slate-300 p-2 text-left min-w-[120px] md:min-w-[150px] uppercase font-black text-slate-700 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">COLABORADOR</th>
+                      {/* Coluna JORNADA fixa */}
+                      <th className="sticky left-[120px] md:left-[150px] z-30 bg-slate-100 border-b border-r border-slate-300 p-2 text-center min-w-[70px] md:min-w-[90px] uppercase font-black text-slate-700 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">JORNADA</th>
+                      {daysArray.map(d => (
+                         <th key={d.day} className={`border-b border-r border-slate-300 p-1 text-center min-w-[26px] md:min-w-[30px] font-black ${d.isSunday ? 'bg-slate-200 text-slate-900' : 'bg-slate-50 text-slate-500'}`}>
+                            <div className="text-[6px] md:text-[7px] uppercase opacity-70 mb-0.5 leading-none">{d.name.slice(0,3)}</div>
+                            <div className="text-slate-800 leading-none">{d.day}</div>
+                         </th>
+                      ))}
+                   </tr>
+                </thead>
+                <tbody>
+                   {scaleEmployees.length === 0 ? (
+                     <tr>
+                       <td colSpan={daysArray.length + 2} className="p-10 text-center text-slate-300 font-black italic uppercase">Nenhum funcionário na escala</td>
+                     </tr>
+                   ) : scaleEmployees.map(emp => (
+                      <tr key={emp.id} className="hover:bg-slate-50 transition-colors border-b border-slate-200">
+                         {/* Coluna NOME fixa no corpo */}
+                         <td className="sticky left-0 z-20 bg-white border-r border-slate-300 p-2 font-bold uppercase text-slate-700 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] truncate max-w-[120px] md:max-w-[150px]">
+                            {emp.name || 'Sem Nome'}
+                            {emp.scheduleType === '12x36' && <span className="block text-[8px] text-blue-500">{emp.shiftType || 'Par'}</span>}
+                         </td>
+                         {/* Coluna JORNADA fixa no corpo */}
+                         <td className="sticky left-[120px] md:left-[150px] z-20 bg-white border-r border-slate-300 p-2 text-center font-bold text-slate-500 whitespace-nowrap text-[8px] md:text-[10px] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">{emp.workingHours}</td>
+                         {daysArray.map(d => {
+                            let content = '';
+                            let textColor = 'text-slate-800';
+                            let bgColor = d.isSunday ? 'bg-slate-100/30' : '';
+                            let extraStyles = '';
+
+                            if (emp.scheduleType === '12x36') {
+                               const isEvenDay = d.day % 2 === 0;
+                               const isParShift = emp.shiftType === 'Par';
+                               // Lógica 12x36:
+                               // Se turno PAR: trabalha dias pares (2,4,6...), folga ímpares.
+                               // Se turno ÍMPAR: trabalha dias ímpares (1,3,5...), folga pares.
+                               
+                               const isWorkDay = (isEvenDay && isParShift) || (!isEvenDay && !isParShift);
+                               
+                               if (!isWorkDay) {
+                                  content = 'F';
+                                  textColor = 'text-slate-400';
+                                  bgColor = 'bg-slate-100';
+                               }
+                            } else {
+                               // Lógica 6x1
+                               const isFixedOff = d.name.toLowerCase() === (emp.fixedDayOff || '').toLowerCase();
+                               const isSundayOff = d.isSunday && (emp.sundayOffs || []).includes(getSundayIndex(d.day));
+                               
+                               if(isSundayOff) {
+                                  content = 'D';
+                                  textColor = 'text-amber-600';
+                                  bgColor = 'bg-amber-50';
+                                  extraStyles = 'ring-1 ring-inset ring-amber-200';
+                               } else if(isFixedOff) {
+                                  content = 'F';
+                                  textColor = 'text-blue-600';
+                                  bgColor = 'bg-blue-50';
+                                  extraStyles = 'ring-1 ring-inset ring-blue-200';
+                               }
+                            }
+                            
+                            return (
+                               <td key={d.day} className={`border-r border-slate-200 p-1 text-center font-black ${bgColor} ${textColor} ${extraStyles}`}>
+                                  <span className="inline-block scale-90 md:scale-100">{content}</span>
+                                </td>
+                            );
+                         })}
+                      </tr>
+                   ))}
+                </tbody>
+             </table>
+          </div>
+        </div>
+      )}
+
+      {viewMode === 'EXTRAS' && (
+        <div className="space-y-6">
+            <div className="relative max-w-md">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" size={16} />
+                <input type="text" placeholder="Buscar profissional extra..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-9 pr-4 py-3 rounded-xl border border-slate-100 text-sm font-bold bg-white shadow-inner" />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {filteredExtras.map(ext => (
+                    <div key={ext.id} className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm relative group overflow-hidden">
+                        <div className="absolute top-0 right-0 p-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button onClick={() => handleEditExtra(ext)} className="p-2 bg-slate-50 text-slate-400 hover:text-blue-500 rounded-lg"><Edit2 size={16}/></button>
+                            <button onClick={() => onDeleteExtra(ext.id)} className="p-2 bg-slate-50 text-slate-400 hover:text-rose-500 rounded-lg"><Trash2 size={16}/></button>
+                        </div>
+
+                        <div className="flex items-center space-x-4 mb-4">
+                            <div className="w-12 h-12 bg-slate-900 text-white rounded-2xl flex items-center justify-center font-black text-lg">
+                                {(ext.name || 'E')[0]}
+                            </div>
+                            <div>
+                                <h4 className="font-black text-slate-800">{ext.name}</h4>
+                                <div className="flex items-center text-emerald-500 font-black text-[10px] uppercase tracking-tighter">
+                                    <Star size={10} className="mr-1 fill-emerald-500"/> Avaliação: {ext.serviceQuality}/10
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="space-y-3">
+                            <div className="flex items-center text-xs font-bold text-slate-500">
+                                <Phone size={14} className="mr-2 text-slate-300"/> {ext.phone || 'Sem contato'}
+                            </div>
+                            <div className="flex flex-wrap gap-1.5">
+                                {(ext.availability || []).map(day => (
+                                    <span key={day} className="px-2 py-0.5 bg-slate-50 text-slate-400 text-[8px] font-black uppercase rounded border border-slate-100">{day}</span>
+                                ))}
+                            </div>
+                            {ext.observation && (
+                                <div className="mt-2 p-3 bg-slate-50/50 rounded-xl border border-slate-50 flex items-start gap-2">
+                                    <MessageSquare size={12} className="text-slate-300 mt-1 shrink-0"/>
+                                    <p className="text-[10px] text-slate-500 font-medium leading-relaxed">{ext.observation}</p>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                ))}
+                {filteredExtras.length === 0 && (
+                    <div className="col-span-full py-20 text-center bg-white border-2 border-dashed border-slate-100 rounded-[2.5rem]">
+                        <Users size={48} className="mx-auto text-slate-100 mb-4"/>
+                        <p className="text-slate-400 font-black italic">Nenhum extra cadastrado neste setor.</p>
+                    </div>
+                )}
+            </div>
+        </div>
+      )}
+
+      {/* Modal Cadastro de Profissional Extra */}
+      {isAddingExtra && (
+        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[400] flex items-center justify-center p-4">
+            <div className="bg-white w-full max-w-lg rounded-[3rem] shadow-2xl max-h-[90vh] overflow-hidden flex flex-col animate-in zoom-in duration-300">
+                <div className="p-8 border-b flex justify-between items-center bg-slate-50/50">
+                    <div>
+                        <h2 className="text-xl font-black text-slate-800 uppercase tracking-tighter">{editingExtra ? 'Editar' : 'Cadastrar'} Profissional Extra</h2>
+                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">{currentSector?.name}</p>
+                    </div>
+                    <button onClick={resetExtraForm} className="p-2 text-slate-300 hover:text-slate-900 transition-all"><X size={28}/></button>
+                </div>
+
+                <form onSubmit={handleSaveExtraSubmit} className="p-8 space-y-6 overflow-y-auto">
+                    <div className="space-y-4">
+                        <div>
+                            <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Nome Completo</label>
+                            <input type="text" value={extraName} onChange={e => setExtraName(e.target.value)} className="w-full px-4 py-3 rounded-xl border-2 font-bold text-slate-800 focus:border-slate-900 transition-all" required />
+                        </div>
+                        <div>
+                            <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Telefone de Contato</label>
+                            <input type="text" value={extraPhone} onChange={e => setExtraPhone(e.target.value)} placeholder="(00) 00000-0000" className="w-full px-4 py-3 rounded-xl border-2 font-bold text-slate-800" />
+                        </div>
+                        
+                        <div>
+                            <label className="text-[10px] font-black text-slate-400 uppercase mb-3 block">Disponibilidade (Dias da Semana)</label>
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                                {weekDays.map(day => (
+                                    <button
+                                        key={day}
+                                        type="button"
+                                        onClick={() => {
+                                            if(extraAvailability.includes(day)) setExtraAvailability(extraAvailability.filter(d => d !== day));
+                                            else setExtraAvailability([...extraAvailability, day]);
+                                        }}
+                                        className={`py-2 px-1 rounded-lg text-[9px] font-black uppercase transition-all border-2 ${extraAvailability.includes(day) ? 'bg-slate-900 border-slate-900 text-white' : 'bg-white border-slate-100 text-slate-400 hover:border-slate-200'}`}
+                                    >
+                                        {day.slice(0, 3)}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        <div>
+                            <div className="flex justify-between items-center mb-2">
+                                <label className="text-[10px] font-black text-slate-400 uppercase block">Qualidade do Serviço</label>
+                                <span className="bg-emerald-50 text-emerald-600 px-3 py-1 rounded-full text-xs font-black">{extraQuality}/10</span>
+                            </div>
+                            <input 
+                                type="range" 
+                                min="0" max="10" step="1" 
+                                value={extraQuality} 
+                                onChange={e => setExtraQuality(parseInt(e.target.value))} 
+                                className="w-full h-2 bg-slate-100 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                            />
+                        </div>
+
+                        <div>
+                            <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Observações Adicionais</label>
+                            <textarea 
+                                value={extraObservation} 
+                                onChange={e => setExtraObservation(e.target.value)} 
+                                className="w-full px-4 py-3 rounded-xl border-2 font-bold text-slate-800 min-h-[80px]" 
+                                placeholder="Notas sobre experiências anteriores..."
+                            />
+                        </div>
+                    </div>
+
+                    <div className="flex gap-4 pt-6 mt-6 border-t">
+                        <button type="button" onClick={resetExtraForm} className="flex-1 py-4 font-black uppercase text-xs text-slate-400">Cancelar</button>
+                        <button type="submit" className="flex-1 py-4 rounded-2xl font-black uppercase text-xs text-white shadow-xl transition-all" style={{ backgroundColor: theme.primary }}>
+                            {editingExtra ? 'Atualizar Extra' : 'Cadastrar Extra'}
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+      )}
+
+      {/* Modal Cadastro/Edição de Funcionário CLT */}
+      {isAddingEmployee && (
+        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[400] flex items-center justify-center p-4">
+           <div className="bg-white w-full max-w-3xl rounded-[3rem] shadow-2xl max-h-[90vh] overflow-hidden flex flex-col animate-in zoom-in duration-300">
+              <div className="p-8 border-b flex justify-between items-center bg-slate-50/50">
+                 <div>
+                    <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tighter">{editingEmployee ? 'Editar' : 'Novo'} Colaborador</h2>
+                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">{currentSector?.name}</p>
+                 </div>
+                 <button onClick={resetEmployeeForm} className="p-2 text-slate-300 hover:text-slate-900 transition-all"><X size={32}/></button>
+              </div>
+
+              <div className="flex bg-slate-100 p-1.5 mx-8 mt-6 rounded-2xl border">
+                 <button onClick={() => setActiveFormTab('DADOS')} className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase transition-all ${activeFormTab === 'DADOS' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-400'}`}>Dados Pessoais</button>
+                 <button onClick={() => setActiveFormTab('ESCALA')} className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase transition-all ${activeFormTab === 'ESCALA' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-400'}`}>Escala & Folgas</button>
+                 <button onClick={() => setActiveFormTab('UNIFORMES')} className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase transition-all ${activeFormTab === 'UNIFORMES' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-400'}`}>Uniformes</button>
+              </div>
+
+              <form onSubmit={handleSaveEmployeeSubmit} className="p-8 flex-1 overflow-y-auto space-y-8">
+                 {activeFormTab === 'DADOS' && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-in slide-in-from-left-4">
+                       <div className="col-span-2">
+                          <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Nome Completo</label>
+                          <input type="text" value={name} onChange={e => setName(e.target.value)} className="w-full px-5 py-4 rounded-2xl border-2 font-bold text-slate-800" required />
+                       </div>
+                       <div>
+                          <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Gênero</label>
+                          <div className="flex gap-2">
+                             <button type="button" onClick={() => setGender('M')} className={`flex-1 py-3 rounded-xl border-2 font-black text-xs ${gender === 'M' ? 'bg-blue-500 border-blue-500 text-white shadow-md' : 'bg-white text-slate-400'}`}>MASCULINO</button>
+                             <button type="button" onClick={() => setGender('F')} className={`flex-1 py-3 rounded-xl border-2 font-black text-xs ${gender === 'F' ? 'bg-rose-500 border-rose-500 text-white shadow-md' : 'bg-white text-slate-400'}`}>FEMININO</button>
+                          </div>
+                       </div>
+                       <div>
+                          <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Cargo / Função</label>
+                          <input type="text" value={role} onChange={e => setRole(e.target.value)} className="w-full px-5 py-4 rounded-2xl border-2 font-bold text-slate-800" required />
+                       </div>
+                       <div>
+                          <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Telefone de Contato</label>
+                          <input type="text" value={contact} onChange={e => setContact(e.target.value)} placeholder="(00) 00000-0000" className="w-full px-5 py-4 rounded-2xl border-2 font-bold text-slate-800" />
+                       </div>
+                       <div>
+                          <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Salário Base (R$)</label>
+                          <input type="number" value={salary} onChange={e => setSalary(e.target.value)} className="w-full px-5 py-4 rounded-2xl border-2 font-bold text-slate-800" />
+                       </div>
+                    </div>
+                 )}
+
+                 {activeFormTab === 'ESCALA' && (
+                    <div className="space-y-8 animate-in slide-in-from-right-4">
+                       <div className="col-span-2">
+                          <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Tipo de Escala</label>
+                          <div className="flex gap-2">
+                             {(['6x1', '12x36', 'Intermitente'] as const).map(type => (
+                               <button 
+                                 key={type}
+                                 type="button" 
+                                 onClick={() => setScheduleType(type)}
+                                 className={`flex-1 py-3 rounded-xl border-2 font-black text-[10px] uppercase transition-all ${scheduleType === type ? 'bg-slate-900 border-slate-900 text-white shadow-md' : 'bg-white text-slate-400 hover:border-slate-300'}`}
+                               >
+                                 {type}
+                               </button>
+                             ))}
+                          </div>
+                       </div>
+
+                       {scheduleType === 'Intermitente' && (
+                          <div className="p-6 bg-amber-50 rounded-2xl border border-amber-100 flex items-center space-x-3 text-amber-700">
+                             <AlertTriangle size={24} />
+                             <p className="text-xs font-bold">Colaboradores intermitentes não possuem escala fixa e não aparecerão na tabela de escala mensal.</p>
+                          </div>
+                       )}
+
+                       {scheduleType !== 'Intermitente' && (
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            {scheduleType === '12x36' ? (
+                                <div>
+                                    <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Tipo de Turno (Dia)</label>
+                                    <div className="flex bg-slate-50 p-1 rounded-xl border border-slate-100">
+                                      <button type="button" onClick={() => setShiftType('Par')} className={`flex-1 py-3 rounded-lg text-[10px] font-black uppercase transition-all ${shiftType === 'Par' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-400'}`}>Dias Pares</button>
+                                      <button type="button" onClick={() => setShiftType('Ímpar')} className={`flex-1 py-3 rounded-lg text-[10px] font-black uppercase transition-all ${shiftType === 'Ímpar' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-400'}`}>Dias Ímpares</button>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div>
+                                    <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Folga Fixa Semanal</label>
+                                    <select value={fixedDayOff} onChange={e => setFixedDayOff(e.target.value)} className="w-full px-5 py-4 rounded-2xl border-2 font-bold bg-white text-slate-800 outline-none">
+                                        {['Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'].map(d => <option key={d} value={d}>{d}</option>)}
+                                    </select>
+                                </div>
+                            )}
+
+                             <div>
+                                <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Horário de Trabalho</label>
+                                <input type="text" value={workingHours} onChange={e => setWorkingHours(e.target.value)} placeholder="08:00 - 16:20" className="w-full px-5 py-4 rounded-2xl border-2 font-bold text-slate-800" />
+                             </div>
+                          </div>
+                       )}
+
+                       {scheduleType === '6x1' && (
+                           <div className="p-6 bg-slate-50 rounded-3xl border border-slate-200">
+                              <div className="flex justify-between items-center mb-4">
+                                <label className="text-[10px] font-black text-slate-500 uppercase flex items-center">
+                                   <CalendarIcon size={14} className="mr-2"/> Domingos de Folga no Mês
+                                </label>
+                                <span className={`text-[9px] font-black px-2 py-1 rounded-lg uppercase ${gender === 'F' ? 'bg-rose-100 text-rose-600' : 'bg-blue-100 text-blue-600'}`}>
+                                   Regra: {gender === 'F' ? '2 Domingos' : '1 Domingo'}
+                                </span>
+                              </div>
+                              <div className="grid grid-cols-5 gap-3">
+                                 {[1, 2, 3, 4, 5].map(num => (
+                                    <button
+                                       key={num}
+                                       type="button"
+                                       onClick={() => {
+                                          if(sundayOffs.includes(num)) setSundayOffs(sundayOffs.filter(n => n !== num));
+                                          else setSundayOffs([...sundayOffs, num]);
+                                       }}
+                                       className={`p-4 rounded-2xl border-2 font-black text-xs transition-all ${sundayOffs.includes(num) ? 'bg-slate-900 border-slate-900 text-white shadow-lg' : 'bg-white text-slate-400 hover:border-slate-300'}`}
+                                    >
+                                       {num}º D
+                                    </button>
+                                 ))}
+                              </div>
+                           </div>
+                       )}
+                    </div>
+                 )}
+
+                 {activeFormTab === 'UNIFORMES' && (
+                    <div className="space-y-6 animate-in zoom-in-95">
+                       <p className="text-center py-10 text-slate-300 font-bold italic uppercase text-xs">Módulo de controle de fardamento em desenvolvimento...</p>
+                    </div>
+                 )}
+
+                 <div className="flex gap-4 pt-6 mt-6 border-t">
+                    <button type="button" onClick={resetEmployeeForm} className="flex-1 py-4 font-black uppercase text-xs text-slate-400">Cancelar</button>
+                    <button type="submit" className="flex-1 py-4 rounded-[1.5rem] font-black uppercase text-xs text-white shadow-xl active:scale-95 transition-all" style={{ backgroundColor: theme.primary }}>Salvar Colaborador</button>
+                 </div>
+              </form>
+           </div>
         </div>
       )}
     </div>

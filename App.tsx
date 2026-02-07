@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { ViewType, AppState, Apartment, Budget, Employee, Integration, HotelType, HotelData, HotelTheme, User, Sector, InventoryItem, InventoryOperation, Supplier } from './types';
+import { ViewType, AppState, Apartment, Budget, Employee, Integration, HotelType, HotelData, HotelTheme, User, Sector, InventoryItem, InventoryOperation, Supplier, ExtraLabor } from './types';
 import Sidebar from './components/Sidebar';
 import BottomNav from './components/BottomNav';
 import Dashboard from './components/Dashboard';
@@ -20,6 +20,7 @@ const getInitialHotelData = (): HotelData => ({
   apartments: {},
   budgets: [],
   employees: [],
+  extras: [],
   inventory: [],
   inventoryHistory: [],
   suppliers: [],
@@ -40,7 +41,8 @@ const App: React.FC = () => {
   const initialSyncRef = useRef(false);
   
   const [state, setState] = useState<AppState>(() => {
-    const saved = localStorage.getItem('hotel_village_state_v33');
+    // Incrementado para V41 para garantir limpeza de cache e nova sincronização
+    const saved = localStorage.getItem('hotel_village_state_v41');
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
@@ -87,7 +89,8 @@ const App: React.FC = () => {
     const targetHotel = hotelOverride || state.currentHotel;
     setIsRefreshing(true);
     try {
-      const scriptUrl = GLOBAL_SCRIPT_URL;
+      // Usa URL do estado se disponível, senão usa a constante
+      const scriptUrl = state.integrations[0]?.url || GLOBAL_SCRIPT_URL;
       const fetchUrl = `${scriptUrl}?hotel=${targetHotel}&nocache=${Date.now()}`;
       
       const response = await fetch(fetchUrl, {
@@ -103,31 +106,64 @@ const App: React.FC = () => {
       if (result && result.status === 'success') {
         const incomingData = result.data;
         
-        // 1. Normalização de Funcionários e Setores
-        const normalizedEmployees = (incomingData.employees || []).map((emp: any) => ({
-          ...emp,
-          id: emp.id?.toString() || '',
-          sectorId: emp.sectorId?.toString() || '',
-          uniforms: typeof emp.uniforms === 'string' ? JSON.parse(emp.uniforms) : (emp.uniforms || [])
+        // NORMALIZAÇÃO RIGOROSA DE FUNCIONÁRIOS
+        const normalizedEmployees = (incomingData.employees || []).map((emp: any) => {
+          let sOffs: number[] = [];
+          if (typeof emp.sundayOffs === 'string' && emp.sundayOffs !== '') {
+            try {
+              const p = JSON.parse(emp.sundayOffs);
+              sOffs = Array.isArray(p) ? p.map(Number) : [Number(p)];
+            } catch {
+              sOffs = emp.sundayOffs.split(',').map(Number).filter(n => !isNaN(n));
+            }
+          } else if (Array.isArray(emp.sundayOffs)) {
+            sOffs = emp.sundayOffs.map(Number);
+          }
+
+          return {
+            ...emp,
+            id: emp.id?.toString() || '',
+            name: emp.name || 'Sem Nome',
+            gender: (emp.gender?.toUpperCase() === 'F' || emp.gender?.toUpperCase() === 'FEMININO') ? 'F' : 'M',
+            role: emp.role || '',
+            fixedDayOff: emp.fixedDayOff || 'Segunda-feira',
+            sundayOffs: sOffs,
+            sectorId: emp.sectorId?.toString() || '',
+            salary: parseFloat(emp.salary) || 0,
+            uniforms: typeof emp.uniforms === 'string' ? JSON.parse(emp.uniforms) : (emp.uniforms || [])
+          };
+        });
+
+        // NORMALIZAÇÃO DE EXTRAS
+        const normalizedExtras = (incomingData.extras || []).map((ext: any) => ({
+          ...ext,
+          id: ext.id?.toString() || '',
+          name: ext.name || '',
+          phone: ext.phone || '',
+          availability: typeof ext.availability === 'string' ? JSON.parse(ext.availability) : (ext.availability || []),
+          serviceQuality: parseFloat(ext.serviceQuality) || 0,
+          sectorId: ext.sectorId?.toString() || '',
+          observation: ext.observation || ''
         }));
 
         const normalizedSectors = (incomingData.sectors || []).map((sec: any) => ({
           ...sec,
           id: sec.id?.toString() || '',
+          name: sec.name || 'Setor Sem Nome',
           standardUniform: typeof sec.standardUniform === 'string' ? JSON.parse(sec.standardUniform) : (sec.standardUniform || [])
         }));
 
-        // 2. Normalização de Orçamentos (Novos Campos Técnicos)
+        // NORMALIZAÇÃO DE ORÇAMENTOS
         const normalizedBudgets = (incomingData.budgets || []).map((b: any) => ({
           ...b,
           id: b.id?.toString() || '',
+          title: b.title || 'Sem Título',
+          objective: b.objective || '',
           items: (typeof b.items === 'string' ? JSON.parse(b.items) : (b.items || [])).map((it: any) => ({
             ...it,
-            serviceProvider: it.serviceProvider || '',
-            estimatedTime: it.estimatedTime || '',
+            description: it.description || 'Serviço',
             materials: (it.materials || []).map((m: any) => ({
               ...m,
-              observation: m.observation || '',
               quotes: m.quotes || [{ supplier: '', value: 0 }, { supplier: '', value: 0 }, { supplier: '', value: 0 }]
             }))
           })),
@@ -135,7 +171,27 @@ const App: React.FC = () => {
           createdAt: typeof b.createdAt === 'string' ? new Date(b.createdAt).getTime() : (b.createdAt || Date.now())
         }));
 
-        // 3. Normalização de Apartamentos (Novas Opções Visuais)
+        // NORMALIZAÇÃO DE ESTOQUE
+        const normalizedInventory = (incomingData.inventory || []).map((inv: any) => ({
+            ...inv,
+            id: inv.id?.toString(),
+            quantity: parseFloat(inv.quantity) || 0,
+            price: parseFloat(inv.price) || 0,
+            lastUpdate: inv.lastUpdate ? new Date(inv.lastUpdate).getTime() : Date.now()
+        }));
+
+        const normalizedInventoryHistory = (incomingData.inventoryHistory || []).map((op: any) => ({
+            ...op,
+            id: op.id?.toString(),
+            quantity: parseFloat(op.quantity) || 0,
+            timestamp: op.timestamp ? new Date(op.timestamp).getTime() : Date.now()
+        }));
+
+        const normalizedSuppliers = (incomingData.suppliers || []).map((s: any) => ({
+            ...s,
+            id: s.id?.toString()
+        }));
+
         const normalizedApartments: Record<string, Apartment> = {};
         Object.entries(incomingData.apartments || {}).forEach(([id, apt]: [string, any]) => {
           normalizedApartments[id] = {
@@ -155,8 +211,12 @@ const App: React.FC = () => {
               ...incomingData,
               apartments: normalizedApartments,
               employees: normalizedEmployees,
+              extras: normalizedExtras,
               sectors: normalizedSectors,
-              budgets: normalizedBudgets
+              budgets: normalizedBudgets,
+              inventory: normalizedInventory,
+              inventoryHistory: normalizedInventoryHistory,
+              suppliers: normalizedSuppliers
             }
           },
           integrations: prev.integrations.map(i => i.id === 'global-sync' ? { ...i, lastSync: Date.now(), status: 'Connected' } : i)
@@ -169,7 +229,7 @@ const App: React.FC = () => {
       setIsRefreshing(false); 
     }
     return null;
-  }, [state.currentHotel]);
+  }, [state.currentHotel, state.integrations]);
 
   useEffect(() => {
     if (initialSyncRef.current) return;
@@ -186,67 +246,399 @@ const App: React.FC = () => {
   }, [loadDataFromSheet, state.currentHotel]);
 
   useEffect(() => { 
-    localStorage.setItem('hotel_village_state_v33', JSON.stringify(state)); 
+    localStorage.setItem('hotel_village_state_v41', JSON.stringify(state)); 
   }, [state]);
 
-  const syncToSheet = async (dataType: 'APARTMENT' | 'BUDGET' | 'EMPLOYEE' | 'SECTOR' | 'INVENTORY' | 'INVENTORY_OP' | 'SUPPLIER' | 'CONFIG' | 'DELETE', data: any, files?: any[]) => {
+  const syncToSheet = async (dataType: 'APARTMENT' | 'BUDGET' | 'EMPLOYEE' | 'EXTRA' | 'SECTOR' | 'INVENTORY' | 'INVENTORY_OP' | 'SUPPLIER' | 'CONFIG' | 'DELETE', data: any, newFiles?: any[]) => {
     try {
-      await fetch(GLOBAL_SCRIPT_URL, { 
-        method: 'POST', 
-        mode: 'no-cors', 
-        body: JSON.stringify({ dataType, hotel: state.currentHotel, ...data, newFiles: files }) 
+      const scriptUrl = state.integrations[0]?.url || GLOBAL_SCRIPT_URL;
+      await fetch(scriptUrl, {
+        method: 'POST',
+        mode: 'no-cors',
+        body: JSON.stringify({
+          hotel: state.currentHotel,
+          dataType,
+          ...data,
+          newFiles
+        })
       });
-      setState(prev => ({ ...prev, integrations: prev.integrations.map(i => i.id === 'global-sync' ? { ...i, lastSync: Date.now() } : i) }));
-      // Recarrega dados após sincronização crítica
-      if(['EMPLOYEE', 'SECTOR', 'DELETE', 'BUDGET', 'APARTMENT'].includes(dataType)) {
-         setTimeout(() => loadDataFromSheet(), 4500);
-      }
-    } catch (err) { 
-      console.error('Erro no envio:', err);
+    } catch (e) {
+      console.error("Erro na sincronização:", e);
     }
-  };
-
-  const handleLogin = (user: User) => {
-    setState(prev => ({ 
-      ...prev, 
-      currentUser: user,
-      currentHotel: user.hotel || prev.currentHotel,
-      currentView: user.role === 'FUNCIONARIO' ? ViewType.APARTMENTS : ViewType.DASHBOARD,
-      selectedFloor: null,
-      selectedApartmentId: null
-    }));
-    if (user.hotel) setTimeout(() => loadDataFromSheet(user.hotel), 500);
   };
 
   const currentHotelData = state.hotels[state.currentHotel];
 
-  const renderContent = () => {
-    if (state.currentView === ViewType.APARTMENTS) {
-      if (state.selectedApartmentId) {
-        const aptId = state.selectedApartmentId;
-        const apt = currentHotelData.apartments[aptId] || { id: aptId, floor: parseInt(aptId.split('-')[0]), roomNumber: parseInt(aptId.split('-')[1]), defects: [] };
-        return <ApartmentDetailView apartment={apt} theme={theme} onBack={() => setState(prev => ({...prev, selectedApartmentId: null}))} onSave={(updatedApt, files) => { setState(prev => ({...prev, hotels: {...prev.hotels, [prev.currentHotel]: {...prev.hotels[prev.currentHotel], apartments: {...prev.hotels[prev.currentHotel].apartments, [updatedApt.id]: updatedApt}}}})); syncToSheet('APARTMENT', updatedApt, files); }} />;
-      }
-      if (state.selectedFloor !== null) return <FloorDetailView floor={state.selectedFloor} theme={theme} apartments={currentHotelData.apartments} onBack={() => setState(prev => ({ ...prev, selectedFloor: null }))} onSelectApartment={id => setState(prev => ({...prev, selectedApartmentId: id}))} />;
-      return <ApartmentsView onSelectFloor={f => setState(prev => ({...prev, selectedFloor: f}))} theme={theme} hotelName={state.currentHotel} />;
-    }
-    if (state.currentView === ViewType.BUDGETS) return <BudgetsView budgets={currentHotelData.budgets} theme={theme} onSave={(b, f) => { setState(prev => { const hotel = prev.hotels[prev.currentHotel]; const exists = hotel.budgets.find(ex => ex.id === b.id); return { ...prev, hotels: { ...prev.hotels, [prev.currentHotel]: { ...hotel, budgets: exists ? hotel.budgets.map(ex => ex.id === b.id ? b : ex) : [b, ...hotel.budgets] } } }; }); syncToSheet('BUDGET', b, f); }} onDelete={(id) => { setState(prev => ({ ...prev, hotels: { ...prev.hotels, [prev.currentHotel]: { ...prev.hotels[prev.currentHotel], budgets: (prev.hotels[prev.currentHotel].budgets || []).filter(b => b.id !== id) } } })); syncToSheet('DELETE', { targetType: 'BUDGET', id }); }} />;
-    if (state.currentView === ViewType.EMPLOYEES) return <EmployeesView employees={currentHotelData.employees} sectors={currentHotelData.sectors} selectedSectorId={state.selectedSectorId} onSelectSector={id => setState(prev => ({...prev, selectedSectorId: id}))} theme={theme} onSave={(e) => { setState(prev => ({...prev, hotels: {...prev.hotels, [prev.currentHotel]: {...prev.hotels[prev.currentHotel], employees: prev.hotels[prev.currentHotel].employees.find(ex => ex.id === e.id) ? prev.hotels[prev.currentHotel].employees.map(ex => ex.id === e.id ? e : ex) : [e, ...prev.hotels[prev.currentHotel].employees]}}})); syncToSheet('EMPLOYEE', e); }} onDelete={(id) => { setState(prev => ({...prev, hotels: {...prev.hotels, [prev.currentHotel]: {...prev.hotels[prev.currentHotel], employees: prev.hotels[prev.currentHotel].employees.filter(e => e.id !== id)}}})); syncToSheet('DELETE', { targetType: 'EMPLOYEE', id }); }} onSaveSector={(s) => { setState(prev => ({...prev, hotels: {...prev.hotels, [prev.currentHotel]: {...prev.hotels[prev.currentHotel], sectors: prev.hotels[prev.currentHotel].sectors.find(ex => ex.id === s.id) ? prev.hotels[prev.currentHotel].sectors.map(ex => ex.id === s.id ? s : ex) : [...prev.hotels[prev.currentHotel].sectors, s]}}})); syncToSheet('SECTOR', s); }} onDeleteSector={(id) => { setState(prev => ({...prev, hotels: {...prev.hotels, [prev.currentHotel]: {...prev.hotels[prev.currentHotel], sectors: prev.hotels[prev.currentHotel].sectors.filter(s => s.id !== id)}}})); syncToSheet('DELETE', { targetType: 'SECTOR', id }); }} />;
-    if (state.currentView === ViewType.INVENTORY) return <InventoryView inventory={currentHotelData.inventory} history={currentHotelData.inventoryHistory} suppliers={currentHotelData.suppliers} showSuppliersTab={currentHotelData.config?.showSuppliersTab} theme={theme} onSave={(item) => { setState(prev => { const hotel = prev.hotels[prev.currentHotel]; const exists = hotel.inventory.find(i => i.id === item.id); return { ...prev, hotels: { ...prev.hotels, [prev.currentHotel]: { ...hotel, inventory: exists ? hotel.inventory.map(i => i.id === item.id ? item : i) : [...hotel.inventory, item] } } }; }); syncToSheet('INVENTORY', item); }} onDelete={(id) => { setState(prev => { const hotel = prev.hotels[prev.currentHotel]; return { ...prev, hotels: { ...prev.hotels, [prev.currentHotel]: { ...hotel, inventory: hotel.inventory.filter(i => i.id !== id) } } }; }); syncToSheet('DELETE', { targetType: 'INVENTORY', id }); }} onOperation={(op) => { setState(prev => { const hotel = prev.hotels[prev.currentHotel]; const item = hotel.inventory.find(i => i.id === op.itemId); if (!item) return prev; const updatedItem = { ...item, quantity: op.type === 'Entrada' ? item.quantity + op.quantity : item.quantity - op.quantity, lastUpdate: Date.now() }; return { ...prev, hotels: { ...prev.hotels, [prev.currentHotel]: { ...hotel, inventory: hotel.inventory.map(i => i.id === op.itemId ? updatedItem : i), inventoryHistory: [op, ...hotel.inventoryHistory] } } }; }); syncToSheet('INVENTORY_OP', op); }} onSaveSupplier={(supplier) => { setState(prev => { const hotel = prev.hotels[prev.currentHotel]; const exists = hotel.suppliers.find(s => s.id === supplier.id); return { ...prev, hotels: { ...prev.hotels, [prev.currentHotel]: { ...hotel, suppliers: exists ? hotel.suppliers.map(s => s.id === supplier.id ? supplier : s) : [...hotel.suppliers, supplier] } } }; }); syncToSheet('SUPPLIER', supplier); }} onDeleteSupplier={(id) => { setState(prev => { const hotel = prev.hotels[prev.currentHotel]; return { ...prev, hotels: { ...prev.hotels, [prev.currentHotel]: { ...hotel, suppliers: hotel.suppliers.filter(s => s.id !== id) } } }; }); syncToSheet('DELETE', { targetType: 'SUPPLIER', id }); }} role={state.currentUser?.role} currentUser={state.currentUser?.name} />;
-    if (state.currentView === ViewType.REPORTS) return <ReportsView apartments={currentHotelData.apartments} theme={theme} onSelectApartment={id => setState(prev => ({ ...prev, currentView: ViewType.APARTMENTS, selectedApartmentId: id }))} />;
-    if (state.currentView === ViewType.SETTINGS) return <SettingsView integrations={state.integrations} hotelConfig={currentHotelData.config} onUpdateConfig={(config) => { setState(prev => ({ ...prev, hotels: { ...prev.hotels, [prev.currentHotel]: { ...prev.hotels[prev.currentHotel], config: { ...prev.hotels[prev.currentHotel].config, ...config } } } })); syncToSheet('CONFIG', config); }} theme={theme} suppliers={currentHotelData.suppliers} onSaveSupplier={(supplier) => { setState(prev => { const hotel = prev.hotels[prev.currentHotel]; const exists = hotel.suppliers.find(s => s.id === supplier.id); return { ...prev, hotels: { ...prev.hotels, [prev.currentHotel]: { ...hotel, suppliers: exists ? hotel.suppliers.map(s => s.id === supplier.id ? supplier : s) : [...hotel.suppliers, supplier] } } }; }); syncToSheet('SUPPLIER', supplier); }} onDeleteSupplier={(id) => { setState(prev => { const hotel = prev.hotels[prev.currentHotel]; return { ...prev, hotels: { ...prev.hotels, [prev.currentHotel]: { ...hotel, suppliers: hotel.suppliers.filter(s => s.id !== id) } } }; }); syncToSheet('DELETE', { targetType: 'SUPPLIER', id }); }} onUpdate={i => setState(prev => ({...prev, integrations: prev.integrations.map(existing => existing.id === i.id ? i : existing)}))} />;
-    if (state.currentView === ViewType.DASHBOARD) return <Dashboard apartments={currentHotelData.apartments} employees={currentHotelData.employees} theme={theme} lastSync={state.integrations[0].lastSync} onRefresh={() => loadDataFromSheet()} isRefreshing={isRefreshing} />;
-    return null;
+  const handleLogin = (user: User) => setState(prev => ({ ...prev, currentUser: user }));
+  const handleLogout = () => setState(prev => ({ ...prev, currentUser: null, currentView: ViewType.DASHBOARD }));
+  
+  const handleViewChange = (view: ViewType) => setState(prev => ({ 
+    ...prev, 
+    currentView: view,
+    selectedFloor: null,
+    selectedApartmentId: null,
+    selectedSectorId: null
+  }));
+
+  const handleHotelChange = (hotel: HotelType) => {
+    setState(prev => ({ ...prev, currentHotel: hotel }));
+    loadDataFromSheet(hotel);
   };
 
-  if (!state.currentUser) return <Login onLogin={handleLogin} onFetchHotelData={loadDataFromSheet} />;
+  const handleSaveApartment = (apt: Apartment, newFiles?: any[]) => {
+    setState(prev => ({
+      ...prev,
+      hotels: {
+        ...prev.hotels,
+        [prev.currentHotel]: {
+          ...prev.hotels[prev.currentHotel],
+          apartments: { ...prev.hotels[prev.currentHotel].apartments, [apt.id]: apt }
+        }
+      }
+    }));
+    syncToSheet('APARTMENT', apt, newFiles);
+  };
+
+  const handleSaveBudget = (budget: Budget) => {
+    const existing = currentHotelData.budgets.find(b => b.id === budget.id);
+    const newBudgets = existing 
+      ? currentHotelData.budgets.map(b => b.id === budget.id ? budget : b)
+      : [...currentHotelData.budgets, budget];
+    
+    setState(prev => ({
+      ...prev,
+      hotels: {
+        ...prev.hotels,
+        [prev.currentHotel]: { ...prev.hotels[prev.currentHotel], budgets: newBudgets }
+      }
+    }));
+    syncToSheet('BUDGET', budget);
+  };
+
+  const handleDeleteBudget = (id: string) => {
+    setState(prev => ({
+      ...prev,
+      hotels: {
+        ...prev.hotels,
+        [prev.currentHotel]: {
+          ...prev.hotels[prev.currentHotel],
+          budgets: prev.hotels[prev.currentHotel].budgets.filter(b => b.id !== id)
+        }
+      }
+    }));
+    syncToSheet('DELETE', { id, targetType: 'BUDGET' });
+  };
+
+  const handleSaveEmployee = (emp: Employee) => {
+    const existing = currentHotelData.employees.find(e => e.id === emp.id);
+    const newEmps = existing 
+      ? currentHotelData.employees.map(e => e.id === emp.id ? emp : e)
+      : [...currentHotelData.employees, emp];
+    
+    setState(prev => ({
+      ...prev,
+      hotels: {
+        ...prev.hotels,
+        [prev.currentHotel]: { ...prev.hotels[prev.currentHotel], employees: newEmps }
+      }
+    }));
+    syncToSheet('EMPLOYEE', emp);
+  };
+
+  const handleDeleteEmployee = (id: string) => {
+    setState(prev => ({
+      ...prev,
+      hotels: {
+        ...prev.hotels,
+        [prev.currentHotel]: {
+          ...prev.hotels[prev.currentHotel],
+          employees: prev.hotels[prev.currentHotel].employees.filter(e => e.id !== id)
+        }
+      }
+    }));
+    syncToSheet('DELETE', { id, targetType: 'EMPLOYEE' });
+  };
+
+  const handleSaveExtra = (extra: ExtraLabor) => {
+    const existing = currentHotelData.extras.find(e => e.id === extra.id);
+    const newExtras = existing 
+      ? currentHotelData.extras.map(e => e.id === extra.id ? extra : e)
+      : [...currentHotelData.extras, extra];
+    
+    setState(prev => ({
+      ...prev,
+      hotels: {
+        ...prev.hotels,
+        [prev.currentHotel]: { ...prev.hotels[prev.currentHotel], extras: newExtras }
+      }
+    }));
+    syncToSheet('EXTRA', extra);
+  };
+
+  const handleDeleteExtra = (id: string) => {
+    setState(prev => ({
+      ...prev,
+      hotels: {
+        ...prev.hotels,
+        [prev.currentHotel]: {
+          ...prev.hotels[prev.currentHotel],
+          extras: prev.hotels[prev.currentHotel].extras.filter(e => e.id !== id)
+        }
+      }
+    }));
+    syncToSheet('DELETE', { id, targetType: 'EXTRA' });
+  };
+
+  const handleSaveSector = (sec: Sector) => {
+    const existing = currentHotelData.sectors.find(s => s.id === sec.id);
+    const newSectors = existing 
+      ? currentHotelData.sectors.map(s => s.id === sec.id ? sec : s)
+      : [...currentHotelData.sectors, sec];
+    
+    setState(prev => ({
+      ...prev,
+      hotels: {
+        ...prev.hotels,
+        [prev.currentHotel]: { ...prev.hotels[prev.currentHotel], sectors: newSectors }
+      }
+    }));
+    syncToSheet('SECTOR', sec);
+  };
+
+  const handleDeleteSector = (id: string) => {
+    setState(prev => ({
+      ...prev,
+      hotels: {
+        ...prev.hotels,
+        [prev.currentHotel]: {
+          ...prev.hotels[prev.currentHotel],
+          sectors: prev.hotels[prev.currentHotel].sectors.filter(s => s.id !== id)
+        }
+      }
+    }));
+    syncToSheet('DELETE', { id, targetType: 'SECTOR' });
+  };
+
+  const handleSaveInventoryItem = (item: InventoryItem) => {
+    const existing = currentHotelData.inventory.find(i => i.id === item.id);
+    const newInv = existing 
+      ? currentHotelData.inventory.map(i => i.id === item.id ? item : i)
+      : [...currentHotelData.inventory, item];
+    
+    setState(prev => ({
+      ...prev,
+      hotels: {
+        ...prev.hotels,
+        [prev.currentHotel]: { ...prev.hotels[prev.currentHotel], inventory: newInv }
+      }
+    }));
+    syncToSheet('INVENTORY', item);
+  };
+
+  const handleDeleteInventoryItem = (id: string) => {
+    setState(prev => ({
+      ...prev,
+      hotels: {
+        ...prev.hotels,
+        [prev.currentHotel]: {
+          ...prev.hotels[prev.currentHotel],
+          inventory: prev.hotels[prev.currentHotel].inventory.filter(i => i.id !== id)
+        }
+      }
+    }));
+    syncToSheet('DELETE', { id, targetType: 'INVENTORY' });
+  };
+
+  const handleInventoryOperation = (op: InventoryOperation) => {
+    const item = currentHotelData.inventory.find(i => i.id === op.itemId);
+    if (!item) return;
+    
+    const newQty = op.type === 'Entrada' ? item.quantity + op.quantity : item.quantity - op.quantity;
+    const newItem = { ...item, quantity: newQty, lastUpdate: Date.now() };
+    
+    setState(prev => ({
+      ...prev,
+      hotels: {
+        ...prev.hotels,
+        [prev.currentHotel]: {
+          ...prev.hotels[prev.currentHotel],
+          inventory: prev.hotels[prev.currentHotel].inventory.map(i => i.id === op.itemId ? newItem : i),
+          inventoryHistory: [op, ...prev.hotels[prev.currentHotel].inventoryHistory].slice(0, 100)
+        }
+      }
+    }));
+    syncToSheet('INVENTORY_OP', op);
+  };
+
+  const handleSaveSupplier = (sup: Supplier) => {
+    const existing = currentHotelData.suppliers.find(s => s.id === sup.id);
+    const newSups = existing 
+      ? currentHotelData.suppliers.map(s => s.id === sup.id ? sup : s)
+      : [...currentHotelData.suppliers, sup];
+    
+    setState(prev => ({
+      ...prev,
+      hotels: {
+        ...prev.hotels,
+        [prev.currentHotel]: { ...prev.hotels[prev.currentHotel], suppliers: newSups }
+      }
+    }));
+    syncToSheet('SUPPLIER', sup);
+  };
+
+  const handleDeleteSupplier = (id: string) => {
+    setState(prev => ({
+      ...prev,
+      hotels: {
+        ...prev.hotels,
+        [prev.currentHotel]: {
+          ...prev.hotels[prev.currentHotel],
+          suppliers: prev.hotels[prev.currentHotel].suppliers.filter(s => s.id !== id)
+        }
+      }
+    }));
+    syncToSheet('DELETE', { id, targetType: 'SUPPLIER' });
+  };
+
+  const handleUpdateConfig = (config: any) => {
+    setState(prev => ({
+      ...prev,
+      hotels: {
+        ...prev.hotels,
+        [prev.currentHotel]: {
+          ...prev.hotels[prev.currentHotel],
+          config: { ...prev.hotels[prev.currentHotel].config, ...config }
+        }
+      }
+    }));
+    syncToSheet('CONFIG', config);
+  };
+
+  const handleUpdateIntegration = (integration: Integration) => {
+    setState(prev => ({
+      ...prev,
+      integrations: prev.integrations.map(i => i.id === integration.id ? integration : i)
+    }));
+  };
+
+  const renderContent = () => {
+    if (state.selectedApartmentId) {
+      const apt = currentHotelData.apartments[state.selectedApartmentId];
+      if (apt) {
+        return (
+          <ApartmentDetailView 
+            apartment={apt} 
+            theme={theme} 
+            onBack={() => setState(prev => ({ ...prev, selectedApartmentId: null }))} 
+            onSave={handleSaveApartment}
+          />
+        );
+      }
+    }
+
+    if (state.selectedFloor) {
+      return (
+        <FloorDetailView 
+          floor={state.selectedFloor} 
+          theme={theme} 
+          apartments={currentHotelData.apartments} 
+          onBack={() => setState(prev => ({ ...prev, selectedFloor: null }))}
+          onSelectApartment={(id) => setState(prev => ({ ...prev, selectedApartmentId: id }))}
+        />
+      );
+    }
+
+    switch (state.currentView) {
+      case ViewType.DASHBOARD:
+        return <Dashboard apartments={currentHotelData.apartments} employees={currentHotelData.employees} theme={theme} lastSync={state.integrations[0].lastSync} onRefresh={() => loadDataFromSheet()} isRefreshing={isRefreshing} />;
+      case ViewType.APARTMENTS:
+        return <ApartmentsView onSelectFloor={(floor) => setState(prev => ({ ...prev, selectedFloor: floor }))} theme={theme} hotelName={state.currentHotel} />;
+      case ViewType.BUDGETS:
+        return <BudgetsView budgets={currentHotelData.budgets} theme={theme} onSave={handleSaveBudget} onDelete={handleDeleteBudget} />;
+      case ViewType.EMPLOYEES:
+        return (
+          <EmployeesView 
+            employees={currentHotelData.employees} 
+            extras={currentHotelData.extras}
+            sectors={currentHotelData.sectors} 
+            selectedSectorId={state.selectedSectorId} 
+            onSelectSector={(id) => setState(prev => ({ ...prev, selectedSectorId: id }))} 
+            theme={theme} 
+            onSave={handleSaveEmployee} 
+            onDelete={handleDeleteEmployee} 
+            onSaveExtra={handleSaveExtra}
+            onDeleteExtra={handleDeleteExtra}
+            onSaveSector={handleSaveSector} 
+            onDeleteSector={handleDeleteSector} 
+          />
+        );
+      case ViewType.INVENTORY:
+        return (
+          <InventoryView 
+            inventory={currentHotelData.inventory} 
+            history={currentHotelData.inventoryHistory} 
+            suppliers={currentHotelData.suppliers} 
+            showSuppliersTab={currentHotelData.config?.showSuppliersTab} 
+            theme={theme} 
+            onSave={handleSaveInventoryItem} 
+            onDelete={handleDeleteInventoryItem} 
+            onOperation={handleInventoryOperation} 
+            onSaveSupplier={handleSaveSupplier} 
+            onDeleteSupplier={handleDeleteSupplier} 
+            role={state.currentUser?.role} 
+            currentUser={state.currentUser?.name} 
+          />
+        );
+      case ViewType.REPORTS:
+        return <ReportsView apartments={currentHotelData.apartments} theme={theme} onSelectApartment={(id) => setState(prev => ({ ...prev, selectedApartmentId: id }))} />;
+      case ViewType.SETTINGS:
+        return (
+          <SettingsView 
+            integrations={state.integrations} 
+            hotelConfig={currentHotelData.config} 
+            onUpdateConfig={handleUpdateConfig} 
+            theme={theme} 
+            suppliers={currentHotelData.suppliers} 
+            onSaveSupplier={handleSaveSupplier} 
+            onDeleteSupplier={handleDeleteSupplier} 
+            onUpdate={handleUpdateIntegration} 
+          />
+        );
+      default:
+        return <Dashboard apartments={currentHotelData.apartments} employees={currentHotelData.employees} theme={theme} />;
+    }
+  };
+
+  if (!state.currentUser) {
+    return <Login onLogin={handleLogin} onFetchHotelData={loadDataFromSheet} />;
+  }
+
   return (
-    <div className="flex flex-col md:flex-row min-h-screen" style={{ backgroundColor: theme.bg }}>
-      <Sidebar currentView={state.currentView} onViewChange={v => setState(prev => ({...prev, currentView: v, selectedFloor: null, selectedApartmentId: null}))} currentHotel={state.currentHotel} onHotelChange={h => { setState(prev => ({...prev, currentHotel: h})); loadDataFromSheet(h); }} onLogout={() => setState(prev => ({...prev, currentUser: null}))} theme={theme} role={state.currentUser.role} />
-      <BottomNav currentView={state.currentView} onViewChange={v => setState(prev => ({...prev, currentView: v, selectedFloor: null, selectedApartmentId: null}))} theme={theme} role={state.currentUser.role} />
-      <main className={`flex-1 transition-all duration-300 p-4 md:p-8 ${state.selectedApartmentId ? 'p-0' : ''} mb-20 md:mb-0 md:ml-64`}>
+    <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row">
+      <Sidebar 
+        currentView={state.currentView} 
+        onViewChange={handleViewChange} 
+        currentHotel={state.currentHotel} 
+        onHotelChange={handleHotelChange} 
+        onLogout={handleLogout} 
+        theme={theme} 
+        role={state.currentUser.role} 
+      />
+      
+      <main className="flex-1 p-4 md:p-8 md:ml-64 mb-20 md:mb-0 transition-all duration-300">
+        <header className="flex justify-between items-center mb-8 md:hidden">
+          <h1 className="text-2xl font-black text-slate-800 tracking-tighter">Nacional Inn</h1>
+          <div className="px-3 py-1 bg-white rounded-full border text-[10px] font-bold text-slate-400 uppercase tracking-widest">{state.currentHotel}</div>
+        </header>
         {renderContent()}
       </main>
+
+      <BottomNav 
+        currentView={state.currentView} 
+        onViewChange={handleViewChange} 
+        theme={theme} 
+        role={state.currentUser.role} 
+      />
     </div>
   );
 };

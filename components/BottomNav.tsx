@@ -7,7 +7,8 @@ import {
   ReceiptPoundSterling, 
   Users,
   Package,
-  FileBarChart
+  FileBarChart,
+  CalendarDays
 } from 'lucide-react';
 
 interface BottomNavProps {
@@ -20,6 +21,7 @@ interface BottomNavProps {
 const BottomNav: React.FC<BottomNavProps> = ({ currentView, onViewChange, theme, role }) => {
   const menuItems = [
     { id: ViewType.DASHBOARD, label: 'Início', icon: LayoutDashboard, visible: role === 'GESTOR' },
+    { id: ViewType.TODAY_SCHEDULE, label: 'Hoje', icon: CalendarDays, visible: true },
     { id: ViewType.APARTMENTS, label: 'Aptos', icon: Hotel, visible: true },
     { id: ViewType.REPORTS, label: 'Rels', icon: FileBarChart, visible: true },
     { id: ViewType.BUDGETS, label: 'Orcas', icon: ReceiptPoundSterling, visible: role === 'GESTOR' },

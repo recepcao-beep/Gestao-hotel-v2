@@ -6,7 +6,8 @@ export enum ViewType {
   SETTINGS = 'SETTINGS',
   EMPLOYEES = 'EMPLOYEES',
   INVENTORY = 'INVENTORY',
-  REPORTS = 'REPORTS'
+  REPORTS = 'REPORTS',
+  TODAY_SCHEDULE = 'TODAY_SCHEDULE'
 }
 
 export type UserRole = 'GESTOR' | 'FUNCIONARIO';
@@ -49,7 +50,7 @@ export interface MaterialItem {
   quantity: number;
   unit?: string;
   observation?: string;
-  quotes: MaterialQuote[]; // Array fixo de 3 fornecedores
+  quotes: MaterialQuote[];
 }
 
 export interface BudgetItem {
@@ -102,6 +103,7 @@ export interface Employee {
   id: string;
   name: string;
   role: string;
+  gender: 'M' | 'F';
   contact: string;
   startDate: string;
   salary: number;
@@ -111,10 +113,22 @@ export interface Employee {
   scheduleType: '6x1' | '12x36' | 'Intermitente';
   shiftType?: 'Par' | 'Ímpar';
   workingHours: string;
-  weeklyDayOff: string;
+  fixedDayOff: string;
+  sundayOffs: number[];
   monthlySundayOff: string;
+  weeklyDayOff: string;
   vacationStatus: 'Pendente' | 'Concedida';
   uniforms: UniformItem[];
+}
+
+export interface ExtraLabor {
+  id: string;
+  name: string;
+  phone: string;
+  availability: string[]; // Dias da semana: ["Segunda", "Terça"...]
+  serviceQuality: number; // 0 a 10
+  observation: string;
+  sectorId: string;
 }
 
 export interface Supplier {
@@ -202,6 +216,7 @@ export interface HotelData {
   apartments: Record<string, Apartment>;
   budgets: Budget[];
   employees: Employee[];
+  extras: ExtraLabor[];
   sectors: Sector[];
   inventory: InventoryItem[];
   inventoryHistory: InventoryOperation[];
