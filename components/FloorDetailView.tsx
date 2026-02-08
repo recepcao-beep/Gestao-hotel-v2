@@ -20,7 +20,7 @@ const FloorDetailView: React.FC<FloorDetailViewProps> = ({ floor, theme, apartme
 
   const filterCategories = [
     { label: 'Banheiro', key: 'banheiroType', options: ['Velho', 'Reformado'] },
-    { label: 'Piso', key: 'pisoType', options: ['Granito', 'Madeira', 'Tijolo'] },
+    { label: 'Piso', key: 'pisoType', options: ['Granito', 'Madeira', 'Cerâmica'] },
     { label: 'Ar Cond.', key: 'acBrand', options: ['Midea', 'LG', 'Gree'] },
     { label: 'Avarias', key: 'hasDefects', options: ['Com Avaria', 'Sem Avaria'] }
   ];
@@ -130,14 +130,17 @@ const FloorDetailView: React.FC<FloorDetailViewProps> = ({ floor, theme, apartme
         {filteredApartmentNumbers.map((num) => {
           const id = `${floor}-${num}`;
           const aptData = apartments[id];
-          const hasDefects = aptData && aptData.defects.length > 0;
+          const isInitialized = !!aptData;
+          const hasDefects = isInitialized && aptData.defects.length > 0;
 
           return (
             <button
               key={num}
               onClick={() => onSelectApartment(id)}
               className={`relative h-28 md:h-32 rounded-2xl border-2 flex flex-col items-center justify-center transition-all duration-200 active:scale-95 shadow-sm ${
-                hasDefects 
+                !isInitialized
+                ? 'bg-slate-50 border-slate-200 text-slate-400'
+                : hasDefects 
                 ? 'bg-red-50 border-red-500 text-red-800' 
                 : 'bg-green-50 border-green-500 text-green-800'
               }`}
@@ -146,12 +149,18 @@ const FloorDetailView: React.FC<FloorDetailViewProps> = ({ floor, theme, apartme
               <span className="text-xl md:text-2xl font-black">{num}</span>
               
               <div className="mt-1">
-                {hasDefects ? (
+                {!isInitialized ? (
+                  <div className="w-3.5 h-3.5 rounded-full border-2 border-slate-200 opacity-50" />
+                ) : hasDefects ? (
                   <AlertCircle size={14} className="text-red-500" />
                 ) : (
                   <CheckCircle2 size={14} className="text-green-500" />
                 )}
               </div>
+
+              {!isInitialized && (
+                <span className="absolute bottom-2 text-[6px] font-black uppercase opacity-40">Pendente</span>
+              )}
 
               {hasDefects && (
                 <span className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-600 text-white text-[9px] font-black flex items-center justify-center rounded-full border-2 border-white shadow-sm">

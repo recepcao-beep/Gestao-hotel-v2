@@ -523,17 +523,31 @@ const App: React.FC = () => {
 
   const renderContent = () => {
     if (state.selectedApartmentId) {
-      const apt = currentHotelData.apartments[state.selectedApartmentId];
-      if (apt) {
-        return (
-          <ApartmentDetailView 
-            apartment={apt} 
-            theme={theme} 
-            onBack={() => setState(prev => ({ ...prev, selectedApartmentId: null }))} 
-            onSave={handleSaveApartment}
-          />
-        );
+      let apt = currentHotelData.apartments[state.selectedApartmentId];
+      
+      // Allow access to non-existent (unfilled) apartments by providing a skeleton
+      if (!apt) {
+        const parts = state.selectedApartmentId.split('-');
+        const floor = parseInt(parts[0]);
+        const roomNumber = parseInt(parts[1]);
+        apt = {
+          id: state.selectedApartmentId,
+          floor,
+          roomNumber,
+          defects: [],
+          beds: [],
+          moveisDetalhes: []
+        };
       }
+      
+      return (
+        <ApartmentDetailView 
+          apartment={apt} 
+          theme={theme} 
+          onBack={() => setState(prev => ({ ...prev, selectedApartmentId: null }))} 
+          onSave={handleSaveApartment}
+        />
+      );
     }
 
     if (state.selectedFloor) {
