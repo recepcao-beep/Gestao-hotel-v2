@@ -20,7 +20,12 @@ import {
   Scissors,
   Trash2,
   ChevronRight,
-  Maximize
+  Maximize,
+  AlertOctagon,
+  Layout,
+  X,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 
 interface ReportsViewProps {
@@ -29,124 +34,216 @@ interface ReportsViewProps {
   onSelectApartment: (id: string) => void;
 }
 
+// Estrutura de Filtros Completa (Movida do FloorDetailView)
+const FILTER_SECTIONS = [
+  {
+    id: 'status',
+    label: 'Status Geral',
+    icon: AlertTriangle,
+    color: 'text-red-500',
+    filters: [
+      { key: 'status_geral', label: 'Condição', options: ['Com Avaria', 'Urgente', 'Sem Avaria'] }
+    ]
+  },
+  {
+    id: 'piso',
+    label: 'Piso do Quarto',
+    icon: Droplets,
+    color: 'text-blue-600',
+    filters: [
+      { key: 'pisoType', label: 'Tipo', options: ['Granito', 'Madeira', 'Cerâmica'] },
+      { key: 'pisoStatus', label: 'Estado', options: ['Bom estado', 'Tolerável', 'Reparo urgente'] }
+    ]
+  },
+  {
+    id: 'mobiliario',
+    label: 'Mobiliário Geral',
+    icon: Layout,
+    color: 'text-slate-700',
+    filters: [
+      { key: 'moveisStatus', label: 'Estado', options: ['Bom estado', 'Danificado'] },
+      { key: 'moveisDetalhes', label: 'Item Danificado', options: ['Guarda Roupa', 'Criado mudo', 'Cômoda'] }
+    ]
+  },
+  {
+    id: 'banheiro',
+    label: 'Banheiro',
+    icon: Layers,
+    color: 'text-indigo-600',
+    filters: [
+      { key: 'banheiroType', label: 'Tipo', options: ['Reformado', 'Antigo'] },
+      { key: 'banheiroStatus', label: 'Estado', options: ['Tolerável', 'Reparo urgente'] }
+    ]
+  },
+  {
+    id: 'climatizacao',
+    label: 'Climatização & TV',
+    icon: Wind,
+    color: 'text-cyan-600',
+    filters: [
+      { key: 'acBrand', label: 'Marca AC', options: ['Midea', 'LG', 'Gree'] },
+      { key: 'tvBrand', label: 'Marca TV', options: ['LG', 'Samsung', 'Philco', 'Smart Roku', 'Toshiba'] }
+    ]
+  },
+  {
+    id: 'acessorios',
+    label: 'Acessórios & Itens',
+    icon: Box,
+    color: 'text-amber-600',
+    filters: [
+      { key: 'temCortina', label: 'Tem Cortina?', options: ['Sim', 'Não'] },
+      { key: 'cortinaStatus', label: 'Estado Cortina', options: ['Nova', 'Antiga'] },
+      { key: 'cortinaCoverage', label: 'Cobertura', options: ['Dois lados', 'Um lado'] },
+      { key: 'temCofre', label: 'Tem Cofre?', options: ['Sim', 'Não'] },
+      { key: 'temPortaControle', label: 'Porta Controle?', options: ['Sim', 'Não'] },
+      { key: 'temEspelhoCorpo', label: 'Espelho Corpo?', options: ['Sim', 'Não'] },
+      { key: 'espelhoCorpoStatus', label: 'Estado Espelho', options: ['Bom estado', 'Manchado', 'Danificado'] },
+      { key: 'temCabide', label: 'Tem Cabides?', options: ['Sim', 'Não'] }
+    ]
+  },
+  {
+    id: 'banheiro_acessorios',
+    label: 'Banheiro: Acessórios',
+    icon: Droplets,
+    color: 'text-cyan-600',
+    filters: [
+      { key: 'temSuporteShampoo', label: 'Sup. Shampoo?', options: ['Sim', 'Não'] },
+      { key: 'suporteShampooStatus', label: 'Est. Shampoo', options: ['Bom estado', 'Enferrujado'] },
+      { key: 'temSuportePapel', label: 'Sup. Papel?', options: ['Sim', 'Não'] }
+    ]
+  },
+  {
+    id: 'iluminacao',
+    label: 'Iluminação',
+    icon: Lightbulb,
+    color: 'text-yellow-600',
+    filters: [
+      { key: 'luminariaType', label: 'Tipo', options: ['Arandela', 'Vidro', 'Quadrado'] },
+      { key: 'luminariaColor', label: 'Cor (Quadrada)', options: ['Branco', 'Preto'] }
+    ]
+  },
+  {
+    id: 'camas',
+    label: 'Configuração das Camas',
+    icon: Bed,
+    color: 'text-emerald-600',
+    filters: [
+      { key: 'bed_type', label: 'Tipo de Cama', options: ['Casal', 'Solteiro'] },
+      { key: 'bed_base_status', label: 'Estado Base', options: ['Nova', 'Antiga'] },
+      { key: 'bed_mattress_status', label: 'Estado Colchão', options: ['Novo', 'Antigo'] },
+      { key: 'bed_has_skirt', label: 'Tem Saia?', options: ['Sim', 'Não'] }
+    ]
+  }
+];
+
 const ReportsView: React.FC<ReportsViewProps> = ({ apartments, theme, onSelectApartment }) => {
   const [selectedFloor, setSelectedFloor] = useState<number | 'all'>('all');
   const [activeReport, setActiveReport] = useState<string>('AVARIAS_GERAIS');
   const [searchTerm, setSearchTerm] = useState('');
+  
+  // Advanced Filters State
+  const [showFilters, setShowFilters] = useState(false);
+  const [activeFilters, setActiveFilters] = useState<Record<string, string>>({});
+  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({ 'status': true });
 
   const floors = [200, 300, 400, 500, 600, 700];
 
   const reportPresets = [
     { id: 'AVARIAS_GERAIS', label: 'Com Avarias', icon: AlertTriangle, color: 'text-rose-500', bg: 'bg-rose-50' },
-    { id: 'PISO_REPARO', label: 'Piso c/ Defeito', icon: Droplets, color: 'text-rose-600', bg: 'bg-rose-50' },
-    { id: 'PISO_BOM', label: 'Piso Bom Estado', icon: CheckCircle2, color: 'text-emerald-600', bg: 'bg-emerald-50' },
-    { id: 'PISO_GRANITO', label: 'Piso de Granito', icon: Droplets, color: 'text-blue-600', bg: 'bg-blue-50' },
-    { id: 'CORTINA_ANTIGA', label: 'Cortina Antiga', icon: Scissors, color: 'text-amber-600', bg: 'bg-amber-50' },
-    { id: 'CORTINA_NOVA', label: 'Cortina Nova', icon: CheckCircle2, color: 'text-emerald-600', bg: 'bg-emerald-50' },
-    { id: 'SEM_CORTINA', label: 'Sem Cortina', icon: Scan, color: 'text-slate-400', bg: 'bg-slate-50' },
-    { id: 'CAMA_BASE_ANTIGA', label: 'Base de Cama Antiga', icon: Bed, color: 'text-orange-600', bg: 'bg-orange-50' },
-    { id: 'CAMA_BASE_NOVA', label: 'Base de Cama Nova', icon: CheckCircle2, color: 'text-emerald-600', bg: 'bg-emerald-50' },
-    { id: 'CAMA_COLCHAO_ANTIGO', label: 'Colchão Antigo', icon: Bed, color: 'text-orange-800', bg: 'bg-orange-100' },
-    { id: 'CAMA_COLCHAO_NOVO', label: 'Colchão Novo', icon: CheckCircle2, color: 'text-emerald-600', bg: 'bg-emerald-50' },
-    { id: 'BANHEIRO_ANTIGO', label: 'Banheiro Antigo', icon: Layers, color: 'text-indigo-600', bg: 'bg-indigo-50' },
-    { id: 'BANHEIRO_REFORMADO', label: 'Banheiro Reformado', icon: CheckCircle2, color: 'text-emerald-600', bg: 'bg-emerald-50' },
-    { id: 'SHAMPOO_ENFERRUJADO', label: 'Shampoo Enferrujado', icon: Droplets, color: 'text-rose-400', bg: 'bg-rose-50' },
-    { id: 'SHAMPOO_BOM', label: 'Shampoo Bom Estado', icon: CheckCircle2, color: 'text-emerald-600', bg: 'bg-emerald-50' },
-    { id: 'ESPELHO_BOM', label: 'Espelho Bom Estado', icon: Maximize, color: 'text-emerald-600', bg: 'bg-emerald-50' },
-    { id: 'SEM_COFRE', label: 'Sem Cofre', icon: Box, color: 'text-slate-500', bg: 'bg-slate-100' },
-    { id: 'SEM_PORTA_CONTROLE', label: 'Sem Porta Controle', icon: Box, color: 'text-slate-500', bg: 'bg-slate-100' },
-    { id: 'SEM_CABIDES', label: 'Sem Cabides', icon: Box, color: 'text-slate-400', bg: 'bg-slate-50' },
-    { id: 'TV_LG', label: 'TV LG', icon: Tv, color: 'text-blue-500', bg: 'bg-blue-50' },
-    { id: 'TV_SAMSUNG', label: 'TV Samsung', icon: Tv, color: 'text-blue-700', bg: 'bg-blue-100' },
-    { id: 'AC_MIDEA', label: 'AC Midea', icon: Wind, color: 'text-cyan-500', bg: 'bg-cyan-50' },
-    { id: 'LUMINARIA_ARANDELA', label: 'Luminária Arandela', icon: Lightbulb, color: 'text-yellow-600', bg: 'bg-yellow-50' },
+    { id: 'URGENTE_GERAL', label: 'Itens Urgentes', icon: AlertOctagon, color: 'text-red-600', bg: 'bg-red-100' },
   ];
+
+  const toggleSection = (id: string) => {
+    setExpandedSections(prev => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const toggleFilter = (key: string, value: string) => {
+    setActiveFilters(prev => {
+      const next = { ...prev };
+      if (next[key] === value) {
+        delete next[key];
+      } else {
+        next[key] = value;
+      }
+      return next;
+    });
+  };
+
+  const hasActiveFilters = Object.keys(activeFilters).length > 0;
 
   const filteredData = useMemo(() => {
     let list: Apartment[] = Object.values(apartments);
 
+    // 1. Filter by Floor
     if (selectedFloor !== 'all') {
       list = list.filter(apt => apt.floor === selectedFloor);
     }
 
-    switch (activeReport) {
-      case 'AVARIAS_GERAIS':
-        list = list.filter(apt => (apt.defects?.length || 0) > 0);
-        break;
-      case 'PISO_REPARO':
-        list = list.filter(apt => apt.pisoStatus === 'Reparo urgente' || apt.pisoStatus === 'Tolerável');
-        break;
-      case 'PISO_BOM':
-        list = list.filter(apt => apt.pisoStatus === 'Bom estado');
-        break;
-      case 'PISO_GRANITO':
-        list = list.filter(apt => apt.pisoType === 'Granito');
-        break;
-      case 'CORTINA_ANTIGA':
-        list = list.filter(apt => apt.temCortina && apt.cortinaStatus === 'Antiga');
-        break;
-      case 'CORTINA_NOVA':
-        list = list.filter(apt => apt.temCortina && apt.cortinaStatus === 'Nova');
-        break;
-      case 'SEM_CORTINA':
-        list = list.filter(apt => !apt.temCortina);
-        break;
-      case 'CAMA_BASE_ANTIGA':
-        list = list.filter(apt => apt.beds?.some(b => b.baseStatus === 'Antiga'));
-        break;
-      case 'CAMA_BASE_NOVA':
-        list = list.filter(apt => apt.beds?.some(b => b.baseStatus === 'Nova'));
-        break;
-      case 'CAMA_COLCHAO_ANTIGO':
-        list = list.filter(apt => apt.beds?.some(b => b.mattressStatus === 'Antigo'));
-        break;
-      case 'CAMA_COLCHAO_NOVO':
-        list = list.filter(apt => apt.beds?.some(b => b.mattressStatus === 'Novo'));
-        break;
-      case 'BANHEIRO_ANTIGO':
-        list = list.filter(apt => apt.banheiroType === 'Antigo');
-        break;
-      case 'BANHEIRO_REFORMADO':
-        list = list.filter(apt => apt.banheiroType === 'Reformado');
-        break;
-      case 'SHAMPOO_ENFERRUJADO':
-        list = list.filter(apt => apt.temSuporteShampoo && apt.suporteShampooStatus === 'Enferrujado');
-        break;
-      case 'SHAMPOO_BOM':
-        list = list.filter(apt => apt.temSuporteShampoo && apt.suporteShampooStatus === 'Bom estado');
-        break;
-      case 'ESPELHO_BOM':
-        list = list.filter(apt => apt.temEspelhoCorpo && apt.espelhoCorpoStatus === 'Bom estado');
-        break;
-      case 'SEM_COFRE':
-        list = list.filter(apt => !apt.temCofre);
-        break;
-      case 'SEM_PORTA_CONTROLE':
-        list = list.filter(apt => !apt.temPortaControle);
-        break;
-      case 'SEM_CABIDES':
-        list = list.filter(apt => !apt.temCabide || (apt.cabideQuantity || 0) === 0);
-        break;
-      case 'TV_LG':
-        list = list.filter(apt => apt.tvBrand === 'LG');
-        break;
-      case 'TV_SAMSUNG':
-        list = list.filter(apt => apt.tvBrand === 'Samsung');
-        break;
-      case 'AC_MIDEA':
-        list = list.filter(apt => apt.acBrand === 'Midea');
-        break;
-      case 'LUMINARIA_ARANDELA':
-        list = list.filter(apt => apt.luminariaType === 'Arandela');
-        break;
-    }
-
+    // 2. Filter by Search Term
     if (searchTerm) {
       list = list.filter(apt => apt.roomNumber.toString().includes(searchTerm));
     }
 
+    // 3. Logic: If Manual Filters are active, use them exclusively. Otherwise use the Preset.
+    if (hasActiveFilters) {
+       list = list.filter(apt => {
+          return Object.entries(activeFilters).every(([key, value]) => {
+            if (!value) return true;
+            
+            // Explicit cast to ensure type safety (resolves 'unknown' type issues)
+            const strValue = String(value);
+
+            // Lógica Status Geral
+            if (key === 'status_geral') {
+              const hasDefects = (apt?.defects?.length || 0) > 0;
+              const isUrgent = apt?.pisoStatus === 'Reparo urgente' || apt?.banheiroStatus === 'Reparo urgente';
+              if (strValue === 'Com Avaria') return hasDefects;
+              if (strValue === 'Urgente') return isUrgent;
+              if (strValue === 'Sem Avaria') return !hasDefects && !isUrgent;
+            }
+
+            // Lógica de Camas
+            if (key.startsWith('bed_')) {
+              if (!apt.beds || apt.beds.length === 0) return false;
+              if (key === 'bed_type') return apt.beds.some(b => b.type === strValue);
+              if (key === 'bed_base_status') return apt.beds.some(b => b.baseStatus === strValue);
+              if (key === 'bed_mattress_status') return apt.beds.some(b => b.mattressStatus === strValue);
+              if (key === 'bed_has_skirt') return apt.beds.some(b => (strValue === 'Sim' ? b.hasSkirt : !b.hasSkirt));
+              return true;
+            }
+
+            // Lógica de Arrays
+            if (key === 'moveisDetalhes') {
+              return apt.moveisDetalhes?.includes(strValue);
+            }
+
+            // Lógica Booleana
+            if (['temCortina', 'temCofre', 'temPortaControle', 'temEspelhoCorpo', 'temCabide', 'temSuporteShampoo', 'temSuportePapel'].includes(key)) {
+              const boolValue = strValue === 'Sim';
+              return (apt as any)[key] === boolValue;
+            }
+
+            // Comparação Direta
+            return (apt as any)[key] === strValue;
+          });
+       });
+    } else {
+      // Use Presets if no manual filters
+      switch (activeReport) {
+        case 'AVARIAS_GERAIS':
+          list = list.filter(apt => (apt.defects?.length || 0) > 0);
+          break;
+        case 'URGENTE_GERAL':
+          list = list.filter(apt => 
+              apt.pisoStatus === 'Reparo urgente' || 
+              apt.banheiroStatus === 'Reparo urgente'
+          );
+          break;
+      }
+    }
+
     return list.sort((a, b) => a.roomNumber - b.roomNumber);
-  }, [apartments, selectedFloor, activeReport, searchTerm]);
+  }, [apartments, selectedFloor, activeReport, searchTerm, activeFilters, hasActiveFilters]);
 
   const stats = useMemo(() => {
     return {
@@ -188,48 +285,149 @@ const ReportsView: React.FC<ReportsViewProps> = ({ apartments, theme, onSelectAp
           </div>
         </div>
 
-        <div className="lg:col-span-3 bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm space-y-4">
+        <div className="lg:col-span-3 bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm flex flex-col justify-center space-y-4">
            <div className="flex items-center space-x-2 text-[10px] font-black text-slate-400 uppercase tracking-widest">
             <Filter size={14} />
-            <span>Selecione o Item para Auditoria</span>
+            <span>Selecione o Tipo de Auditoria</span>
           </div>
-          <div className="flex flex-wrap gap-2">
-            {reportPresets.map(preset => {
-              const Icon = preset.icon;
-              const isActive = activeReport === preset.id;
-              return (
-                <button 
-                  key={preset.id}
-                  onClick={() => setActiveReport(preset.id)}
-                  className={`flex items-center space-x-2 px-3 py-2 rounded-xl text-[10px] font-black uppercase transition-all border-2 ${
-                    isActive 
-                    ? 'border-transparent text-white shadow-lg' 
-                    : 'bg-white border-slate-100 text-slate-500 hover:bg-slate-50'
-                  }`}
-                  style={{ backgroundColor: isActive ? theme.primary : undefined }}
-                >
-                  <Icon size={14} />
-                  <span>{preset.label}</span>
-                </button>
-              );
-            })}
+          <div className="flex flex-wrap gap-4 items-center">
+            {/* Botão de Filtros Avançados (Overlay) */}
+            <button 
+              onClick={() => setShowFilters(true)}
+              className={`flex items-center space-x-2 px-6 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all shadow-md active:scale-95 ${
+                 hasActiveFilters 
+                 ? 'bg-blue-600 text-white shadow-blue-200' 
+                 : 'bg-white border-2 border-slate-200 text-slate-600 hover:border-slate-400'
+              }`}
+            >
+              <Filter size={16} />
+              <span>{hasActiveFilters ? `Filtros Ativos (${Object.keys(activeFilters).length})` : 'Filtros Avançados'}</span>
+            </button>
+            
+            {!hasActiveFilters && (
+              <div className="flex gap-2 items-center">
+                 <span className="text-[10px] text-slate-300 font-bold uppercase mx-2">OU USE OS RÁPIDOS:</span>
+                 {reportPresets.map(preset => {
+                    const Icon = preset.icon;
+                    const isActive = activeReport === preset.id;
+                    return (
+                      <button 
+                        key={preset.id}
+                        onClick={() => setActiveReport(preset.id)}
+                        className={`flex items-center space-x-2 px-3 py-2 rounded-xl text-[10px] font-black uppercase transition-all border-2 ${
+                          isActive 
+                          ? 'border-transparent text-white shadow-lg' 
+                          : 'bg-white border-slate-100 text-slate-500 hover:bg-slate-50'
+                        }`}
+                        style={{ backgroundColor: isActive ? theme.primary : undefined }}
+                      >
+                        <Icon size={14} />
+                        <span>{preset.label}</span>
+                      </button>
+                    );
+                  })}
+              </div>
+            )}
           </div>
         </div>
       </div>
+
+      {/* Filter Modal / Overlay */}
+      {showFilters && (
+        <div className="fixed inset-0 bg-slate-900/50 z-[200] flex justify-end" onClick={() => setShowFilters(false)}>
+           <div 
+             className="w-full max-w-sm h-full bg-white shadow-2xl flex flex-col animate-in slide-in-from-right duration-300"
+             onClick={e => e.stopPropagation()}
+           >
+              <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+                 <h3 className="text-lg font-black text-slate-800 uppercase tracking-tight flex items-center gap-2">
+                    <Filter size={18} /> Filtros de Auditoria
+                 </h3>
+                 <button onClick={() => setShowFilters(false)} className="p-2 bg-white rounded-full text-slate-400 shadow-sm"><X size={20}/></button>
+              </div>
+              
+              <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                 {hasActiveFilters && (
+                    <div className="flex justify-end">
+                      <button 
+                        onClick={() => setActiveFilters({})}
+                        className="text-[10px] font-black text-red-500 flex items-center space-x-1 hover:underline bg-red-50 px-3 py-1.5 rounded-lg"
+                      >
+                        <X size={12} />
+                        <span>LIMPAR FILTROS ATIVOS</span>
+                      </button>
+                    </div>
+                  )}
+
+                 {FILTER_SECTIONS.map(section => {
+                    const isExpanded = expandedSections[section.id];
+                    const sectionHasFilter = section.filters.some(f => activeFilters[f.key]);
+                    const Icon = section.icon;
+
+                    return (
+                       <div key={section.id} className={`border border-slate-100 rounded-2xl overflow-hidden transition-all ${sectionHasFilter ? 'ring-2 ring-blue-100' : ''}`}>
+                          <button 
+                            onClick={() => toggleSection(section.id)}
+                            className="w-full p-4 bg-slate-50 flex items-center justify-between"
+                          >
+                             <div className="flex items-center space-x-3">
+                                <Icon size={18} className={section.color} />
+                                <span className={`text-xs font-black uppercase tracking-wide ${sectionHasFilter ? 'text-slate-800' : 'text-slate-500'}`}>{section.label}</span>
+                             </div>
+                             {isExpanded ? <ChevronUp size={16} className="text-slate-400"/> : <ChevronDown size={16} className="text-slate-400"/>}
+                          </button>
+                          
+                          {isExpanded && (
+                             <div className="p-4 bg-white space-y-4">
+                                {section.filters.map(filter => (
+                                   <div key={filter.key}>
+                                      <p className="text-[9px] font-black text-slate-300 uppercase mb-2 ml-1">{filter.label}</p>
+                                      <div className="flex flex-wrap gap-2">
+                                         {filter.options.map(opt => (
+                                            <button
+                                               key={opt}
+                                               onClick={() => toggleFilter(filter.key, opt)}
+                                               className={`px-3 py-2 rounded-xl text-[10px] font-bold border transition-all ${
+                                                  activeFilters[filter.key] === opt
+                                                  ? 'bg-slate-800 border-slate-800 text-white shadow-md'
+                                                  : 'bg-white border-slate-100 text-slate-500 hover:border-slate-300'
+                                               }`}
+                                            >
+                                               {opt}
+                                            </button>
+                                         ))}
+                                      </div>
+                                   </div>
+                                ))}
+                             </div>
+                          )}
+                       </div>
+                    );
+                 })}
+              </div>
+              
+              <div className="p-6 border-t border-slate-100 bg-slate-50">
+                 <button 
+                   onClick={() => setShowFilters(false)} 
+                   className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl active:scale-95 transition-all"
+                 >
+                    Ver {filteredData.length} Resultados
+                 </button>
+              </div>
+           </div>
+        </div>
+      )}
 
       {/* Resultado do Relatório */}
       <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden print:shadow-none print:border-none print:rounded-none">
         <div className="p-8 border-b border-slate-50 flex flex-col md:flex-row justify-between items-center gap-6 print:p-4 print:border-b-2">
           <div className="flex items-center space-x-6">
-            <div className={`p-5 rounded-[1.5rem] print:p-0 ${reportPresets.find(p => p.id === activeReport)?.bg}`}>
-              {React.createElement(reportPresets.find(p => p.id === activeReport)?.icon || FileBarChart, { 
-                size: 28, 
-                className: reportPresets.find(p => p.id === activeReport)?.color 
-              })}
+            <div className={`p-5 rounded-[1.5rem] print:p-0 ${hasActiveFilters ? 'bg-blue-50' : reportPresets.find(p => p.id === activeReport)?.bg || 'bg-slate-50'}`}>
+              <FileBarChart size={28} className={hasActiveFilters ? 'text-blue-500' : (reportPresets.find(p => p.id === activeReport)?.color || 'text-slate-500')} />
             </div>
             <div>
               <h4 className="text-xl font-black text-slate-800 uppercase tracking-tight print:text-lg">
-                Relatório: {reportPresets.find(p => p.id === activeReport)?.label}
+                {hasActiveFilters ? 'Relatório Personalizado' : `Relatório: ${reportPresets.find(p => p.id === activeReport)?.label}`}
               </h4>
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center print:text-[8px]">
                 <span>{selectedFloor === 'all' ? 'Unidade Completa' : `Andar ${selectedFloor}`}</span>
@@ -317,6 +515,11 @@ const ReportsView: React.FC<ReportsViewProps> = ({ apartments, theme, onSelectAp
                         ))
                       ) : (
                         <span className="text-emerald-500 font-black text-[9px] uppercase">✓ Tudo em Dia</span>
+                      )}
+                      {(apt.pisoStatus === 'Reparo urgente' || apt.banheiroStatus === 'Reparo urgente') && (
+                          <span className="px-2 py-0.5 bg-red-50 text-red-600 text-[8px] font-black rounded uppercase print:bg-transparent print:p-0 print:block">
+                            • REPARO URGENTE
+                          </span>
                       )}
                     </div>
                   </td>

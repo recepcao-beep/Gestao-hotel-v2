@@ -565,7 +565,18 @@ const App: React.FC = () => {
 
     switch (state.currentView) {
       case ViewType.DASHBOARD:
-        return <Dashboard apartments={currentHotelData.apartments} employees={currentHotelData.employees} theme={theme} lastSync={state.integrations[0].lastSync} onRefresh={() => loadDataFromSheet()} isRefreshing={isRefreshing} />;
+        return (
+          <Dashboard 
+            apartments={currentHotelData.apartments} 
+            employees={currentHotelData.employees} 
+            inventory={currentHotelData.inventory}
+            sectors={currentHotelData.sectors}
+            theme={theme} 
+            lastSync={state.integrations[0].lastSync} 
+            onRefresh={() => loadDataFromSheet()} 
+            isRefreshing={isRefreshing} 
+          />
+        );
       case ViewType.APARTMENTS:
         return <ApartmentsView onSelectFloor={(floor) => setState(prev => ({ ...prev, selectedFloor: floor }))} theme={theme} hotelName={state.currentHotel} />;
       case ViewType.BUDGETS:
