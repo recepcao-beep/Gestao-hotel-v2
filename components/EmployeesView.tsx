@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo } from 'react';
-import { Employee, HotelTheme, Sector, UniformItem, ExtraLabor } from '../types';
+import { Employee, HotelTheme, Sector, UniformItem, ExtraLabor, InventoryOperation } from '../types';
 import { 
   Search, 
   UserPlus, 
@@ -14,7 +14,6 @@ import {
   ChevronLeft,
   Edit2,
   Calendar as CalendarIcon,
-  Filter,
   User as UserIcon,
   Printer,
   CalendarDays,
@@ -23,14 +22,17 @@ import {
   Star,
   MessageSquare,
   Phone,
-  ToggleLeft,
-  ToggleRight
+  QrCode,
+  Download,
+  History,
+  Package
 } from 'lucide-react';
 
 interface EmployeesViewProps {
   employees: Employee[];
   extras: ExtraLabor[];
   sectors: Sector[];
+  inventoryHistory?: InventoryOperation[];
   selectedSectorId: string | null;
   onSelectSector: (id: string | null) => void;
   theme: HotelTheme;
@@ -46,6 +48,7 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
   employees, 
   extras,
   sectors, 
+  inventoryHistory = [],
   selectedSectorId, 
   onSelectSector, 
   theme, 
@@ -64,6 +67,8 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [viewMode, setViewMode] = useState<'LIST' | 'SCALE' | 'TODAY' | 'EXTRAS'>('LIST');
   const [activeFormTab, setActiveFormTab] = useState<'DADOS' | 'ESCALA' | 'UNIFORMES'>('DADOS');
+  const [selectedBadge, setSelectedBadge] = useState<Employee | null>(null);
+  const [viewingHistoryEmployee, setViewingHistoryEmployee] = useState<Employee | null>(null);
 
   // Form State Employee
   const [name, setName] = useState('');
@@ -239,6 +244,11 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
     return filteredEmployees.filter(e => e.scheduleType !== 'Intermitente');
   }, [filteredEmployees]);
 
+  const employeeHistory = useMemo(() => {
+    if(!viewingHistoryEmployee) return [];
+    return inventoryHistory.filter(op => op.recipientId === viewingHistoryEmployee.id).sort((a,b) => b.timestamp - a.timestamp);
+  }, [inventoryHistory, viewingHistoryEmployee]);
+
   if (!selectedSectorId && viewMode !== 'TODAY') {
     return (
       <div className="space-y-8 animate-in fade-in duration-500">
@@ -383,19 +393,153 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
                   </div>
                 </div>
                 <div className="flex gap-4 items-center">
-                  <div className="text-right">
+                  <div className="text-right hidden md:block">
                     <p className="text-[8px] font-black text-slate-300 uppercase">Status</p>
                     <span className="text-[9px] font-black text-emerald-500 uppercase flex items-center"><CheckCircle2 size={10} className="mr-1"/> Ativo</span>
                   </div>
                   <div className="flex space-x-2">
-                    <button onClick={() => handleEditEmployee(emp)} className="p-3 bg-slate-50 text-slate-400 hover:text-blue-500 rounded-xl transition-all"><Edit2 size={18}/></button>
-                    <button onClick={() => onDelete(emp.id)} className="p-3 bg-slate-50 text-slate-400 hover:text-rose-500 rounded-xl transition-all"><Trash2 size={18}/></button>
+                    <button 
+                       onClick={() => setSelectedBadge(emp)}
+                       className="p-3 bg-slate-50 text-slate-400 hover:text-blue-500 rounded-xl transition-all border border-transparent hover:border-blue-200"
+                       title="Crachá"
+                    >
+                       <QrCode size={18}/>
+                    </button>
+                    <button 
+                       onClick={() => setViewingHistoryEmployee(emp)}
+                       className="p-3 bg-slate-50 text-slate-400 hover:text-amber-500 rounded-xl transition-all border border-transparent hover:border-amber-200"
+                       title="Histórico de Retiradas"
+                    >
+                       <History size={18}/>
+                    </button>
+                    <button onClick={() => handleEditEmployee(emp)} className="p-3 bg-slate-50 text-slate-400 hover:text-blue-500 rounded-xl transition-all border border-transparent hover:border-blue-200"><Edit2 size={18}/></button>
+                    <button onClick={() => onDelete(emp.id)} className="p-3 bg-slate-50 text-slate-400 hover:text-rose-500 rounded-xl transition-all border border-transparent hover:border-rose-200"><Trash2 size={18}/></button>
                   </div>
                 </div>
               </div>
             ))}
           </div>
         </div>
+      )}
+
+      {/* Modal Digital Badge / QR Code */}
+      {selectedBadge && (
+         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[450] flex items-center justify-center p-4 print-badge-container">
+            <div className="bg-white w-full max-w-sm rounded-[3rem] shadow-2xl overflow-hidden flex flex-col animate-in zoom-in duration-300 relative print-badge-content">
+               <button onClick={() => setSelectedBadge(null)} className="absolute top-6 right-6 p-2 bg-slate-100 rounded-full text-slate-400 hover:text-slate-800 transition-colors z-10 no-print"><X size={24}/></button>
+               
+               <div className="bg-slate-900 p-10 flex flex-col items-center text-center text-white relative overflow-hidden print:bg-white print:text-black print:p-0">
+                  <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 no-print"></div>
+                  <div className="w-24 h-24 rounded-full border-4 border-white shadow-xl flex items-center justify-center bg-slate-800 text-3xl font-black mb-4 relative z-10 print:hidden">
+                      {(selectedBadge.name || 'S')[0]}
+                  </div>
+                  <h3 className="text-xl font-black uppercase tracking-tighter relative z-10 print:text-3xl print:mb-2">{selectedBadge.name}</h3>
+                  <p className="text-xs font-bold opacity-60 uppercase tracking-widest relative z-10 print:text-sm print:opacity-100">{selectedBadge.role}</p>
+                  <Building2 className="absolute -bottom-10 -right-10 text-white/5 w-48 h-48 no-print" />
+               </div>
+               
+               <div className="p-8 flex flex-col items-center space-y-6 bg-white print:p-0 print:mt-4">
+                  <div className="p-4 bg-white rounded-2xl shadow-lg border-2 border-slate-100 print:shadow-none print:border-none print:p-0">
+                     {/* Public QR Code API for simplicity - generates QR from Employee ID */}
+                     <img 
+                       src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${selectedBadge.id}&color=000000`} 
+                       alt="QR Code" 
+                       className="w-48 h-48 object-contain"
+                     />
+                  </div>
+                  <div className="text-center space-y-1 print:mt-2">
+                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest print:text-[10px]">ID do Colaborador</p>
+                     <p className="text-xs font-mono bg-slate-100 px-3 py-1 rounded-lg text-slate-600 print:bg-transparent print:p-0 print:text-black">{selectedBadge.id}</p>
+                  </div>
+                  <button 
+                    onClick={() => window.print()} 
+                    className="flex items-center space-x-2 text-blue-500 font-black text-xs uppercase tracking-widest hover:underline no-print"
+                  >
+                     <Download size={14}/> <span>Imprimir Etiqueta</span>
+                  </button>
+               </div>
+            </div>
+            <style>{`
+                @media print {
+                    body * {
+                        visibility: hidden;
+                    }
+                    .print-badge-container, .print-badge-container * {
+                        visibility: visible;
+                    }
+                    .print-badge-container {
+                        position: fixed;
+                        left: 0;
+                        top: 0;
+                        width: 100%;
+                        height: 100%;
+                        background: white;
+                        z-index: 9999;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        padding: 0;
+                        margin: 0;
+                    }
+                    .print-badge-content {
+                        box-shadow: none !important;
+                        border: none !important;
+                        border-radius: 0 !important;
+                        width: 100% !important;
+                        max-width: none !important;
+                    }
+                    .no-print {
+                        display: none !important;
+                    }
+                }
+            `}</style>
+         </div>
+      )}
+
+      {/* Modal Histórico de Retiradas */}
+      {viewingHistoryEmployee && (
+         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[450] flex items-center justify-center p-4">
+            <div className="bg-white w-full max-w-2xl rounded-[3rem] shadow-2xl overflow-hidden flex flex-col animate-in zoom-in duration-300 max-h-[80vh]">
+               <div className="p-8 border-b flex justify-between items-center bg-slate-50">
+                  <div>
+                     <h3 className="text-xl font-black text-slate-800 flex items-center gap-2"><History size={20}/> Histórico de Retiradas</h3>
+                     <p className="text-xs text-slate-500 font-bold uppercase tracking-widest">{viewingHistoryEmployee.name}</p>
+                  </div>
+                  <button onClick={() => setViewingHistoryEmployee(null)} className="p-2 text-slate-400 hover:text-slate-800 transition-colors"><X size={24}/></button>
+               </div>
+               
+               <div className="p-8 overflow-y-auto">
+                  {employeeHistory.length === 0 ? (
+                      <div className="text-center py-10 text-slate-300 font-black italic border-2 border-dashed border-slate-100 rounded-3xl">
+                          <Package size={48} className="mx-auto mb-2 opacity-50"/>
+                          Nenhuma retirada registrada para este colaborador.
+                      </div>
+                  ) : (
+                      <div className="space-y-3">
+                          {employeeHistory.map(op => (
+                              <div key={op.id} className="flex items-center justify-between p-4 bg-white border border-slate-100 rounded-2xl shadow-sm hover:border-slate-200 transition-all">
+                                  <div className="flex items-center gap-4">
+                                      <div className="bg-slate-100 p-3 rounded-xl text-slate-500">
+                                          <Package size={20}/>
+                                      </div>
+                                      <div>
+                                          <p className="font-black text-slate-800">{op.itemName}</p>
+                                          <p className="text-[10px] text-slate-400 font-bold uppercase flex items-center gap-1">
+                                              <Clock size={10}/> {new Date(op.timestamp).toLocaleString()}
+                                          </p>
+                                      </div>
+                                  </div>
+                                  <div className="text-right">
+                                      <span className="text-lg font-black text-rose-500">-{op.quantity}</span>
+                                      {op.reason && <p className="text-[9px] text-slate-400 max-w-[150px] truncate">{op.reason}</p>}
+                                  </div>
+                              </div>
+                          ))}
+                      </div>
+                  )}
+               </div>
+            </div>
+         </div>
       )}
 
       {viewMode === 'SCALE' && (

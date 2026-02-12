@@ -1,6 +1,5 @@
-
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { InventoryItem, InventoryOperation, HotelTheme, UserRole, Supplier } from '../types';
+import { InventoryItem, InventoryOperation, HotelTheme, UserRole, Supplier, Employee } from '../types';
 import { 
   Package, 
   Search, 
@@ -19,6 +18,8 @@ import {
   Barcode,
   Truck,
   DollarSign,
+  QrCode,
+  Scan,
   Briefcase
 } from 'lucide-react';
 
@@ -26,6 +27,7 @@ interface InventoryViewProps {
   inventory: InventoryItem[];
   history: InventoryOperation[];
   suppliers: Supplier[];
+  employees?: Employee[];
   showSuppliersTab?: boolean;
   theme: HotelTheme;
   onSave: (item: InventoryItem) => void;
@@ -41,6 +43,7 @@ const InventoryView: React.FC<InventoryViewProps> = ({
   inventory, 
   history, 
   suppliers,
+  employees = [],
   showSuppliersTab = true,
   theme, 
   onSave, 
@@ -69,14 +72,18 @@ const InventoryView: React.FC<InventoryViewProps> = ({
   const [price, setPrice] = useState(0);
   const [supplierId, setSupplierId] = useState('');
 
-  // Form Operation - Busca Preditiva
+  // Form Operation
   const [opSearchQuery, setOpSearchQuery] = useState('');
   const [opItemId, setOpItemId] = useState('');
   const [opType, setOpType] = useState<'Entrada' | 'Saída'>('Entrada');
   const [opQuantity, setOpQuantity] = useState(0);
   const [opReason, setOpReason] = useState('');
+  const [opRecipientId, setOpRecipientId] = useState('');
+  const [opRecipientName, setOpRecipientName] = useState('');
+  
   const [isSearchDropdownOpen, setIsSearchDropdownOpen] = useState(false);
   const searchContainerRef = useRef<HTMLDivElement>(null);
+  const recipientInputRef = useRef<HTMLInputElement>(null);
 
   // Supplier form state
   const [supName, setSupName] = useState('');
@@ -120,6 +127,11 @@ const InventoryView: React.FC<InventoryViewProps> = ({
     setEditingItem(null); setIsAddingItem(false);
   };
 
+  const resetOpForm = () => {
+    setIsAddingOp(false); setOpItemId(''); setOpSearchQuery(''); setOpQuantity(0); 
+    setOpReason(''); setOpRecipientId(''); setOpRecipientName('');
+  };
+
   const handleSaveItemSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     onSave({ id: editingItem?.id || Date.now().toString(), ean, name, category, quantity: initialQuantity, unit, price, supplierId, minQuantity: 0, lastUpdate: Date.now() });
@@ -147,10 +159,29 @@ const InventoryView: React.FC<InventoryViewProps> = ({
 
   const suggestedOrders = useMemo(() => enrichedInventory.filter(i => i.suggestion.suggestedQuantity > 0), [enrichedInventory]);
 
+  const employeePredictive = useMemo(() => {
+    if (!opRecipientName || opRecipientName.length < 2) return [];
+    return employees.filter(e => e.name.toLowerCase().includes(opRecipientName.toLowerCase())).slice(0, 5);
+  }, [employees, opRecipientName]);
+
   const handleSelectPredictiveItem = (item: InventoryItem) => {
     setOpItemId(item.id);
     setOpSearchQuery(item.name);
     setIsSearchDropdownOpen(false);
+  };
+
+  const handleScanRecipient = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const val = e.target.value;
+      setOpRecipientName(val);
+      
+      // Try to find exact match by ID (QR Scan) or exact Name
+      const exactMatch = employees.find(emp => emp.id === val || emp.name.toLowerCase() === val.toLowerCase());
+      if(exactMatch) {
+          setOpRecipientId(exactMatch.id);
+          setOpRecipientName(exactMatch.name);
+      } else {
+          setOpRecipientId('');
+      }
   };
 
   return (
@@ -269,9 +300,13 @@ const InventoryView: React.FC<InventoryViewProps> = ({
                              </div>
                              <div>
                                 <p className="font-black text-slate-800">{op.itemName}</p>
-                                <p className="text-[10px] text-slate-400 font-bold uppercase flex items-center">
-                                   <UserIcon size={10} className="mr-1"/> {op.user} • <Calendar size={10} className="mx-1"/> {new Date(op.timestamp).toLocaleString()}
-                                </p>
+                                <div className="flex flex-col md:flex-row md:items-center text-[10px] text-slate-400 font-bold uppercase gap-2">
+                                   <span className="flex items-center"><UserIcon size={10} className="mr-1"/> {op.user}</span>
+                                   <span className="flex items-center"><Calendar size={10} className="mr-1"/> {new Date(op.timestamp).toLocaleString()}</span>
+                                   {op.recipientName && (
+                                       <span className="flex items-center text-blue-500"><Scan size={10} className="mr-1"/> Retirado por: {op.recipientName}</span>
+                                   )}
+                                </div>
                              </div>
                           </div>
                           <div className="text-right">
@@ -410,14 +445,29 @@ const InventoryView: React.FC<InventoryViewProps> = ({
            <div className="bg-white w-full max-w-lg rounded-[2.5rem] shadow-2xl animate-in zoom-in duration-200 overflow-hidden">
               <div className="p-8 border-b border-slate-50 flex justify-between items-center">
                  <h2 className="text-xl font-black text-slate-800">Lançar Movimentação</h2>
-                 <button onClick={() => setIsAddingOp(false)} className="text-slate-300 hover:text-slate-500"><X size={24}/></button>
+                 <button onClick={resetOpForm} className="text-slate-300 hover:text-slate-500"><X size={24}/></button>
               </div>
               <form onSubmit={(e) => {
                 e.preventDefault();
                 const selectedItem = inventory.find(i => i.id === opItemId);
                 if (!selectedItem || opQuantity <= 0) return;
-                onOperation({ id: Date.now().toString(), itemId: opItemId, itemName: selectedItem.name, type: opType, quantity: opQuantity, timestamp: Date.now(), user: currentUser || 'Sistema', reason: opReason });
-                setIsAddingOp(false); setOpItemId(''); setOpSearchQuery(''); setOpQuantity(0); setOpReason('');
+                
+                // If it's outgoing, ensure we have recipient info if provided, or default to general if scanned ID wasn't found in DB
+                const finalRecipientName = opRecipientName || (opType === 'Saída' ? 'Não Identificado' : '');
+
+                onOperation({ 
+                    id: Date.now().toString(), 
+                    itemId: opItemId, 
+                    itemName: selectedItem.name, 
+                    type: opType, 
+                    quantity: opQuantity, 
+                    timestamp: Date.now(), 
+                    user: currentUser || 'Sistema', 
+                    reason: opReason,
+                    recipientId: opRecipientId,
+                    recipientName: finalRecipientName
+                });
+                resetOpForm();
               }} className="p-8 space-y-6">
                  <div className="space-y-4">
                     <div className="relative" ref={searchContainerRef}>
@@ -460,6 +510,52 @@ const InventoryView: React.FC<InventoryViewProps> = ({
                        </div>
                        <input type="number" value={opQuantity || ''} onChange={e => setOpQuantity(parseInt(e.target.value) || 0)} className="w-full px-4 py-3 rounded-xl border-2 border-slate-50 font-bold outline-none" placeholder="Quantidade" required />
                     </div>
+
+                    {opType === 'Saída' && (
+                        <div className="relative">
+                            <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1 flex items-center justify-between">
+                                <span>Retirado por (Funcionário)</span>
+                                <span className="flex items-center text-blue-500"><QrCode size={10} className="mr-1"/> Scan Ativo</span>
+                            </label>
+                            <div className="relative">
+                                <Scan className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" size={16} />
+                                <input 
+                                    ref={recipientInputRef}
+                                    type="text" 
+                                    value={opRecipientName} 
+                                    onChange={handleScanRecipient}
+                                    className="w-full pl-9 pr-4 py-3 rounded-xl border-2 border-slate-50 font-bold outline-none focus:border-blue-300 transition-all bg-blue-50/50" 
+                                    placeholder="Bipe o Crachá ou digite o nome..." 
+                                    autoComplete="off"
+                                />
+                                {opRecipientName && (
+                                    <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                                        {opRecipientId ? (
+                                            <CheckCircle2 size={18} className="text-emerald-500" />
+                                        ) : (
+                                            <span className="text-[9px] font-bold text-slate-400">Manual</span>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                            {/* Autocomplete for employees if typing manually */}
+                            {opRecipientName && !opRecipientId && employeePredictive.length > 0 && (
+                                <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-xl shadow-lg border border-slate-100 z-[320] overflow-hidden">
+                                    {employeePredictive.map(emp => (
+                                        <button 
+                                            key={emp.id} 
+                                            type="button" 
+                                            onClick={() => { setOpRecipientId(emp.id); setOpRecipientName(emp.name); }}
+                                            className="w-full p-3 text-left hover:bg-slate-50 text-xs font-bold text-slate-700 border-b last:border-none"
+                                        >
+                                            {emp.name} <span className="text-slate-400">({emp.role})</span>
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    )}
+
                     <input type="text" value={opReason} onChange={e => setOpReason(e.target.value)} className="w-full px-4 py-3 rounded-xl border-2 border-slate-50 font-bold outline-none" placeholder="Motivo / Justificativa" />
                  </div>
                  <button type="submit" disabled={!opItemId} className="w-full py-4 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl transition-all active:scale-95 disabled:opacity-50 disabled:grayscale" style={{ backgroundColor: theme.primary }}>Confirmar Movimentação</button>

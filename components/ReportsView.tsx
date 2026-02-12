@@ -54,6 +54,7 @@ const ReportsView: React.FC<ReportsViewProps> = ({ apartments, theme, onSelectAp
     { id: 'SHAMPOO_BOM', label: 'Shampoo Bom Estado', icon: CheckCircle2, color: 'text-emerald-600', bg: 'bg-emerald-50' },
     { id: 'ESPELHO_BOM', label: 'Espelho Bom Estado', icon: Maximize, color: 'text-emerald-600', bg: 'bg-emerald-50' },
     { id: 'SEM_COFRE', label: 'Sem Cofre', icon: Box, color: 'text-slate-500', bg: 'bg-slate-100' },
+    { id: 'SEM_PORTA_CONTROLE', label: 'Sem Porta Controle', icon: Box, color: 'text-slate-500', bg: 'bg-slate-100' },
     { id: 'SEM_CABIDES', label: 'Sem Cabides', icon: Box, color: 'text-slate-400', bg: 'bg-slate-50' },
     { id: 'TV_LG', label: 'TV LG', icon: Tv, color: 'text-blue-500', bg: 'bg-blue-50' },
     { id: 'TV_SAMSUNG', label: 'TV Samsung', icon: Tv, color: 'text-blue-700', bg: 'bg-blue-100' },
@@ -119,6 +120,9 @@ const ReportsView: React.FC<ReportsViewProps> = ({ apartments, theme, onSelectAp
         break;
       case 'SEM_COFRE':
         list = list.filter(apt => !apt.temCofre);
+        break;
+      case 'SEM_PORTA_CONTROLE':
+        list = list.filter(apt => !apt.temPortaControle);
         break;
       case 'SEM_CABIDES':
         list = list.filter(apt => !apt.temCabide || (apt.cabideQuantity || 0) === 0);

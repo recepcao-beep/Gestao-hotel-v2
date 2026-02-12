@@ -184,7 +184,8 @@ const App: React.FC = () => {
             ...op,
             id: op.id?.toString(),
             quantity: parseFloat(op.quantity) || 0,
-            timestamp: op.timestamp ? new Date(op.timestamp).getTime() : Date.now()
+            timestamp: op.timestamp ? new Date(op.timestamp).getTime() : Date.now(),
+            recipientName: op.recipientName || ''
         }));
 
         const normalizedSuppliers = (incomingData.suppliers || []).map((s: any) => ({
@@ -575,6 +576,7 @@ const App: React.FC = () => {
             employees={currentHotelData.employees} 
             extras={currentHotelData.extras}
             sectors={currentHotelData.sectors} 
+            inventoryHistory={currentHotelData.inventoryHistory}
             selectedSectorId={state.selectedSectorId} 
             onSelectSector={(id) => setState(prev => ({ ...prev, selectedSectorId: id }))} 
             theme={theme} 
@@ -591,7 +593,8 @@ const App: React.FC = () => {
           <InventoryView 
             inventory={currentHotelData.inventory} 
             history={currentHotelData.inventoryHistory} 
-            suppliers={currentHotelData.suppliers} 
+            suppliers={currentHotelData.suppliers}
+            employees={currentHotelData.employees} 
             showSuppliersTab={currentHotelData.config?.showSuppliersTab} 
             theme={theme} 
             onSave={handleSaveInventoryItem} 

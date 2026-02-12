@@ -160,6 +160,8 @@ export interface InventoryOperation {
   timestamp: number;
   user: string;
   reason?: string;
+  recipientId?: string;
+  recipientName?: string;
 }
 
 export interface Integration {

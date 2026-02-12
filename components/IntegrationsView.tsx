@@ -10,7 +10,7 @@ interface IntegrationsViewProps {
 }
 
 const APPS_SCRIPT_CODE = `/**
- * Google Apps Script para Gestão Hotel Village - V32 (Ultra Sync)
+ * Google Apps Script para Gestão Hotel Village - V33 (Ultra Sync + Recipient)
  * CORREÇÃO CRÍTICA: Adicionado SpreadsheetApp.flush() para forçar atualização imediata.
  * Suporte COMPLETO para: Orçamentos, Estoque, Fornecedores, Setores, Funcionários, Extras e Apartamentos.
  */
@@ -100,7 +100,7 @@ function doGet(e) {
          if(!dH[n][0]) continue;
          result.inventoryHistory.unshift({
            id: dH[n][0].toString(), itemId: dH[n][1].toString(), itemName: dH[n][2],
-           type: dH[n][3], quantity: dH[n][4], timestamp: dH[n][5], user: dH[n][6], reason: dH[n][7]
+           type: dH[n][3], quantity: dH[n][4], timestamp: dH[n][5], user: dH[n][6], reason: dH[n][7], recipientName: dH[n][8] || ''
          });
       }
     }
@@ -203,7 +203,7 @@ function doPost(e) {
     }
     else if (req.dataType === 'INVENTORY_OP') {
        var sheet = ss.getSheetByName('Historico_Estoque_' + hotel) || ss.insertSheet('Historico_Estoque_' + hotel);
-       sheet.appendRow([req.id.toString(), req.itemId, req.itemName, req.type, req.quantity, new Date().toISOString(), req.user, req.reason]);
+       sheet.appendRow([req.id.toString(), req.itemId, req.itemName, req.type, req.quantity, new Date().toISOString(), req.user, req.reason, req.recipientName || '']);
     }
     else if (req.dataType === 'BUDGET') {
        var sheet = ss.getSheetByName('Orcamentos_' + hotel) || ss.insertSheet('Orcamentos_' + hotel);
@@ -247,14 +247,14 @@ const IntegrationsView: React.FC<IntegrationsViewProps> = ({ integrations, theme
 
   const saveUrl = () => {
     onUpdate({ ...globalInt, url, status: url ? 'Connected' : 'Disconnected', lastSync: Date.now() });
-    alert('Conexão Global V32 configurada! Certifique-se de atualizar o código no Apps Script.');
+    alert('Conexão Global V33 configurada! Certifique-se de atualizar o código no Apps Script.');
   };
 
   return (
     <div className="space-y-6">
       <div className="p-8 rounded-[2.5rem] text-white relative overflow-hidden shadow-lg" style={{ backgroundColor: theme.primary }}>
         <h2 className="text-xl font-black mb-1">Google Sheets & Drive Sync</h2>
-        <p className="opacity-80 text-[10px] font-bold uppercase tracking-widest">Versão V32: Ultra Sync (Correção de Delay)</p>
+        <p className="opacity-80 text-[10px] font-bold uppercase tracking-widest">Versão V33: Recipient Tracking</p>
         <FileSpreadsheet className="absolute right-[-20px] bottom-[-20px] text-white/10" size={160} />
       </div>
 
@@ -262,7 +262,7 @@ const IntegrationsView: React.FC<IntegrationsViewProps> = ({ integrations, theme
         <input type="text" value={url} onChange={e => setUrl(e.target.value)} placeholder="Link do Apps Script Web App..." className="w-full px-4 py-3 rounded-xl border-2 border-slate-50 focus:border-blue-400 outline-none text-sm font-bold bg-slate-50" />
         <button onClick={saveUrl} className="w-full py-4 text-white rounded-xl font-black text-xs uppercase tracking-widest shadow-lg active:scale-95 transition-all" style={{ backgroundColor: theme.primary }}>Atualizar Conexão Global</button>
         <div className="p-5 bg-amber-50 rounded-2xl border border-amber-100">
-           <button onClick={() => setShowScriptModal(true)} className="text-[9px] font-black text-blue-600 underline uppercase tracking-widest mt-2 hover:text-blue-800 transition-colors">Copiar Código V32 (Ultra Sync)</button>
+           <button onClick={() => setShowScriptModal(true)} className="text-[9px] font-black text-blue-600 underline uppercase tracking-widest mt-2 hover:text-blue-800 transition-colors">Copiar Código V33</button>
         </div>
       </div>
 
@@ -270,13 +270,13 @@ const IntegrationsView: React.FC<IntegrationsViewProps> = ({ integrations, theme
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[300] flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-4xl rounded-[3rem] shadow-2xl max-h-[85vh] overflow-hidden flex flex-col animate-in zoom-in duration-300">
             <div className="p-8 border-b border-slate-50 flex justify-between items-center bg-slate-50/30">
-              <h3 className="text-xl font-black text-slate-800">Apps Script V32 - Ultra Sync</h3>
+              <h3 className="text-xl font-black text-slate-800">Apps Script V33</h3>
               <button onClick={() => setShowScriptModal(false)} className="p-3 hover:bg-slate-100 rounded-full transition-colors text-slate-400"><XCircle size={32} /></button>
             </div>
             <div className="p-8 overflow-y-auto flex-1">
               <div className="relative">
-                <button onClick={() => { navigator.clipboard.writeText(APPS_SCRIPT_CODE); alert('Código V32 copiado! Cole no editor do Google Apps Script e faça uma Nova Implantação.'); }} className="absolute top-4 right-4 p-3 bg-slate-900 text-white rounded-2xl shadow-xl flex items-center space-x-2 text-[10px] font-black uppercase">
-                  <Copy size={16} /> <span>Copiar V32</span>
+                <button onClick={() => { navigator.clipboard.writeText(APPS_SCRIPT_CODE); alert('Código V33 copiado! Cole no editor do Google Apps Script e faça uma Nova Implantação.'); }} className="absolute top-4 right-4 p-3 bg-slate-900 text-white rounded-2xl shadow-xl flex items-center space-x-2 text-[10px] font-black uppercase">
+                  <Copy size={16} /> <span>Copiar V33</span>
                 </button>
                 <pre className="bg-slate-950 text-emerald-400 p-10 rounded-[2.5rem] overflow-x-auto text-[10px] leading-relaxed font-mono shadow-inner border border-slate-800">
                   {APPS_SCRIPT_CODE}
