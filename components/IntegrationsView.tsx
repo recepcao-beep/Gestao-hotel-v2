@@ -10,7 +10,7 @@ interface IntegrationsViewProps {
 }
 
 const APPS_SCRIPT_CODE = `/**
- * Google Apps Script para Gestão Hotel Village - V46 (Fotos Organizadas e Exclusão)
+ * Google Apps Script para Gestão Hotel Village - V47 (Setores com Cargos e Uniformes por Função)
  */
 
 function doGet(e) {
@@ -110,7 +110,12 @@ function doGet(e) {
       var dSc = sheetSec.getDataRange().getValues();
       for (var s = 1; s < dSc.length; s++) {
         if(!dSc[s][0]) continue;
-        result.sectors.push({ id: dSc[s][0].toString(), name: dSc[s][1], standardUniform: safeParse(dSc[s][2], []) });
+        result.sectors.push({ 
+            id: dSc[s][0].toString(), 
+            name: dSc[s][1], 
+            standardUniform: safeParse(dSc[s][2], []),
+            roles: safeParse(dSc[s][3], []) // Carrega os Cargos
+        });
       }
     }
 
@@ -258,7 +263,8 @@ function doPost(e) {
     }
     else if (req.dataType === 'SECTOR') {
        var sheet = ss.getSheetByName('Setores_' + hotel) || ss.insertSheet('Setores_' + hotel);
-       var rowData = [req.id.toString(), req.name, JSON.stringify(req.standardUniform)];
+       // Now saves Roles in column 4
+       var rowData = [req.id.toString(), req.name, JSON.stringify(req.standardUniform), JSON.stringify(req.roles || [])];
        upsert(sheet, req.id.toString(), rowData);
     }
     else if (req.dataType === 'CONFIG') {
@@ -334,14 +340,14 @@ const IntegrationsView: React.FC<IntegrationsViewProps> = ({ integrations, theme
 
   const saveUrl = () => {
     onUpdate({ ...globalInt, url, status: url ? 'Connected' : 'Disconnected', lastSync: Date.now() });
-    alert('Conexão Global V46 configurada! Atualize o Apps Script para ativar as pastas organizadas.');
+    alert('Conexão Global V47 configurada! Atualize o Apps Script para ativar o suporte a cargos por setor.');
   };
 
   return (
     <div className="space-y-6">
       <div className="p-8 rounded-[2.5rem] text-white relative overflow-hidden shadow-lg" style={{ backgroundColor: theme.primary }}>
         <h2 className="text-xl font-black mb-1">Google Sheets & Drive Sync</h2>
-        <p className="opacity-80 text-[10px] font-bold uppercase tracking-widest">Versão V46: Fotos Organizadas</p>
+        <p className="opacity-80 text-[10px] font-bold uppercase tracking-widest">Versão V47: Setores com Cargos</p>
         <FileSpreadsheet className="absolute right-[-20px] bottom-[-20px] text-white/10" size={160} />
       </div>
 
@@ -349,7 +355,7 @@ const IntegrationsView: React.FC<IntegrationsViewProps> = ({ integrations, theme
         <input type="text" value={url} onChange={e => setUrl(e.target.value)} placeholder="Link do Apps Script Web App..." className="w-full px-4 py-3 rounded-xl border-2 border-slate-50 focus:border-blue-400 outline-none text-sm font-bold bg-slate-50" />
         <button onClick={saveUrl} className="w-full py-4 text-white rounded-xl font-black text-xs uppercase tracking-widest shadow-lg active:scale-95 transition-all" style={{ backgroundColor: theme.primary }}>Atualizar Conexão Global</button>
         <div className="p-5 bg-amber-50 rounded-2xl border border-amber-100">
-           <button onClick={() => setShowScriptModal(true)} className="text-[9px] font-black text-blue-600 underline uppercase tracking-widest mt-2 hover:text-blue-800 transition-colors">Copiar Código V46</button>
+           <button onClick={() => setShowScriptModal(true)} className="text-[9px] font-black text-blue-600 underline uppercase tracking-widest mt-2 hover:text-blue-800 transition-colors">Copiar Código V47</button>
         </div>
       </div>
 
@@ -357,13 +363,13 @@ const IntegrationsView: React.FC<IntegrationsViewProps> = ({ integrations, theme
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[300] flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-4xl rounded-[3rem] shadow-2xl max-h-[85vh] overflow-hidden flex flex-col animate-in zoom-in duration-300">
             <div className="p-8 border-b border-slate-50 flex justify-between items-center bg-slate-50/30">
-              <h3 className="text-xl font-black text-slate-800">Apps Script V46</h3>
+              <h3 className="text-xl font-black text-slate-800">Apps Script V47</h3>
               <button onClick={() => setShowScriptModal(false)} className="p-3 hover:bg-slate-100 rounded-full transition-colors text-slate-400"><XCircle size={32} /></button>
             </div>
             <div className="p-8 overflow-y-auto flex-1">
               <div className="relative">
-                <button onClick={() => { navigator.clipboard.writeText(APPS_SCRIPT_CODE); alert('Código V46 copiado! Cole no editor do Google Apps Script e faça uma Nova Implantação.'); }} className="absolute top-4 right-4 p-3 bg-slate-900 text-white rounded-2xl shadow-xl flex items-center space-x-2 text-[10px] font-black uppercase">
-                  <Copy size={16} /> <span>Copiar V46</span>
+                <button onClick={() => { navigator.clipboard.writeText(APPS_SCRIPT_CODE); alert('Código V47 copiado! Cole no editor do Google Apps Script e faça uma Nova Implantação.'); }} className="absolute top-4 right-4 p-3 bg-slate-900 text-white rounded-2xl shadow-xl flex items-center space-x-2 text-[10px] font-black uppercase">
+                  <Copy size={16} /> <span>Copiar V47</span>
                 </button>
                 <pre className="bg-slate-950 text-emerald-400 p-10 rounded-[2.5rem] overflow-x-auto text-[10px] leading-relaxed font-mono shadow-inner border border-slate-800">
                   {APPS_SCRIPT_CODE}
