@@ -41,8 +41,8 @@ const App: React.FC = () => {
   const initialSyncRef = useRef(false);
   
   const [state, setState] = useState<AppState>(() => {
-    // Incrementado para V41 para garantir limpeza de cache e nova sincronização
-    const saved = localStorage.getItem('hotel_village_state_v41');
+    // Incrementado para V43 para garantir limpeza de cache com novos campos
+    const saved = localStorage.getItem('hotel_village_state_v43');
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
@@ -130,7 +130,8 @@ const App: React.FC = () => {
             sundayOffs: sOffs,
             sectorId: emp.sectorId?.toString() || '',
             salary: parseFloat(emp.salary) || 0,
-            uniforms: typeof emp.uniforms === 'string' ? JSON.parse(emp.uniforms) : (emp.uniforms || [])
+            uniforms: typeof emp.uniforms === 'string' ? JSON.parse(emp.uniforms) : (emp.uniforms || []),
+            photo: emp.photo || '' // Normalized photo field
           };
         });
 
@@ -168,6 +169,7 @@ const App: React.FC = () => {
             }))
           })),
           quotes: typeof b.quotes === 'string' ? JSON.parse(b.quotes) : (b.quotes || []),
+          files: typeof b.files === 'string' ? JSON.parse(b.files) : (b.files || []), // Normalized files
           createdAt: typeof b.createdAt === 'string' ? new Date(b.createdAt).getTime() : (b.createdAt || Date.now())
         }));
 
@@ -177,7 +179,8 @@ const App: React.FC = () => {
             id: inv.id?.toString(),
             quantity: parseFloat(inv.quantity) || 0,
             price: parseFloat(inv.price) || 0,
-            lastUpdate: inv.lastUpdate ? new Date(inv.lastUpdate).getTime() : Date.now()
+            lastUpdate: inv.lastUpdate ? new Date(inv.lastUpdate).getTime() : Date.now(),
+            sectorId: inv.sectorId?.toString() || '' // Parse sectorId
         }));
 
         const normalizedInventoryHistory = (incomingData.inventoryHistory || []).map((op: any) => ({
@@ -247,7 +250,7 @@ const App: React.FC = () => {
   }, [loadDataFromSheet, state.currentHotel]);
 
   useEffect(() => { 
-    localStorage.setItem('hotel_village_state_v41', JSON.stringify(state)); 
+    localStorage.setItem('hotel_village_state_v43', JSON.stringify(state)); 
   }, [state]);
 
   const syncToSheet = async (dataType: 'APARTMENT' | 'BUDGET' | 'EMPLOYEE' | 'EXTRA' | 'SECTOR' | 'INVENTORY' | 'INVENTORY_OP' | 'SUPPLIER' | 'CONFIG' | 'DELETE', data: any, newFiles?: any[]) => {
@@ -300,7 +303,7 @@ const App: React.FC = () => {
     syncToSheet('APARTMENT', apt, newFiles);
   };
 
-  const handleSaveBudget = (budget: Budget) => {
+  const handleSaveBudget = (budget: Budget, newFiles?: any[]) => {
     const existing = currentHotelData.budgets.find(b => b.id === budget.id);
     const newBudgets = existing 
       ? currentHotelData.budgets.map(b => b.id === budget.id ? budget : b)
@@ -313,7 +316,8 @@ const App: React.FC = () => {
         [prev.currentHotel]: { ...prev.hotels[prev.currentHotel], budgets: newBudgets }
       }
     }));
-    syncToSheet('BUDGET', budget);
+    // Pass newFiles to syncToSheet so they can be uploaded to Drive
+    syncToSheet('BUDGET', budget, newFiles);
   };
 
   const handleDeleteBudget = (id: string) => {
@@ -330,7 +334,7 @@ const App: React.FC = () => {
     syncToSheet('DELETE', { id, targetType: 'BUDGET' });
   };
 
-  const handleSaveEmployee = (emp: Employee) => {
+  const handleSaveEmployee = (emp: Employee, newFiles?: any[]) => {
     const existing = currentHotelData.employees.find(e => e.id === emp.id);
     const newEmps = existing 
       ? currentHotelData.employees.map(e => e.id === emp.id ? emp : e)
@@ -343,7 +347,8 @@ const App: React.FC = () => {
         [prev.currentHotel]: { ...prev.hotels[prev.currentHotel], employees: newEmps }
       }
     }));
-    syncToSheet('EMPLOYEE', emp);
+    // Pass newFiles (photo) to syncToSheet
+    syncToSheet('EMPLOYEE', emp, newFiles);
   };
 
   const handleDeleteEmployee = (id: string) => {
@@ -525,8 +530,6 @@ const App: React.FC = () => {
   const renderContent = () => {
     if (state.selectedApartmentId) {
       let apt = currentHotelData.apartments[state.selectedApartmentId];
-      
-      // Allow access to non-existent (unfilled) apartments by providing a skeleton
       if (!apt) {
         const parts = state.selectedApartmentId.split('-');
         const floor = parseInt(parts[0]);
@@ -540,7 +543,6 @@ const App: React.FC = () => {
           moveisDetalhes: []
         };
       }
-      
       return (
         <ApartmentDetailView 
           apartment={apt} 
@@ -606,13 +608,16 @@ const App: React.FC = () => {
             history={currentHotelData.inventoryHistory} 
             suppliers={currentHotelData.suppliers}
             employees={currentHotelData.employees} 
+            sectors={currentHotelData.sectors}
             showSuppliersTab={currentHotelData.config?.showSuppliersTab} 
             theme={theme} 
             onSave={handleSaveInventoryItem} 
             onDelete={handleDeleteInventoryItem} 
             onOperation={handleInventoryOperation} 
             onSaveSupplier={handleSaveSupplier} 
-            onDeleteSupplier={handleDeleteSupplier} 
+            onDeleteSupplier={handleDeleteSupplier}
+            onSaveSector={handleSaveSector}
+            onDeleteSector={handleDeleteSector}
             role={state.currentUser?.role} 
             currentUser={state.currentUser?.name} 
           />

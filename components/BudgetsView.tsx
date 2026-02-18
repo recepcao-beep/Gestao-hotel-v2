@@ -21,7 +21,10 @@ import {
   TrendingDown,
   TrendingUp,
   DollarSign,
-  Filter
+  Filter,
+  Paperclip,
+  FileText,
+  Image as ImageIcon
 } from 'lucide-react';
 
 interface BudgetsViewProps {
@@ -45,12 +48,19 @@ const BudgetsView: React.FC<BudgetsViewProps> = ({ budgets, theme, onSave, onDel
     { id: '1', description: '', materials: [], laborCost: 0, estimatedTime: '', serviceProvider: '' }
   ]);
   const [status, setStatus] = useState<'Pendente' | 'Aprovado' | 'Rejeitado'>('Pendente');
+  
+  // File State
+  const [newFiles, setNewFiles] = useState<{data: string, mimeType: string, fileName: string}[]>([]);
+  const [attachedFiles, setAttachedFiles] = useState<BudgetFile[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const resetForm = () => {
     setTitle('');
     setObjective('');
     setItems([{ id: '1', description: '', materials: [], laborCost: 0, estimatedTime: '', serviceProvider: '' }]);
     setStatus('Pendente');
+    setNewFiles([]);
+    setAttachedFiles([]);
     setIsAdding(false);
     setEditingBudget(null);
   };
@@ -71,8 +81,25 @@ const BudgetsView: React.FC<BudgetsViewProps> = ({ budgets, theme, onSave, onDel
           : [{ supplier: '', value: 0 }, { supplier: '', value: 0 }, { supplier: '', value: 0 }]
       }))
     })));
+    setAttachedFiles(budget.files || []);
     setStatus(budget.status);
+    setNewFiles([]);
     setIsAdding(true);
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (files) {
+      Array.from(files).forEach((file: File) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const fullBase64 = reader.result?.toString() || '';
+          const base64Data = fullBase64.split(',')[1] || '';
+          setNewFiles(prev => [...prev, { data: base64Data, mimeType: file.type, fileName: file.name }]);
+        };
+        reader.readAsDataURL(file);
+      });
+    }
   };
 
   const updateStatus = (budget: Budget, newStatus: 'Pendente' | 'Aprovado' | 'Rejeitado') => {
@@ -186,10 +213,12 @@ const BudgetsView: React.FC<BudgetsViewProps> = ({ budgets, theme, onSave, onDel
       objective,
       items,
       quotes: [],
+      files: attachedFiles, // Existing files
       status,
       createdAt: editingBudget?.createdAt || Date.now()
     };
-    onSave(finalBudget);
+    // Pass newFiles to be uploaded
+    onSave(finalBudget, newFiles);
     resetForm();
   };
 
@@ -234,6 +263,37 @@ const BudgetsView: React.FC<BudgetsViewProps> = ({ budgets, theme, onSave, onDel
                 <div className="col-span-2">
                   <label className="block text-[10px] font-black text-slate-500 uppercase mb-2 ml-1">Título do Projeto</label>
                   <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Ex: Reforma Apto 205" className="w-full px-5 py-3 rounded-xl border-2 border-white font-bold text-slate-800" />
+                </div>
+                
+                {/* File Attachment Section */}
+                <div className="col-span-2">
+                  <div className="flex items-center justify-between mb-2 ml-1">
+                    <label className="block text-[10px] font-black text-slate-500 uppercase">Arquivos do Projeto</label>
+                    <button type="button" onClick={() => fileInputRef.current?.click()} className="text-[10px] font-bold text-blue-500 flex items-center hover:underline">
+                      <Paperclip size={14} className="mr-1"/> Anexar Arquivos
+                    </button>
+                  </div>
+                  <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" multiple />
+                  
+                  <div className="flex flex-wrap gap-2">
+                    {attachedFiles.map((file, idx) => (
+                      <div key={idx} className="flex items-center space-x-2 bg-white px-3 py-2 rounded-lg border border-slate-200">
+                         {file.fileType?.includes('image') ? <ImageIcon size={14} className="text-slate-400"/> : <FileText size={14} className="text-slate-400"/>}
+                         <a href={file.driveLink} target="_blank" rel="noopener noreferrer" className="text-xs font-bold text-blue-600 hover:underline truncate max-w-[150px]">{file.fileName || 'Arquivo'}</a>
+                         <button type="button" onClick={() => setAttachedFiles(prev => prev.filter(f => f.id !== file.id))} className="text-slate-300 hover:text-rose-500"><X size={14}/></button>
+                      </div>
+                    ))}
+                    {newFiles.map((file, idx) => (
+                      <div key={`new-${idx}`} className="flex items-center space-x-2 bg-blue-50 px-3 py-2 rounded-lg border border-blue-100">
+                         <span className="text-[8px] font-black text-blue-400 uppercase">NOVO</span>
+                         <span className="text-xs font-bold text-slate-700 truncate max-w-[150px]">{file.fileName}</span>
+                         <button type="button" onClick={() => setNewFiles(prev => prev.filter((_, i) => i !== idx))} className="text-blue-300 hover:text-rose-500"><X size={14}/></button>
+                      </div>
+                    ))}
+                    {attachedFiles.length === 0 && newFiles.length === 0 && (
+                      <p className="text-xs text-slate-400 italic">Nenhum arquivo anexado.</p>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -363,6 +423,7 @@ const BudgetsView: React.FC<BudgetsViewProps> = ({ budgets, theme, onSave, onDel
                       <div className="flex items-center space-x-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
                         <span className="flex items-center"><Layers size={12} className="mr-1" /> {(budget.items || []).length} Serviços</span>
                         <span className="flex items-center"><Clock size={12} className="mr-1" /> {totalDays} dias totais</span>
+                        {budget.files && budget.files.length > 0 && <span className="flex items-center text-blue-500"><Paperclip size={12} className="mr-1" /> {budget.files.length} Anexos</span>}
                       </div>
                     </div>
                   </div>
@@ -383,6 +444,18 @@ const BudgetsView: React.FC<BudgetsViewProps> = ({ budgets, theme, onSave, onDel
                 <div className="px-8 pb-10 pt-4 border-t border-slate-50 animate-in slide-in-from-top-4 bg-slate-50/30">
                   <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
                     <div className="lg:col-span-3 space-y-4">
+                      {budget.files && budget.files.length > 0 && (
+                        <div className="bg-white p-4 rounded-3xl border border-slate-100 shadow-sm flex flex-wrap gap-3">
+                           <p className="w-full text-[9px] font-black text-slate-400 uppercase">Arquivos Anexados</p>
+                           {budget.files.map((file, idx) => (
+                              <a key={idx} href={file.driveLink} target="_blank" rel="noopener noreferrer" className="flex items-center space-x-2 bg-slate-50 px-3 py-2 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors">
+                                 {file.fileType?.includes('image') ? <ImageIcon size={14}/> : <FileText size={14}/>}
+                                 <span className="text-xs font-bold">{file.fileName}</span>
+                              </a>
+                           ))}
+                        </div>
+                      )}
+                    
                       {(budget.items || []).map((item, idx) => (
                         <div key={idx} className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
                            <h6 className="font-black text-slate-800 mb-4 flex items-center justify-between">

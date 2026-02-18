@@ -1,5 +1,6 @@
+
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { InventoryItem, InventoryOperation, HotelTheme, UserRole, Supplier, Employee } from '../types';
+import { InventoryItem, InventoryOperation, HotelTheme, UserRole, Supplier, Employee, Sector } from '../types';
 import { 
   Package, 
   Search, 
@@ -20,7 +21,14 @@ import {
   DollarSign,
   QrCode,
   Scan,
-  Briefcase
+  Briefcase,
+  Building2,
+  ChevronLeft,
+  AlertTriangle,
+  ChevronDown,
+  ChevronRight,
+  Layers,
+  Printer
 } from 'lucide-react';
 
 interface InventoryViewProps {
@@ -28,6 +36,7 @@ interface InventoryViewProps {
   history: InventoryOperation[];
   suppliers: Supplier[];
   employees?: Employee[];
+  sectors?: Sector[];
   showSuppliersTab?: boolean;
   theme: HotelTheme;
   onSave: (item: InventoryItem) => void;
@@ -35,6 +44,8 @@ interface InventoryViewProps {
   onOperation: (op: InventoryOperation) => void;
   onSaveSupplier: (supplier: Supplier) => void;
   onDeleteSupplier: (id: string) => void;
+  onSaveSector?: (sector: Sector) => void;
+  onDeleteSector?: (id: string) => void;
   role?: UserRole;
   currentUser?: string;
 }
@@ -44,6 +55,7 @@ const InventoryView: React.FC<InventoryViewProps> = ({
   history, 
   suppliers,
   employees = [],
+  sectors = [],
   showSuppliersTab = true,
   theme, 
   onSave, 
@@ -51,13 +63,22 @@ const InventoryView: React.FC<InventoryViewProps> = ({
   onOperation, 
   onSaveSupplier, 
   onDeleteSupplier,
+  onSaveSector,
+  onDeleteSector,
   role,
   currentUser 
 }) => {
+  const [selectedSectorId, setSelectedSectorId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'ESTOQUE' | 'OPERACAO' | 'SUGESTAO' | 'FORNECEDORES'>('ESTOQUE');
+  
+  // Modals state
   const [isAddingItem, setIsAddingItem] = useState(false);
   const [isAddingOp, setIsAddingOp] = useState(false);
   const [isAddingSupplier, setIsAddingSupplier] = useState(false);
+  const [isAddingSector, setIsAddingSector] = useState(false);
+  const [sectorToDelete, setSectorToDelete] = useState<Sector | null>(null);
+  const [showEmptySectors, setShowEmptySectors] = useState(false);
+  
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
   const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -81,6 +102,9 @@ const InventoryView: React.FC<InventoryViewProps> = ({
   const [opRecipientId, setOpRecipientId] = useState('');
   const [opRecipientName, setOpRecipientName] = useState('');
   
+  // Form Sector
+  const [sectorName, setSectorName] = useState('');
+
   const [isSearchDropdownOpen, setIsSearchDropdownOpen] = useState(false);
   const searchContainerRef = useRef<HTMLDivElement>(null);
   const recipientInputRef = useRef<HTMLInputElement>(null);
@@ -106,19 +130,54 @@ const InventoryView: React.FC<InventoryViewProps> = ({
     const thirtyDaysAgo = Date.now() - (30 * 24 * 60 * 60 * 1000);
     const itemExits = history.filter(op => op.itemId === item.id && op.type === 'Saída' && op.timestamp > thirtyDaysAgo);
     const totalExited = itemExits.reduce((acc, curr) => acc + curr.quantity, 0);
-    const mcd = totalExited / 30;
+    const mcd = totalExited / 30; // Média de Consumo Diário
+    
     const supplier = suppliers.find(s => s.id === item.supplierId);
+    // Exemplo de lógica baseada no nome do fornecedor (V-Marketing ou Padrão)
     const isVMarketing = supplier?.name.toLowerCase().includes('v-marketing');
-    const targetDays = isVMarketing ? 12 : 8;
+    
+    // Ciclo de pedido (dias de cobertura desejados)
+    const targetDays = isVMarketing ? 15 : 7; 
+    
     const targetStock = Math.ceil(mcd * targetDays);
     const suggestedQuantity = Math.max(0, targetStock - item.quantity);
-    return { mcd, targetDays, targetStock, suggestedQuantity, isVMarketing, reason: isVMarketing ? "Ciclo de Quinta (V-Marketing): 12 dias" : "Ciclo de Quarta: 8 dias" };
+    
+    return { 
+        mcd, 
+        targetDays, 
+        targetStock, 
+        suggestedQuantity, 
+        isVMarketing, 
+        reason: isVMarketing ? "Ciclo de 15 dias" : "Ciclo Semanal" 
+    };
   };
 
-  const enrichedInventory = useMemo(() => inventory.map(item => {
+  // Pre-calculate counts to split sectors
+  const sectorCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    inventory.forEach(i => {
+        if(i.sectorId) counts[i.sectorId] = (counts[i.sectorId] || 0) + 1;
+    });
+    return counts;
+  }, [inventory]);
+
+  const activeSectors = useMemo(() => sectors.filter(s => (sectorCounts[s.id] || 0) > 0), [sectors, sectorCounts]);
+  const emptySectors = useMemo(() => sectors.filter(s => (sectorCounts[s.id] || 0) === 0), [sectors, sectorCounts]);
+
+  // Filter inventory by selected Sector
+  const sectorInventory = useMemo(() => {
+    return inventory.filter(i => i.sectorId === selectedSectorId);
+  }, [inventory, selectedSectorId]);
+
+  const enrichedInventory = useMemo(() => sectorInventory.map(item => {
     const suggestion = calculateOrderSuggestion(item);
-    return { ...item, minQuantity: Math.ceil(suggestion.mcd * 7), suggestion, totalValue: item.quantity * (item.price || 0) };
-  }), [inventory, history, suppliers]);
+    return { 
+        ...item, 
+        minQuantity: Math.ceil(suggestion.mcd * 3), // Estoque mínimo de segurança (3 dias)
+        suggestion, 
+        totalValue: item.quantity * (item.price || 0) 
+    };
+  }), [sectorInventory, history, suppliers]);
 
   const globalTotalValue = useMemo(() => enrichedInventory.reduce((acc, curr) => acc + curr.totalValue, 0), [enrichedInventory]);
 
@@ -134,7 +193,20 @@ const InventoryView: React.FC<InventoryViewProps> = ({
 
   const handleSaveItemSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSave({ id: editingItem?.id || Date.now().toString(), ean, name, category, quantity: initialQuantity, unit, price, supplierId, minQuantity: 0, lastUpdate: Date.now() });
+    if (!selectedSectorId) return;
+    onSave({ 
+      id: editingItem?.id || Date.now().toString(), 
+      ean, 
+      name, 
+      category, 
+      quantity: initialQuantity, 
+      unit, 
+      price, 
+      supplierId, 
+      sectorId: selectedSectorId, 
+      minQuantity: 0, 
+      lastUpdate: Date.now() 
+    });
     resetItemForm();
   };
 
@@ -144,6 +216,15 @@ const InventoryView: React.FC<InventoryViewProps> = ({
     setSupName(''); setSupContact(''); setSupCategory(''); setIsAddingSupplier(false); setEditingSupplier(null);
   };
 
+  const handleSaveSectorSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (onSaveSector) {
+      onSaveSector({ id: Date.now().toString(), name: sectorName, standardUniform: [] });
+      setSectorName('');
+      setIsAddingSector(false);
+    }
+  };
+
   const filteredItems = useMemo(() => enrichedInventory.filter(i => 
     (categoryFilter === 'Todos' || i.category === categoryFilter) &&
     (i.name.toLowerCase().includes(searchTerm.toLowerCase()) || (i.ean && i.ean.includes(searchTerm)))
@@ -151,11 +232,11 @@ const InventoryView: React.FC<InventoryViewProps> = ({
 
   const predictiveResults = useMemo(() => {
     if (!opSearchQuery || opSearchQuery.length < 2) return [];
-    return inventory.filter(i => 
+    return sectorInventory.filter(i => 
       i.name.toLowerCase().includes(opSearchQuery.toLowerCase()) || 
       (i.ean && i.ean.includes(opSearchQuery))
     ).slice(0, 5);
-  }, [inventory, opSearchQuery]);
+  }, [sectorInventory, opSearchQuery]);
 
   const suggestedOrders = useMemo(() => enrichedInventory.filter(i => i.suggestion.suggestedQuantity > 0), [enrichedInventory]);
 
@@ -174,7 +255,6 @@ const InventoryView: React.FC<InventoryViewProps> = ({
       const val = e.target.value;
       setOpRecipientName(val);
       
-      // Try to find exact match by ID (QR Scan) or exact Name
       const exactMatch = employees.find(emp => emp.id === val || emp.name.toLowerCase() === val.toLowerCase());
       if(exactMatch) {
           setOpRecipientId(exactMatch.id);
@@ -184,34 +264,198 @@ const InventoryView: React.FC<InventoryViewProps> = ({
       }
   };
 
-  return (
-    <div className="space-y-6 animate-in fade-in duration-500 pb-20">
-      
-      {/* Header com Valor Total */}
-      <div className="flex flex-col md:flex-row justify-between items-center gap-4 bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm">
-         <div className="flex items-center space-x-4">
-            <div className="p-4 bg-emerald-50 text-emerald-500 rounded-2xl"><DollarSign size={24}/></div>
-            <div>
-               <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Valor Total do Estoque</p>
-               <h3 className="text-2xl font-black text-slate-800">R$ {globalTotalValue.toLocaleString('pt-BR')}</h3>
-            </div>
-         </div>
-         <div className="flex bg-slate-50 p-1.5 rounded-2xl border border-slate-100 shadow-sm w-full md:w-auto">
-            {[
-              { id: 'ESTOQUE', label: 'Estoque', icon: Package },
-              { id: 'OPERACAO', label: 'Movimentos', icon: History },
-              { id: 'SUGESTAO', label: 'Pedido Sugerido', icon: ShoppingCart },
-              ...(showSuppliersTab ? [{ id: 'FORNECEDORES', label: 'Fornecedores', icon: Truck }] : [])
-            ].map(tab => (
-              <button key={tab.id} onClick={() => setActiveTab(tab.id as any)} className={`flex-1 flex items-center justify-center space-x-2 py-2.5 px-4 rounded-xl text-[10px] font-black uppercase transition-all ${activeTab === tab.id ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>
-                <tab.icon size={14} /> <span className="hidden sm:inline">{tab.label}</span>
-              </button>
+  // --- SECTOR SELECTION VIEW ---
+  if (!selectedSectorId) {
+    return (
+      <div className="space-y-8 animate-in fade-in duration-500 pb-20">
+        <div className="flex flex-col md:flex-row justify-between items-center gap-4">
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Controle de Estoque</p>
+          <div className="flex gap-2">
+            <button 
+              onClick={() => setIsAddingSector(true)} 
+              className="text-white px-6 py-3 rounded-xl font-bold flex items-center space-x-2 shadow-lg" 
+              style={{ backgroundColor: theme.primary }}
+            >
+              <Plus size={18} /> <span>Novo Setor</span>
+            </button>
+          </div>
+        </div>
+
+        {/* GRUPO 1: SETORES ATIVOS (COM PRODUTOS) */}
+        {activeSectors.length > 0 ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            {activeSectors.map((sec) => (
+              <div key={sec.id} className="relative group">
+                {onDeleteSector && role !== 'FUNCIONARIO' && (
+                  <button 
+                    onClick={(e) => { 
+                      e.stopPropagation(); 
+                      setSectorToDelete(sec);
+                    }}
+                    className="absolute top-4 right-4 z-10 p-2 bg-white/90 rounded-full text-slate-300 hover:text-rose-500 hover:bg-white shadow-sm opacity-0 group-hover:opacity-100 transition-all"
+                    title="Excluir Setor"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                )}
+
+                <button onClick={() => setSelectedSectorId(sec.id)} className="w-full bg-white h-48 rounded-[2.5rem] shadow-sm hover:shadow-xl transition-all border border-slate-50 flex flex-col items-center justify-center overflow-hidden">
+                  <div className="absolute top-0 left-0 w-full h-1.5" style={{ backgroundColor: theme.primary }}></div>
+                  <div className="p-5 rounded-2xl mb-3 bg-slate-50 text-slate-400 group-hover:scale-110 transition-transform">
+                    <Package size={32} />
+                  </div>
+                  <h3 className="text-xl font-black text-slate-800">{sec.name}</h3>
+                  <p className="text-slate-400 text-[10px] font-black uppercase mt-1">
+                    {sectorCounts[sec.id] || 0} Itens em Estoque
+                  </p>
+                </button>
+              </div>
             ))}
-         </div>
+          </div>
+        ) : (
+           <div className="text-center py-10">
+              <p className="text-slate-400 font-bold italic">Nenhum setor com estoque ativo. Comece adicionando um item abaixo.</p>
+           </div>
+        )}
+
+        {/* GRUPO 2: SETORES VAZIOS (ESCONDIDOS/COLAPSÁVEIS) */}
+        {emptySectors.length > 0 && (
+          <div className="mt-8 border-t border-slate-100 pt-8">
+            <button 
+              onClick={() => setShowEmptySectors(!showEmptySectors)} 
+              className="flex items-center space-x-2 text-slate-500 font-black text-xs uppercase tracking-widest hover:text-slate-800 transition-colors mb-4"
+            >
+              {showEmptySectors ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+              <span>Iniciar Estoque em Novos Setores ({emptySectors.length})</span>
+            </button>
+
+            {showEmptySectors && (
+              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4 animate-in slide-in-from-top-2">
+                {emptySectors.map((sec) => (
+                  <div key={sec.id} className="relative group">
+                    {onDeleteSector && role !== 'FUNCIONARIO' && (
+                      <button 
+                        onClick={(e) => { 
+                          e.stopPropagation(); 
+                          setSectorToDelete(sec);
+                        }}
+                        className="absolute top-2 right-2 z-10 p-1.5 bg-white rounded-full text-slate-300 hover:text-rose-500 hover:bg-rose-50 shadow-sm opacity-0 group-hover:opacity-100 transition-all"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    )}
+                    
+                    <button 
+                      onClick={() => { 
+                         setSelectedSectorId(sec.id);
+                         setIsAddingItem(true);
+                      }} 
+                      className="w-full bg-slate-50 hover:bg-white border-2 border-dashed border-slate-200 hover:border-blue-300 rounded-2xl p-4 flex flex-col items-center justify-center transition-all h-32 group-hover:shadow-md"
+                    >
+                      <PlusCircle size={24} className="text-slate-300 mb-2 group-hover:text-blue-500 transition-colors"/>
+                      <span className="font-bold text-slate-600 text-sm text-center leading-tight">{sec.name}</span>
+                      <span className="text-[8px] font-black text-slate-400 uppercase mt-1">Adicionar Item</span>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Modals for Adding Sector/Confirm Delete (same as before) */}
+        {isAddingSector && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[400] flex items-center justify-center p-4">
+             <div className="bg-white w-full max-w-sm rounded-[2.5rem] shadow-2xl overflow-hidden animate-in zoom-in duration-200">
+                <div className="p-6 border-b flex justify-between items-center bg-slate-50/50">
+                   <h3 className="font-black text-slate-800">Novo Setor de Estoque</h3>
+                   <button onClick={() => setIsAddingSector(false)}><X size={24} className="text-slate-300"/></button>
+                </div>
+                <form onSubmit={handleSaveSectorSubmit} className="p-6 space-y-4">
+                   <input 
+                     type="text" 
+                     value={sectorName} 
+                     onChange={e => setSectorName(e.target.value)} 
+                     placeholder="Nome do Setor (Ex: Manutenção)" 
+                     className="w-full px-4 py-3 rounded-xl border-2 font-bold text-slate-800 outline-none focus:border-blue-400" 
+                     required 
+                   />
+                   <button type="submit" className="w-full py-4 bg-slate-900 text-white rounded-xl font-black text-xs uppercase shadow-lg">Criar Setor</button>
+                </form>
+             </div>
+          </div>
+        )}
+
+        {sectorToDelete && (
+          <div className="fixed inset-0 z-[500] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="bg-white w-full max-w-sm rounded-[2rem] shadow-2xl p-6 animate-in zoom-in-95 duration-200 border border-white/20">
+              <div className="flex flex-col items-center text-center space-y-4">
+                <div className="p-4 bg-red-50 text-red-500 rounded-full shadow-inner">
+                  <Trash2 size={32} />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-slate-800">Excluir Setor?</h3>
+                  <p className="text-xs text-slate-500 font-bold mt-2 leading-relaxed">
+                    Você está prestes a remover o setor <br/><span className="text-slate-800 text-sm">"{sectorToDelete.name}"</span>.
+                  </p>
+                  <p className="text-[10px] text-slate-400 mt-2 font-medium bg-slate-50 p-2 rounded-lg border border-slate-100">
+                    <AlertTriangle size={12} className="inline mr-1 mb-0.5"/>
+                    Os itens vinculados não serão apagados, mas ficarão sem setor definido.
+                  </p>
+                </div>
+                <div className="flex gap-3 w-full pt-2">
+                  <button onClick={() => setSectorToDelete(null)} className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl font-black text-xs uppercase hover:bg-slate-200 transition-colors">Cancelar</button>
+                  <button onClick={() => { if (onDeleteSector) onDeleteSector(sectorToDelete.id); setSectorToDelete(null); }} className="flex-1 py-3 bg-red-500 text-white rounded-xl font-black text-xs uppercase shadow-lg hover:bg-red-600 transition-colors">Confirmar</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // --- INVENTORY DETAIL VIEW ---
+  const currentSector = sectors.find(s => s.id === selectedSectorId);
+
+  return (
+    <div className="space-y-6 animate-in slide-in-from-right-4 duration-500 pb-20">
+      
+      {/* Header com Navegação e Valor Total */}
+      <div className="flex flex-col space-y-4">
+        <button 
+           onClick={() => setSelectedSectorId(null)} 
+           className="self-start flex items-center text-slate-400 hover:text-slate-800 transition-colors font-bold text-xs"
+        >
+           <ChevronLeft size={16} className="mr-1"/> Voltar para Setores
+        </button>
+
+        <div className="flex flex-col md:flex-row justify-between items-center gap-4 bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm">
+           <div className="flex items-center space-x-4">
+              <div className="p-4 bg-slate-900 text-white rounded-2xl"><Package size={24}/></div>
+              <div>
+                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Estoque: {currentSector?.name}</p>
+                 <h3 className="text-2xl font-black text-slate-800">R$ {globalTotalValue.toLocaleString('pt-BR')}</h3>
+              </div>
+           </div>
+           <div className="flex bg-slate-50 p-1.5 rounded-2xl border border-slate-100 shadow-sm w-full md:w-auto overflow-x-auto">
+              {[
+                { id: 'ESTOQUE', label: 'Itens', icon: Package },
+                { id: 'OPERACAO', label: 'Movimentos', icon: History },
+                { id: 'SUGESTAO', label: 'Pedidos', icon: ShoppingCart },
+                ...(showSuppliersTab ? [{ id: 'FORNECEDORES', label: 'Fornecedores', icon: Truck }] : [])
+              ].map(tab => (
+                <button key={tab.id} onClick={() => setActiveTab(tab.id as any)} className={`flex-1 flex items-center justify-center space-x-2 py-2.5 px-4 rounded-xl text-[10px] font-black uppercase transition-all whitespace-nowrap ${activeTab === tab.id ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>
+                  <tab.icon size={14} /> <span className="hidden sm:inline">{tab.label}</span>
+                </button>
+              ))}
+           </div>
+        </div>
       </div>
 
       {activeTab === 'ESTOQUE' && (
         <div className="space-y-6 animate-in slide-in-from-bottom-2">
+          {/* ... Existing Inventory List Code ... */}
           <div className="flex flex-col md:flex-row gap-4 justify-between items-center">
             <div className="flex gap-3 w-full md:w-auto">
               <div className="relative flex-1 md:w-64">
@@ -277,6 +521,11 @@ const InventoryView: React.FC<InventoryViewProps> = ({
                 </tbody>
               </table>
             </div>
+            {filteredItems.length === 0 && (
+                <div className="py-20 text-center text-slate-300 italic font-bold">
+                    Nenhum item encontrado neste setor.
+                </div>
+            )}
           </div>
         </div>
       )}
@@ -324,73 +573,103 @@ const InventoryView: React.FC<InventoryViewProps> = ({
       )}
 
       {activeTab === 'SUGESTAO' && (
-        <div className="space-y-6 animate-in slide-in-from-left-4">
+        <div className="space-y-6 animate-in slide-in-from-right-4">
            <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden">
-              <div className="mb-8">
-                 <h3 className="text-xl font-black text-slate-800 flex items-center"><ShoppingCart size={24} className="mr-3 text-emerald-500"/> Sugestão de Pedido Inteligente</h3>
-                 <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest mt-1">Calculado para garantir estoque até o próximo ciclo de entrega</p>
-              </div>
-
-              {suggestedOrders.length === 0 ? (
-                 <div className="text-center py-20 bg-slate-50 rounded-3xl">
-                    <CheckCircle2 size={48} className="mx-auto text-emerald-400 mb-4"/>
-                    <p className="text-slate-400 font-bold italic">Estoque abastecido para os ciclos de Quarta e Quinta.</p>
+              <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
+                 <div>
+                    <h3 className="text-xl font-black text-slate-800 flex items-center"><ShoppingCart size={24} className="mr-3 text-slate-400"/> Sugestão de Compra</h3>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase mt-1">Cálculo automático baseado na movimentação dos últimos 30 dias</p>
                  </div>
-              ) : (
-                 <div className="space-y-4">
-                    {suggestedOrders.map(item => (
-                      <div key={item.id} className={`flex items-center justify-between p-6 rounded-2xl border transition-all ${item.suggestion.isVMarketing ? 'bg-blue-50 border-blue-100' : 'bg-rose-50 border-rose-100'}`}>
-                         <div className="flex items-center space-x-4">
-                            <div className={`p-4 rounded-2xl shadow-sm ${item.suggestion.isVMarketing ? 'bg-white text-blue-500' : 'bg-white text-rose-500'}`}>
-                               <Truck size={24}/>
-                            </div>
-                            <div>
-                               <p className="font-black text-slate-800">{item.name}</p>
-                               <div className="flex flex-col">
-                                 <span className="text-[9px] text-slate-500 font-black uppercase tracking-widest">Atual: {item.quantity} {item.unit}</span>
-                                 <span className={`text-[10px] font-black uppercase ${item.suggestion.isVMarketing ? 'text-blue-600' : 'text-rose-600'}`}>
-                                    {item.suggestion.reason}
-                                 </span>
-                               </div>
-                            </div>
-                         </div>
-                         <div className="text-right bg-white p-4 rounded-2xl shadow-sm min-w-[140px] border border-slate-100">
-                            <p className="text-[9px] text-slate-400 font-black uppercase tracking-widest mb-1">Pedido Sugerido</p>
-                            <p className={`text-xl font-black ${item.suggestion.isVMarketing ? 'text-blue-600' : 'text-rose-600'}`}>
-                               {item.suggestion.suggestedQuantity} <span className="text-xs">{item.unit}</span>
-                            </p>
-                            <p className="text-[8px] text-slate-300 font-bold uppercase mt-1">Alvo: {item.suggestion.targetStock}</p>
+                 <button onClick={() => window.print()} className="bg-slate-900 text-white px-5 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg flex items-center"><Printer size={14} className="mr-2"/> Imprimir Pedido</button>
+              </div>
+              <div className="overflow-x-auto">
+                 <table className="w-full text-left">
+                    <thead>
+                       <tr className="bg-slate-50 border-b border-slate-100">
+                          <th className="px-6 py-4 text-[9px] font-black text-slate-400 uppercase tracking-widest">Produto</th>
+                          <th className="px-6 py-4 text-[9px] font-black text-slate-400 uppercase tracking-widest text-center">Atual</th>
+                          <th className="px-6 py-4 text-[9px] font-black text-slate-400 uppercase tracking-widest text-center">Sugestão</th>
+                          <th className="px-6 py-4 text-[9px] font-black text-slate-400 uppercase tracking-widest">Fornecedor</th>
+                          <th className="px-6 py-4 text-[9px] font-black text-slate-400 uppercase tracking-widest text-right">R$ Estimado</th>
+                       </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                       {suggestedOrders.length === 0 ? (
+                          <tr><td colSpan={5} className="py-20 text-center text-slate-300 italic font-bold">Nenhum item precisa de reposição no momento.</td></tr>
+                       ) : (
+                          suggestedOrders.map(item => {
+                             const supplierName = suppliers.find(s => s.id === item.supplierId)?.name || 'Não Def.';
+                             return (
+                                <tr key={item.id} className="hover:bg-slate-50/50">
+                                   <td className="px-6 py-4">
+                                      <p className="font-black text-slate-800 text-xs">{item.name}</p>
+                                      <p className="text-[9px] font-bold text-slate-400 uppercase">{item.category}</p>
+                                   </td>
+                                   <td className="px-6 py-4 text-center text-xs font-bold text-slate-600">{item.quantity}</td>
+                                   <td className="px-6 py-4 text-center">
+                                      <span className="bg-blue-100 text-blue-600 px-3 py-1 rounded-lg text-xs font-black">{item.suggestion.suggestedQuantity} {item.unit}</span>
+                                      <p className="text-[8px] font-bold text-slate-400 uppercase mt-1">{item.suggestion.reason}</p>
+                                   </td>
+                                   <td className="px-6 py-4 text-xs font-bold text-slate-600">{supplierName}</td>
+                                   <td className="px-6 py-4 text-right text-xs font-black text-slate-800">R$ {(item.suggestion.suggestedQuantity * (item.price || 0)).toLocaleString('pt-BR')}</td>
+                                </tr>
+                             );
+                          })
+                       )}
+                    </tbody>
+                 </table>
+              </div>
+           </div>
+        </div>
+      )}
+
+      {activeTab === 'FORNECEDORES' && showSuppliersTab && (
+         <div className="space-y-6 animate-in slide-in-from-right-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <button onClick={() => setIsAddingSupplier(true)} className="bg-white border-2 border-dashed border-slate-200 hover:border-blue-300 rounded-[2.5rem] flex flex-col items-center justify-center h-48 group transition-all">
+                   <PlusCircle size={32} className="text-slate-300 group-hover:text-blue-500 mb-2 transition-colors"/>
+                   <span className="font-black text-slate-400 group-hover:text-blue-600 text-xs uppercase tracking-widest">Novo Fornecedor</span>
+                </button>
+                {suppliers.map(sup => (
+                   <div key={sup.id} className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm relative group">
+                      <div className="flex items-center space-x-4 mb-4">
+                         <div className="p-4 bg-slate-50 rounded-2xl text-slate-400"><Truck size={24}/></div>
+                         <div>
+                            <h4 className="font-black text-slate-800 text-lg leading-tight">{sup.name}</h4>
+                            <p className="text-[10px] font-bold text-slate-400 uppercase">{sup.category}</p>
                          </div>
                       </div>
-                    ))}
-                 </div>
-              )}
+                      <div className="p-3 bg-slate-50 rounded-xl text-xs font-bold text-slate-600 break-all">
+                         {sup.contact || 'Sem contato'}
+                      </div>
+                      <div className="absolute top-4 right-4 flex space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                         <button onClick={() => { setEditingSupplier(sup); setSupName(sup.name); setSupContact(sup.contact); setSupCategory(sup.category); setIsAddingSupplier(true); }} className="p-2 bg-white rounded-full text-slate-400 hover:text-blue-500 shadow-sm"><Edit2 size={14}/></button>
+                         {role !== 'FUNCIONARIO' && <button onClick={() => onDeleteSupplier(sup.id)} className="p-2 bg-white rounded-full text-slate-400 hover:text-rose-500 shadow-sm"><Trash2 size={14}/></button>}
+                      </div>
+                   </div>
+                ))}
+            </div>
+         </div>
+      )}
+
+      {/* Modal FORNECEDOR */}
+      {isAddingSupplier && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[300] flex items-center justify-center p-4">
+           <div className="bg-white w-full max-w-lg rounded-[2.5rem] shadow-2xl animate-in zoom-in duration-200 overflow-hidden">
+              <div className="p-8 border-b border-slate-50 flex justify-between items-center">
+                 <h2 className="text-xl font-black text-slate-800">Novo Fornecedor</h2>
+                 <button onClick={() => setIsAddingSupplier(false)} className="text-slate-300 hover:text-slate-500"><X size={24}/></button>
+              </div>
+              <form onSubmit={handleSaveSupplierSubmit} className="p-8 space-y-4">
+                 <input type="text" value={supName} onChange={e => setSupName(e.target.value)} className="w-full px-4 py-3 rounded-xl border-2 border-slate-50 outline-none font-bold" placeholder="Nome da Empresa" required />
+                 <input type="text" value={supContact} onChange={e => setSupContact(e.target.value)} className="w-full px-4 py-3 rounded-xl border-2 border-slate-50 outline-none font-bold" placeholder="Contato (WhatsApp/Email)" />
+                 <input type="text" value={supCategory} onChange={e => setSupCategory(e.target.value)} className="w-full px-4 py-3 rounded-xl border-2 border-slate-50 outline-none font-bold" placeholder="Categoria" />
+                 <button type="submit" className="w-full py-4 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl" style={{ backgroundColor: theme.primary }}>Cadastrar Fornecedor</button>
+              </form>
            </div>
         </div>
       )}
 
-      {activeTab === 'FORNECEDORES' && (
-        <div className="space-y-6 animate-in fade-in">
-           <div className="flex justify-between items-center">
-              <h3 className="text-xl font-black text-slate-800 flex items-center"><Truck size={24} className="mr-3 text-slate-400"/> Cadastro de Fornecedores</h3>
-              <button onClick={() => setIsAddingSupplier(true)} className="bg-slate-900 text-white px-6 py-3 rounded-xl font-bold flex items-center space-x-2 shadow-lg active:scale-95 transition-all"><Plus size={18} /> <span>Novo Fornecedor</span></button>
-           </div>
-           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {suppliers.map(s => (
-                 <div key={s.id} className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm relative group">
-                    <button onClick={() => onDeleteSupplier(s.id)} className="absolute top-4 right-4 text-slate-200 hover:text-rose-500 transition-colors"><Trash2 size={16}/></button>
-                    <div className="p-3 bg-slate-50 text-slate-400 rounded-2xl w-fit mb-4"><Briefcase size={20}/></div>
-                    <h4 className="font-black text-slate-800 text-lg">{s.name}</h4>
-                    <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">{s.category || 'Geral'}</p>
-                    <div className="mt-4 pt-4 border-t border-slate-50 flex items-center text-xs font-bold text-slate-600">
-                       <UserIcon size={12} className="mr-2 text-slate-300"/> {s.contact || 'Sem contato'}
-                    </div>
-                 </div>
-              ))}
-              {suppliers.length === 0 && <div className="col-span-full py-20 text-center text-slate-300 italic font-bold border-2 border-dashed rounded-[3rem]">Nenhum fornecedor cadastrado.</div>}
-           </div>
-        </div>
-      )}
 
       {/* Modal NOVO ITEM */}
       {isAddingItem && (
@@ -398,6 +677,7 @@ const InventoryView: React.FC<InventoryViewProps> = ({
            <div className="bg-white w-full max-w-lg rounded-[2.5rem] shadow-2xl animate-in zoom-in duration-200 overflow-hidden">
               <div className="p-8 border-b border-slate-50 flex justify-between items-center">
                  <h2 className="text-xl font-black text-slate-800">{editingItem ? 'Editar Insumo' : 'Novo Insumo'}</h2>
+                 <p className="text-[10px] font-black text-slate-400 uppercase">{currentSector?.name}</p>
                  <button onClick={resetItemForm} className="text-slate-300 hover:text-slate-500"><X size={24}/></button>
               </div>
               <form onSubmit={handleSaveItemSubmit} className="p-8 space-y-4">
@@ -439,10 +719,9 @@ const InventoryView: React.FC<InventoryViewProps> = ({
         </div>
       )}
 
-      {/* Modal MOVIMENTAÇÃO */}
       {isAddingOp && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[300] flex items-center justify-center p-4">
-           <div className="bg-white w-full max-w-lg rounded-[2.5rem] shadow-2xl animate-in zoom-in duration-200 overflow-hidden">
+            <div className="bg-white w-full max-w-lg rounded-[2.5rem] shadow-2xl animate-in zoom-in duration-200 overflow-hidden">
               <div className="p-8 border-b border-slate-50 flex justify-between items-center">
                  <h2 className="text-xl font-black text-slate-800">Lançar Movimentação</h2>
                  <button onClick={resetOpForm} className="text-slate-300 hover:text-slate-500"><X size={24}/></button>
@@ -452,7 +731,6 @@ const InventoryView: React.FC<InventoryViewProps> = ({
                 const selectedItem = inventory.find(i => i.id === opItemId);
                 if (!selectedItem || opQuantity <= 0) return;
                 
-                // If it's outgoing, ensure we have recipient info if provided, or default to general if scanned ID wasn't found in DB
                 const finalRecipientName = opRecipientName || (opType === 'Saída' ? 'Não Identificado' : '');
 
                 onOperation({ 
@@ -563,25 +841,6 @@ const InventoryView: React.FC<InventoryViewProps> = ({
            </div>
         </div>
       )}
-
-      {/* Modal FORNECEDOR */}
-      {isAddingSupplier && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[300] flex items-center justify-center p-4">
-           <div className="bg-white w-full max-w-lg rounded-[2.5rem] shadow-2xl animate-in zoom-in duration-200 overflow-hidden">
-              <div className="p-8 border-b border-slate-50 flex justify-between items-center">
-                 <h2 className="text-xl font-black text-slate-800">Novo Fornecedor</h2>
-                 <button onClick={() => setIsAddingSupplier(false)} className="text-slate-300 hover:text-slate-500"><X size={24}/></button>
-              </div>
-              <form onSubmit={handleSaveSupplierSubmit} className="p-8 space-y-4">
-                 <input type="text" value={supName} onChange={e => setSupName(e.target.value)} className="w-full px-4 py-3 rounded-xl border-2 border-slate-50 outline-none font-bold" placeholder="Nome da Empresa" required />
-                 <input type="text" value={supContact} onChange={e => setSupContact(e.target.value)} className="w-full px-4 py-3 rounded-xl border-2 border-slate-50 outline-none font-bold" placeholder="Contato (WhatsApp/Email)" />
-                 <input type="text" value={supCategory} onChange={e => setSupCategory(e.target.value)} className="w-full px-4 py-3 rounded-xl border-2 border-slate-50 outline-none font-bold" placeholder="Categoria" />
-                 <button type="submit" className="w-full py-4 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl" style={{ backgroundColor: theme.primary }}>Cadastrar Fornecedor</button>
-              </form>
-           </div>
-        </div>
-      )}
-
     </div>
   );
 };

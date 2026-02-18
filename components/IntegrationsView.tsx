@@ -10,9 +10,7 @@ interface IntegrationsViewProps {
 }
 
 const APPS_SCRIPT_CODE = `/**
- * Google Apps Script para Gestão Hotel Village - V33 (Ultra Sync + Recipient)
- * CORREÇÃO CRÍTICA: Adicionado SpreadsheetApp.flush() para forçar atualização imediata.
- * Suporte COMPLETO para: Orçamentos, Estoque, Fornecedores, Setores, Funcionários, Extras e Apartamentos.
+ * Google Apps Script para Gestão Hotel Village - V46 (Fotos Organizadas e Exclusão)
  */
 
 function doGet(e) {
@@ -57,12 +55,13 @@ function doGet(e) {
           contact: dE[k][4], salary: dE[k][5], sectorId: dE[k][6] ? dE[k][6].toString() : '', 
           fixedDayOff: dE[k][7], sundayOffs: safeParse(dE[k][8], []), workingHours: dE[k][9], 
           status: dE[k][10] || 'Ativo', startDate: dE[k][11], scheduleType: dE[k][12], 
-          vacationStatus: dE[k][13] || 'Pendente', uniforms: safeParse(dE[k][14], []) 
+          vacationStatus: dE[k][13] || 'Pendente', uniforms: safeParse(dE[k][14], []),
+          photo: dE[k][15] || '' 
         }); 
       }
     }
 
-    // 3. Profissionais Extras (Freelancers)
+    // 3. Profissionais Extras
     var sheetExtra = ss.getSheetByName('Extras_' + hotel);
     if (sheetExtra) {
       var dExt = sheetExtra.getDataRange().getValues();
@@ -85,7 +84,8 @@ function doGet(e) {
         result.inventory.push({ 
           id: dataI[m][0].toString(), ean: dataI[m][1].toString(), name: dataI[m][2], category: dataI[m][3], 
           quantity: parseFloat(dataI[m][4]) || 0, minQuantity: dataI[m][5] || 0, unit: dataI[m][6], price: dataI[m][7] || 0, 
-          supplierId: dataI[m][8] ? dataI[m][8].toString() : '', lastUpdate: dataI[m][9] ? new Date(dataI[m][9]).getTime() : Date.now()
+          supplierId: dataI[m][8] ? dataI[m][8].toString() : '', lastUpdate: dataI[m][9] ? new Date(dataI[m][9]).getTime() : Date.now(),
+          sectorId: dataI[m][10] ? dataI[m][10].toString() : ''
         });
       }
     }
@@ -94,7 +94,6 @@ function doGet(e) {
     var sheetHist = ss.getSheetByName('Historico_Estoque_' + hotel);
     if (sheetHist) {
       var dH = sheetHist.getDataRange().getValues();
-      // Pega apenas os ultimos 200 registros para não pesar
       var start = Math.max(1, dH.length - 200);
       for (var n = start; n < dH.length; n++) {
          if(!dH[n][0]) continue;
@@ -136,7 +135,8 @@ function doGet(e) {
          result.budgets.push({
             id: dB[b][0].toString(), title: dB[b][1], objective: dB[b][2], 
             items: safeParse(dB[b][3], []), quotes: safeParse(dB[b][4], []), 
-            status: dB[b][5], createdAt: dB[b][6]
+            status: dB[b][5], createdAt: dB[b][6],
+            files: safeParse(dB[b][7], []) 
          });
       }
     }
@@ -161,7 +161,7 @@ function doGet(e) {
 function doPost(e) {
   var lock = LockService.getScriptLock();
   try {
-    lock.waitLock(15000);
+    lock.waitLock(30000); 
     var req = JSON.parse(e.postData.contents);
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var hotel = req.hotel || 'VILLAGE';
@@ -179,9 +179,20 @@ function doPost(e) {
     } 
     else if (req.dataType === 'EMPLOYEE') {
        var sheet = ss.getSheetByName('Funcionarios_' + hotel) || ss.insertSheet('Funcionarios_' + hotel);
+       
+       // Handle Photo Upload with Organized Structure
+       var photoLink = req.photo || ""; 
+       
+       if (req.newFiles && req.newFiles.length > 0) {
+          // Hierarchy: Root -> Hotel -> Employees -> Sector -> Employee Name
+          var sectorName = req.department || "Geral"; 
+          photoLink = saveEmployeePhotoToFolder(req.newFiles[0], hotel, sectorName, req.name);
+       }
+
        var rowData = [
          req.id.toString(), req.name, req.role, req.gender || 'M', req.contact, req.salary, req.sectorId.toString(), req.fixedDayOff, 
-         JSON.stringify(req.sundayOffs || []), req.workingHours, req.status || 'Ativo', req.startDate, req.scheduleType, req.vacationStatus, JSON.stringify(req.uniforms || [])
+         JSON.stringify(req.sundayOffs || []), req.workingHours, req.status || 'Ativo', req.startDate, req.scheduleType, req.vacationStatus, 
+         JSON.stringify(req.uniforms || []), photoLink
        ];
        upsert(sheet, req.id.toString(), rowData);
     }
@@ -194,11 +205,25 @@ function doPost(e) {
     }
     else if (req.dataType === 'APARTMENT') {
        var sheet = ss.getSheetByName('Apartamentos_' + hotel) || ss.insertSheet('Apartamentos_' + hotel);
-       upsert(sheet, req.roomNumber + '-' + req.floor, [req.roomNumber, req.floor, req.pisoType, req.pisoStatus, req.banheiroType, req.banheiroStatus, req.temCofre?'Sim':'Não', req.temCortina?'Sim':'Não', req.cortinaStatus, req.cortinaSize, req.cortinaCoverage, req.temEspelhoCorpo?'Sim':'Não', req.espelhoCorpoStatus, req.acBrand, req.moveisStatus, JSON.stringify(req.moveisDetalhes), JSON.stringify(req.beds), req.temPortaControle?'Sim':'Não', req.temCabide?'Sim':'Não', req.cabideQuantity, req.temSuportePapel?'Sim':'Não', req.temSuporteShampoo?'Sim':'Não', req.suporteShampooStatus, req.luminariaType, req.luminariaColor, req.tvBrand, JSON.stringify(req.defects)]);
+       // Handle Apartment Defects Files
+       var defects = req.defects || [];
+       if (req.newFiles && req.newFiles.length > 0) {
+          req.newFiles.forEach(function(file) {
+             var link = saveFileToDrive(file, hotel + "_Defects");
+             // Find defect matching filename to update link
+             for(var i=0; i<defects.length; i++) {
+                if(defects[i].fileName === file.fileName && defects[i].driveLink === 'pendente') {
+                   defects[i].driveLink = link;
+                   defects[i].data = ""; // Clear base64
+                }
+             }
+          });
+       }
+       upsert(sheet, req.roomNumber + '-' + req.floor, [req.roomNumber, req.floor, req.pisoType, req.pisoStatus, req.banheiroType, req.banheiroStatus, req.temCofre?'Sim':'Não', req.temCortina?'Sim':'Não', req.cortinaStatus, req.cortinaSize, req.cortinaCoverage, req.temEspelhoCorpo?'Sim':'Não', req.espelhoCorpoStatus, req.acBrand, req.moveisStatus, JSON.stringify(req.moveisDetalhes), JSON.stringify(req.beds), req.temPortaControle?'Sim':'Não', req.temCabide?'Sim':'Não', req.cabideQuantity, req.temSuportePapel?'Sim':'Não', req.temSuporteShampoo?'Sim':'Não', req.suporteShampooStatus, req.luminariaType, req.luminariaColor, req.tvBrand, JSON.stringify(defects)]);
     }
     else if (req.dataType === 'INVENTORY') {
        var sheet = ss.getSheetByName('Estoque_' + hotel) || ss.insertSheet('Estoque_' + hotel);
-       var rowData = [req.id.toString(), req.ean, req.name, req.category, req.quantity, req.minQuantity, req.unit, req.price, req.supplierId, new Date().toISOString()];
+       var rowData = [req.id.toString(), req.ean, req.name, req.category, req.quantity, req.minQuantity, req.unit, req.price, req.supplierId, new Date().toISOString(), req.sectorId.toString()];
        upsert(sheet, req.id.toString(), rowData);
     }
     else if (req.dataType === 'INVENTORY_OP') {
@@ -207,7 +232,23 @@ function doPost(e) {
     }
     else if (req.dataType === 'BUDGET') {
        var sheet = ss.getSheetByName('Orcamentos_' + hotel) || ss.insertSheet('Orcamentos_' + hotel);
-       var rowData = [req.id.toString(), req.title, req.objective, JSON.stringify(req.items), JSON.stringify(req.quotes), req.status, new Date().toISOString()];
+       
+       // Handle Budget Files
+       var existingFiles = req.files || [];
+       if (req.newFiles && req.newFiles.length > 0) {
+          req.newFiles.forEach(function(file) {
+             var link = saveFileToDrive(file, hotel + "_Budgets");
+             existingFiles.push({
+                id: Date.now().toString() + Math.random().toString(),
+                fileName: file.fileName,
+                fileType: file.mimeType,
+                driveLink: link,
+                timestamp: Date.now()
+             });
+          });
+       }
+
+       var rowData = [req.id.toString(), req.title, req.objective, JSON.stringify(req.items), JSON.stringify(req.quotes), req.status, new Date().toISOString(), JSON.stringify(existingFiles)];
        upsert(sheet, req.id.toString(), rowData);
     }
     else if (req.dataType === 'SUPPLIER') {
@@ -225,13 +266,59 @@ function doPost(e) {
        if(req.showSuppliersTab !== undefined) upsert(sheet, 'showSuppliersTab', ['showSuppliersTab', req.showSuppliersTab.toString()]);
     }
 
-    SpreadsheetApp.flush(); // FORÇA A ATUALIZAÇÃO IMEDIATA
+    SpreadsheetApp.flush();
 
     return ContentService.createTextOutput(JSON.stringify({status: 'success'})).setMimeType(ContentService.MimeType.JSON);
   } catch (err) {
     return ContentService.createTextOutput(JSON.stringify({status: 'error', message: err.toString()})).setMimeType(ContentService.MimeType.JSON);
   } finally {
     lock.releaseLock();
+  }
+}
+
+// Function to save employee photos in strict hierarchy: Hotel -> Funcionarios -> Setor -> Nome
+function saveEmployeePhotoToFolder(fileObj, hotel, sectorName, empName) {
+  try {
+    var rootName = hotel + " - Funcionarios";
+    var rootFolder = getOrCreateFolder(DriveApp.getRootFolder(), rootName);
+    
+    // Ensure sector folder exists (clean name)
+    var safeSector = (sectorName || "Geral").replace(/[/\\?%*:|"<>\.]/g, '-');
+    var sectorFolder = getOrCreateFolder(rootFolder, safeSector);
+
+    // Create file
+    var decoded = Utilities.base64Decode(fileObj.data);
+    var blob = Utilities.newBlob(decoded, fileObj.mimeType, empName); // Name the file after employee
+    var file = sectorFolder.createFile(blob);
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    return file.getDownloadUrl();
+  } catch(e) {
+    return "error: " + e.toString();
+  }
+}
+
+function getOrCreateFolder(parent, name) {
+  var it = parent.getFoldersByName(name);
+  if (it.hasNext()) return it.next();
+  return parent.createFolder(name);
+}
+
+function saveFileToDrive(fileObj, folderName) {
+  try {
+    var folders = DriveApp.getFoldersByName(folderName);
+    var folder;
+    if (folders.hasNext()) {
+      folder = folders.next();
+    } else {
+      folder = DriveApp.createFolder(folderName);
+    }
+    var decoded = Utilities.base64Decode(fileObj.data);
+    var blob = Utilities.newBlob(decoded, fileObj.mimeType, fileObj.fileName);
+    var file = folder.createFile(blob);
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    return file.getDownloadUrl(); 
+  } catch(e) {
+    return "error: " + e.toString();
   }
 }
 
@@ -247,14 +334,14 @@ const IntegrationsView: React.FC<IntegrationsViewProps> = ({ integrations, theme
 
   const saveUrl = () => {
     onUpdate({ ...globalInt, url, status: url ? 'Connected' : 'Disconnected', lastSync: Date.now() });
-    alert('Conexão Global V33 configurada! Certifique-se de atualizar o código no Apps Script.');
+    alert('Conexão Global V46 configurada! Atualize o Apps Script para ativar as pastas organizadas.');
   };
 
   return (
     <div className="space-y-6">
       <div className="p-8 rounded-[2.5rem] text-white relative overflow-hidden shadow-lg" style={{ backgroundColor: theme.primary }}>
         <h2 className="text-xl font-black mb-1">Google Sheets & Drive Sync</h2>
-        <p className="opacity-80 text-[10px] font-bold uppercase tracking-widest">Versão V33: Recipient Tracking</p>
+        <p className="opacity-80 text-[10px] font-bold uppercase tracking-widest">Versão V46: Fotos Organizadas</p>
         <FileSpreadsheet className="absolute right-[-20px] bottom-[-20px] text-white/10" size={160} />
       </div>
 
@@ -262,7 +349,7 @@ const IntegrationsView: React.FC<IntegrationsViewProps> = ({ integrations, theme
         <input type="text" value={url} onChange={e => setUrl(e.target.value)} placeholder="Link do Apps Script Web App..." className="w-full px-4 py-3 rounded-xl border-2 border-slate-50 focus:border-blue-400 outline-none text-sm font-bold bg-slate-50" />
         <button onClick={saveUrl} className="w-full py-4 text-white rounded-xl font-black text-xs uppercase tracking-widest shadow-lg active:scale-95 transition-all" style={{ backgroundColor: theme.primary }}>Atualizar Conexão Global</button>
         <div className="p-5 bg-amber-50 rounded-2xl border border-amber-100">
-           <button onClick={() => setShowScriptModal(true)} className="text-[9px] font-black text-blue-600 underline uppercase tracking-widest mt-2 hover:text-blue-800 transition-colors">Copiar Código V33</button>
+           <button onClick={() => setShowScriptModal(true)} className="text-[9px] font-black text-blue-600 underline uppercase tracking-widest mt-2 hover:text-blue-800 transition-colors">Copiar Código V46</button>
         </div>
       </div>
 
@@ -270,13 +357,13 @@ const IntegrationsView: React.FC<IntegrationsViewProps> = ({ integrations, theme
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[300] flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-4xl rounded-[3rem] shadow-2xl max-h-[85vh] overflow-hidden flex flex-col animate-in zoom-in duration-300">
             <div className="p-8 border-b border-slate-50 flex justify-between items-center bg-slate-50/30">
-              <h3 className="text-xl font-black text-slate-800">Apps Script V33</h3>
+              <h3 className="text-xl font-black text-slate-800">Apps Script V46</h3>
               <button onClick={() => setShowScriptModal(false)} className="p-3 hover:bg-slate-100 rounded-full transition-colors text-slate-400"><XCircle size={32} /></button>
             </div>
             <div className="p-8 overflow-y-auto flex-1">
               <div className="relative">
-                <button onClick={() => { navigator.clipboard.writeText(APPS_SCRIPT_CODE); alert('Código V33 copiado! Cole no editor do Google Apps Script e faça uma Nova Implantação.'); }} className="absolute top-4 right-4 p-3 bg-slate-900 text-white rounded-2xl shadow-xl flex items-center space-x-2 text-[10px] font-black uppercase">
-                  <Copy size={16} /> <span>Copiar V33</span>
+                <button onClick={() => { navigator.clipboard.writeText(APPS_SCRIPT_CODE); alert('Código V46 copiado! Cole no editor do Google Apps Script e faça uma Nova Implantação.'); }} className="absolute top-4 right-4 p-3 bg-slate-900 text-white rounded-2xl shadow-xl flex items-center space-x-2 text-[10px] font-black uppercase">
+                  <Copy size={16} /> <span>Copiar V46</span>
                 </button>
                 <pre className="bg-slate-950 text-emerald-400 p-10 rounded-[2.5rem] overflow-x-auto text-[10px] leading-relaxed font-mono shadow-inner border border-slate-800">
                   {APPS_SCRIPT_CODE}

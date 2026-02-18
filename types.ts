@@ -84,6 +84,7 @@ export interface Budget {
   objective: string;
   items: BudgetItem[];
   quotes: Quote[];
+  files?: BudgetFile[]; // Added files support
   status: 'Pendente' | 'Aprovado' | 'Rejeitado';
   createdAt: number;
 }
@@ -97,6 +98,7 @@ export interface Sector {
   id: string;
   name: string;
   standardUniform: UniformItem[];
+  roles?: string[]; // Added roles field
 }
 
 export interface Employee {
@@ -119,6 +121,7 @@ export interface Employee {
   weeklyDayOff: string;
   vacationStatus: 'Pendente' | 'Concedida';
   uniforms: UniformItem[];
+  photo?: string; // Added photo support (Drive Link)
 }
 
 export interface ExtraLabor {
@@ -148,6 +151,7 @@ export interface InventoryItem {
   unit: string;
   price: number;
   supplierId?: string;
+  sectorId?: string; // New field for sector organization
   lastUpdate: number;
 }
 
