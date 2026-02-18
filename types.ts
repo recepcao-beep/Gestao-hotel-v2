@@ -91,7 +91,10 @@ export interface Budget {
 
 export interface UniformItem {
   name: string;
-  quantity: number;
+  quantity: number; // For Sector: Standard Qty. For Employee: Held Qty.
+  size?: string; // Specific to Employee
+  role?: string; // Specific to Sector (which role this uniform belongs to)
+  required?: number; // Calculated field for Employee (Standard Qty)
 }
 
 export interface Sector {

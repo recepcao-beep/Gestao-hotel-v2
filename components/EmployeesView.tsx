@@ -1,5 +1,5 @@
 
-import React, { useState, useRef, useMemo } from 'react';
+import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { Employee, Sector, HotelTheme, UniformItem, ExtraLabor, InventoryOperation } from '../types';
 import { 
   Search, 
@@ -25,7 +25,8 @@ import {
   ArrowDownRight,
   Phone,
   Settings,
-  List
+  List,
+  AlertCircle
 } from 'lucide-react';
 
 interface EmployeesViewProps {
@@ -73,6 +74,7 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
   const [sectorUniforms, setSectorUniforms] = useState<UniformItem[]>([]);
   const [newSectorUniformName, setNewSectorUniformName] = useState('');
   const [newSectorUniformQty, setNewSectorUniformQty] = useState(1);
+  const [newSectorUniformRole, setNewSectorUniformRole] = useState('');
 
   const [searchTerm, setSearchTerm] = useState('');
   const [viewMode, setViewMode] = useState<'LIST' | 'SCALE' | 'TODAY' | 'EXTRAS'>('LIST');
@@ -99,9 +101,7 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
   
   // Uniforms State (Employee)
   const [uniforms, setUniforms] = useState<UniformItem[]>([]);
-  const [newUniformName, setNewUniformName] = useState('');
-  const [newUniformQty, setNewUniformQty] = useState(1);
-
+  
   // Photo State
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [newPhotoFile, setNewPhotoFile] = useState<{data: string, mimeType: string, fileName: string} | null>(null);
@@ -116,6 +116,40 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
   const [extraObservation, setExtraObservation] = useState('');
 
   const weekDays = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo'];
+
+  // --- Effects ---
+  
+  // Sync Uniform Standards when Role or Sector Changes in Employee Modal
+  useEffect(() => {
+    if (!isAddingEmployee) return;
+    
+    // Find current sector definition
+    const sectorId = selectedSectorId || editingEmployee?.sectorId;
+    const sec = sectors.find(s => s.id === sectorId);
+    if (!sec || !role) return;
+
+    // Get standards for this role
+    const standards = (sec.standardUniform || []).filter(u => u.role === role);
+    
+    setUniforms(prev => {
+        // Merge standards with existing values (preserving held quantity/size if item exists)
+        return standards.map(std => {
+            const existing = prev.find(p => p.name === std.name);
+            return {
+                name: std.name,
+                // If existing, use its held quantity, otherwise 0
+                quantity: existing ? existing.quantity : 0,
+                // Keep existing size if present
+                size: existing?.size || '',
+                // Required comes from Sector Standard
+                required: std.quantity,
+                // Keep role ref
+                role: role
+            };
+        });
+    });
+  }, [role, selectedSectorId, editingEmployee, isAddingEmployee, sectors]);
+
 
   const resetEmployeeForm = () => {
     setName(''); setRole(''); setGender('M'); setContact(''); setSalary('');
@@ -139,6 +173,7 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
     setSectorUniforms([]);
     setNewSectorUniformName('');
     setNewSectorUniformQty(1);
+    setNewSectorUniformRole('');
     setEditingSector(null);
     setIsSectorModalOpen(false);
   };
@@ -153,9 +188,16 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
 
   const handleEditEmployee = (emp: Employee) => {
     setEditingEmployee(emp);
-    setName(emp.name || ''); setRole(emp.role || ''); setGender(emp.gender || 'M');
+    setName(emp.name || ''); 
+    // Important: Set Role first to trigger effect, but we need the existing uniforms to merge correctly
+    setRole(emp.role || ''); 
+    setGender(emp.gender || 'M');
     setContact(emp.contact || ''); setStartDate(emp.startDate || ''); setSalary((emp.salary || 0).toString());
-    setUniforms(emp.uniforms || []); setScheduleType(emp.scheduleType || '6x1');
+    
+    // We preload existing uniforms so the Effect can merge them
+    setUniforms(emp.uniforms || []); 
+    
+    setScheduleType(emp.scheduleType || '6x1');
     setShiftType(emp.shiftType || 'Par'); setWorkingHours(emp.workingHours || '08:00 - 16:20');
     setFixedDayOff(emp.fixedDayOff || 'Segunda-feira');
     setSundayOffs(emp.sundayOffs || []); setVacationStatus(emp.vacationStatus || 'Pendente');
@@ -197,16 +239,9 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const handleAddUniform = () => {
-    if (!newUniformName.trim()) return;
-    setUniforms([...uniforms, { name: newUniformName, quantity: newUniformQty }]);
-    setNewUniformName('');
-    setNewUniformQty(1);
-  };
-
-  const handleRemoveUniform = (index: number) => {
+  const handleUpdateEmployeeUniform = (index: number, field: 'quantity' | 'size', value: any) => {
     const newArr = [...uniforms];
-    newArr.splice(index, 1);
+    newArr[index] = { ...newArr[index], [field]: value };
     setUniforms(newArr);
   };
 
@@ -224,8 +259,12 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
   };
 
   const handleAddSectorUniform = () => {
-    if(!newSectorUniformName.trim()) return;
-    setSectorUniforms([...sectorUniforms, { name: newSectorUniformName, quantity: newSectorUniformQty }]);
+    if(!newSectorUniformName.trim() || !newSectorUniformRole) return;
+    setSectorUniforms([...sectorUniforms, { 
+        name: newSectorUniformName, 
+        quantity: newSectorUniformQty,
+        role: newSectorUniformRole
+    }]);
     setNewSectorUniformName('');
     setNewSectorUniformQty(1);
   };
@@ -447,32 +486,45 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
                    </div>
 
                    <div>
-                      <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1">Uniformes Padrão</label>
-                      <div className="flex gap-2 mb-3 items-center">
-                         <input 
-                           type="text" 
-                           value={newSectorUniformName} 
-                           onChange={e => setNewSectorUniformName(e.target.value)} 
-                           placeholder="Item (Ex: Camisa)" 
-                           className="flex-1 px-4 py-2 rounded-xl border-2 font-bold text-sm" 
-                         />
-                         <input 
-                           type="number" 
-                           value={newSectorUniformQty} 
-                           onChange={e => setNewSectorUniformQty(parseInt(e.target.value))} 
-                           className="w-16 px-2 py-2 rounded-xl border-2 font-bold text-sm text-center" 
-                         />
-                         <button type="button" onClick={handleAddSectorUniform} className="p-2 bg-slate-800 text-white rounded-xl"><Plus size={20}/></button>
+                      <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1">Uniformes Padrão (Por Função)</label>
+                      <div className="flex flex-col gap-2 mb-3">
+                         <select 
+                            value={newSectorUniformRole}
+                            onChange={e => setNewSectorUniformRole(e.target.value)}
+                            className="w-full px-4 py-2 rounded-xl border-2 font-bold text-sm bg-white"
+                         >
+                            <option value="">Selecione a Função...</option>
+                            {sectorRoles.map(r => <option key={r} value={r}>{r}</option>)}
+                         </select>
+                         <div className="flex gap-2">
+                            <input 
+                              type="text" 
+                              value={newSectorUniformName} 
+                              onChange={e => setNewSectorUniformName(e.target.value)} 
+                              placeholder="Item (Ex: Camisa)" 
+                              className="flex-1 px-4 py-2 rounded-xl border-2 font-bold text-sm" 
+                            />
+                            <input 
+                              type="number" 
+                              value={newSectorUniformQty} 
+                              onChange={e => setNewSectorUniformQty(parseInt(e.target.value))} 
+                              className="w-16 px-2 py-2 rounded-xl border-2 font-bold text-sm text-center" 
+                            />
+                            <button type="button" onClick={handleAddSectorUniform} disabled={!newSectorUniformRole} className="p-2 bg-slate-800 text-white rounded-xl disabled:opacity-50"><Plus size={20}/></button>
+                         </div>
                       </div>
                       <div className="space-y-2 max-h-32 overflow-y-auto">
                          {sectorUniforms.map((uni, idx) => (
                             <div key={idx} className="flex justify-between items-center p-2 bg-slate-50 rounded-xl border border-slate-100">
-                               <div className="flex items-center space-x-2">
-                                  <Shirt size={14} className="text-slate-400"/>
-                                  <span className="text-xs font-bold text-slate-700">{uni.name}</span>
+                               <div className="flex flex-col">
+                                  <span className="text-[9px] font-black text-blue-500 uppercase">{uni.role}</span>
+                                  <div className="flex items-center space-x-2">
+                                     <Shirt size={14} className="text-slate-400"/>
+                                     <span className="text-xs font-bold text-slate-700">{uni.name}</span>
+                                  </div>
                                </div>
                                <div className="flex items-center space-x-3">
-                                  <span className="text-[10px] font-black text-slate-400 bg-white px-2 py-0.5 rounded border">Qtd: {uni.quantity}</span>
+                                  <span className="text-[10px] font-black text-slate-400 bg-white px-2 py-0.5 rounded border">Padrão: {uni.quantity}</span>
                                   <button type="button" onClick={() => handleRemoveSectorUniform(idx)} className="text-slate-300 hover:text-rose-500"><X size={14}/></button>
                                </div>
                             </div>
@@ -686,10 +738,10 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
                  <button onClick={resetEmployeeForm} className="p-2 text-slate-300 hover:text-slate-900 transition-all"><X size={32}/></button>
               </div>
 
-              <div className="flex bg-slate-100 p-1.5 mx-8 mt-6 rounded-2xl border">
-                 <button onClick={() => setActiveFormTab('DADOS')} className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase transition-all ${activeFormTab === 'DADOS' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-400'}`}>Dados Pessoais</button>
-                 <button onClick={() => setActiveFormTab('ESCALA')} className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase transition-all ${activeFormTab === 'ESCALA' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-400'}`}>Escala & Folgas</button>
-                 <button onClick={() => setActiveFormTab('UNIFORMES')} className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase transition-all ${activeFormTab === 'UNIFORMES' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-400'}`}>Uniformes</button>
+              <div className="flex bg-slate-100 p-1.5 mx-8 mt-6 rounded-2xl border overflow-x-auto">
+                 <button onClick={() => setActiveFormTab('DADOS')} className={`flex-1 py-3 px-4 rounded-xl text-[10px] font-black uppercase transition-all whitespace-nowrap ${activeFormTab === 'DADOS' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-400'}`}>Dados Pessoais</button>
+                 <button onClick={() => setActiveFormTab('ESCALA')} className={`flex-1 py-3 px-4 rounded-xl text-[10px] font-black uppercase transition-all whitespace-nowrap ${activeFormTab === 'ESCALA' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-400'}`}>Escala & Folgas</button>
+                 <button onClick={() => setActiveFormTab('UNIFORMES')} className={`flex-1 py-3 px-4 rounded-xl text-[10px] font-black uppercase transition-all whitespace-nowrap ${activeFormTab === 'UNIFORMES' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-400'}`}>Uniformes</button>
               </div>
 
               <form onSubmit={handleSaveEmployeeSubmit} className="p-8 flex-1 overflow-y-auto space-y-8">
@@ -734,7 +786,14 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
                        </div>
                        <div>
                           <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Cargo / Função</label>
-                          <input type="text" value={role} onChange={e => setRole(e.target.value)} className="w-full px-5 py-4 rounded-2xl border-2 font-bold text-slate-800" required />
+                          {currentSector && currentSector.roles && currentSector.roles.length > 0 ? (
+                             <select value={role} onChange={e => setRole(e.target.value)} className="w-full px-5 py-4 rounded-2xl border-2 font-bold text-slate-800 bg-white" required>
+                                <option value="">Selecione...</option>
+                                {currentSector.roles.map(r => <option key={r} value={r}>{r}</option>)}
+                             </select>
+                          ) : (
+                             <input type="text" value={role} onChange={e => setRole(e.target.value)} className="w-full px-5 py-4 rounded-2xl border-2 font-bold text-slate-800" required />
+                          )}
                        </div>
                        <div>
                           <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Telefone de Contato</label>
@@ -832,44 +891,94 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
 
                  {activeFormTab === 'UNIFORMES' && (
                     <div className="space-y-6 animate-in slide-in-from-right-4">
-                       <div className="flex items-end gap-2 p-4 bg-slate-50 rounded-2xl border border-slate-100">
-                          <div className="flex-1">
-                             <label className="text-[9px] font-black text-slate-400 uppercase mb-1 block ml-1">Peça de Uniforme</label>
-                             <input type="text" value={newUniformName} onChange={e => setNewUniformName(e.target.value)} placeholder="Ex: Camisa Social" className="w-full px-3 py-2 rounded-xl border-2 font-bold text-sm" />
-                          </div>
-                          <div className="w-20">
-                             <label className="text-[9px] font-black text-slate-400 uppercase mb-1 block ml-1">Qtd</label>
-                             <input type="number" value={newUniformQty} onChange={e => setNewUniformQty(parseInt(e.target.value) || 1)} className="w-full px-3 py-2 rounded-xl border-2 font-bold text-sm text-center" />
-                          </div>
-                          <button type="button" onClick={handleAddUniform} className="bg-slate-800 text-white p-2.5 rounded-xl hover:bg-slate-700 transition-colors">
-                             <Plus size={20} />
-                          </button>
+                       <div className="bg-blue-50 p-4 rounded-2xl border border-blue-100 flex items-start space-x-3 mb-4">
+                          <AlertCircle size={20} className="text-blue-500 mt-0.5" />
+                          <p className="text-[10px] font-bold text-blue-700">
+                             Os itens listados abaixo são o padrão definido para a função <strong>{role || 'Não Selecionada'}</strong>. 
+                             Informe a quantidade que o funcionário já possui e o sistema calculará a reposição necessária.
+                          </p>
                        </div>
 
-                       <div className="space-y-2">
-                          {uniforms.length === 0 ? (
-                             <div className="text-center py-8 text-slate-300 italic font-bold border-2 border-dashed border-slate-100 rounded-2xl">
-                                Nenhum uniforme registrado.
+                       {uniforms.length === 0 ? (
+                          <div className="text-center py-8 text-slate-300 italic font-bold border-2 border-dashed border-slate-100 rounded-2xl">
+                             {role ? 'Nenhum uniforme padrão definido para esta função.' : 'Selecione um Cargo na aba Dados Pessoais.'}
+                          </div>
+                       ) : (
+                          <div className="space-y-3">
+                             {/* Desktop Header */}
+                             <div className="hidden md:grid grid-cols-12 gap-4 px-4 py-2 bg-slate-50 rounded-xl text-[9px] font-black text-slate-400 uppercase tracking-widest">
+                                <div className="col-span-4">Item</div>
+                                <div className="col-span-2 text-center">Tamanho</div>
+                                <div className="col-span-2 text-center">Qtd Atual</div>
+                                <div className="col-span-2 text-center">Padrão</div>
+                                <div className="col-span-2 text-right">A Repor</div>
                              </div>
-                          ) : (
-                             uniforms.map((u, idx) => (
-                                <div key={idx} className="flex justify-between items-center p-4 bg-white border-2 border-slate-50 rounded-2xl shadow-sm">
-                                   <div className="flex items-center space-x-3">
-                                      <div className="p-2 bg-blue-50 text-blue-500 rounded-lg">
-                                         <Shirt size={16} />
+
+                             {uniforms.map((u, idx) => {
+                                const replenish = Math.max(0, (u.required || 0) - u.quantity);
+                                return (
+                                   <div key={idx} className="bg-white border-2 border-slate-50 rounded-2xl p-4 md:grid md:grid-cols-12 md:gap-4 md:items-center shadow-sm">
+                                      {/* Item Name */}
+                                      <div className="col-span-4 flex items-center space-x-3 mb-3 md:mb-0">
+                                         <div className="p-2 bg-slate-100 text-slate-500 rounded-lg">
+                                            <Shirt size={16} />
+                                         </div>
+                                         <p className="font-black text-slate-800 text-sm leading-tight">{u.name}</p>
                                       </div>
-                                      <div>
-                                         <p className="font-black text-slate-800 text-sm leading-none">{u.name}</p>
-                                         <p className="text-[9px] font-bold text-slate-400 uppercase mt-0.5">Quantidade: {u.quantity}</p>
+
+                                      {/* Size Input */}
+                                      <div className="col-span-2 flex flex-col md:items-center mb-3 md:mb-0">
+                                         <span className="md:hidden text-[9px] font-black text-slate-400 uppercase mb-1">Tamanho</span>
+                                         <input 
+                                            type="text" 
+                                            value={u.size || ''} 
+                                            onChange={e => handleUpdateEmployeeUniform(idx, 'size', e.target.value)}
+                                            placeholder="P/M/G" 
+                                            className="w-full md:w-20 px-3 py-2 rounded-xl border-2 bg-slate-50 font-bold text-sm text-center uppercase" 
+                                         />
+                                      </div>
+
+                                      {/* Current Qty Input */}
+                                      <div className="col-span-2 flex flex-col md:items-center mb-3 md:mb-0">
+                                         <span className="md:hidden text-[9px] font-black text-slate-400 uppercase mb-1">Qtd Atual</span>
+                                         <input 
+                                            type="number" 
+                                            value={u.quantity} 
+                                            onChange={e => handleUpdateEmployeeUniform(idx, 'quantity', parseInt(e.target.value) || 0)}
+                                            className="w-full md:w-20 px-3 py-2 rounded-xl border-2 font-bold text-sm text-center" 
+                                         />
+                                      </div>
+
+                                      {/* Standard Qty Display */}
+                                      <div className="col-span-2 flex justify-between md:justify-center items-center mb-3 md:mb-0 px-2 md:px-0 bg-slate-50 md:bg-transparent rounded-lg py-2 md:py-0">
+                                         <span className="md:hidden text-[9px] font-black text-slate-400 uppercase">Padrão</span>
+                                         <span className="text-xs font-black text-slate-500">{u.required} un</span>
+                                      </div>
+
+                                      {/* Replenish Display */}
+                                      <div className="col-span-2 flex justify-between md:justify-end items-center px-2 md:px-0 bg-rose-50 md:bg-transparent rounded-lg py-2 md:py-0">
+                                         <span className="md:hidden text-[9px] font-black text-rose-400 uppercase">A Repor</span>
+                                         <span className={`text-sm font-black ${replenish > 0 ? 'text-rose-500' : 'text-emerald-500'}`}>
+                                            {replenish > 0 ? `-${replenish}` : 'OK'}
+                                         </span>
                                       </div>
                                    </div>
-                                   <button type="button" onClick={() => handleRemoveUniform(idx)} className="text-slate-300 hover:text-rose-500 p-2">
-                                      <Trash2 size={16} />
-                                   </button>
-                                </div>
-                             ))
-                          )}
-                       </div>
+                                );
+                             })}
+                          </div>
+                       )}
+
+                       {/* Total Summary */}
+                       {uniforms.length > 0 && (
+                          <div className="mt-6 pt-4 border-t border-slate-100 flex justify-end">
+                             <div className="bg-slate-900 text-white px-6 py-3 rounded-xl shadow-lg text-right">
+                                <p className="text-[9px] font-bold opacity-60 uppercase tracking-widest">Total a Repor</p>
+                                <p className="text-xl font-black">
+                                   {uniforms.reduce((acc, curr) => acc + Math.max(0, (curr.required || 0) - curr.quantity), 0)} itens
+                                </p>
+                             </div>
+                          </div>
+                       )}
                     </div>
                  )}
                  
