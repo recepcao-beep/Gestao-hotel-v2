@@ -9,7 +9,7 @@ if (!rootElement) {
   throw new Error("Could not find root element to mount to");
 }
 
-const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID || "704675042736-83asvqto1f15bfn9sgm4jmsg3vvo3t4f.apps.googleusercontent.com";
 
 const root = ReactDOM.createRoot(rootElement);
 
