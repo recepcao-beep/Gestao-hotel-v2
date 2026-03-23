@@ -1,16 +1,20 @@
 
 import React, { useState } from 'react';
 import { UserRole, HotelType, User } from '../types';
-import { Building2, Lock, ChevronRight, AlertCircle, Users, CheckCircle2 } from 'lucide-react';
+import { Building2, Lock, ChevronRight, AlertCircle, Users, CheckCircle2, User as UserIcon } from 'lucide-react';
+import { GoogleLogin } from '@react-oauth/google';
+import { jwtDecode } from "jwt-decode";
 
 interface LoginProps {
   onLogin: (user: User) => void;
   onFetchHotelData: (hotel: HotelType) => Promise<any>;
+  onGoogleLogin: (email: string, name: string, hotel: HotelType) => Promise<{success: boolean, message?: string}>;
 }
 
-const Login: React.FC<LoginProps> = ({ onLogin, onFetchHotelData }) => {
+const Login: React.FC<LoginProps> = ({ onLogin, onFetchHotelData, onGoogleLogin }) => {
   const [accessType, setAccessType] = useState<'GESTOR' | 'FUNCIONARIO' | null>(null);
   const [selectedHotel, setSelectedHotel] = useState<HotelType | ''>('');
+  const [userName, setUserName] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -27,7 +31,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, onFetchHotelData }) => {
 
     if (accessType === 'GESTOR') {
       if (password === '0000') {
-        onLogin({ role: 'GESTOR' });
+        onLogin({ id: 'gestor-admin', name: 'Gestor Admin', role: 'GESTOR' });
       } else {
         setError('Senha de Gestor incorreta');
         setIsLoading(false);
@@ -41,8 +45,35 @@ const Login: React.FC<LoginProps> = ({ onLogin, onFetchHotelData }) => {
         setIsLoading(false);
         return;
       }
-      // Para funcionário, o acesso é direto após selecionar o hotel
-      onLogin({ role: 'FUNCIONARIO', hotel: selectedHotel as HotelType, name: 'Colaborador' });
+      if (!userName || !password) {
+        setError('Por favor, informe seu nome e senha');
+        setIsLoading(false);
+        return;
+      }
+      
+      try {
+        const hotelData = await onFetchHotelData(selectedHotel as HotelType);
+        console.log("Hotel Data received:", hotelData);
+        if (hotelData && hotelData.users && hotelData.users.length > 0) {
+          const user = hotelData.users.find((u: any) => {
+            const nameMatch = u.name?.toString().toLowerCase().trim() === userName.toLowerCase().trim();
+            const passMatch = u.password?.toString().trim() === password.trim();
+            console.log(`Checking user: ${u.name} against ${userName}. Name match: ${nameMatch}, Pass match: ${passMatch}`);
+            return nameMatch && passMatch;
+          });
+          if (user) {
+            onLogin({ ...user, hotel: selectedHotel as HotelType });
+          } else {
+            setError('Usuário ou senha incorretos');
+          }
+        } else {
+          setError('Nenhum usuário cadastrado nesta unidade. Crie um usuário na aba Configurações > Usuários.');
+        }
+      } catch (err) {
+        console.error("Login Error:", err);
+        setError('Erro ao conectar com o servidor');
+      }
+      setIsLoading(false);
     }
   };
 
@@ -67,7 +98,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, onFetchHotelData }) => {
                   <div className="p-3 bg-white rounded-2xl text-emerald-500 shadow-sm"><Users size={24} /></div>
                   <div className="text-left">
                     <p className="font-black text-slate-800">Colaborador</p>
-                    <p className="text-xs text-slate-400 font-medium">Equipe Operacional</p>
+                    <p className="text-xs text-slate-400 font-medium">Acesso com Nome e Senha</p>
                   </div>
                 </div>
                 <ChevronRight size={20} className="text-slate-300 group-hover:text-emerald-500" />
@@ -80,8 +111,8 @@ const Login: React.FC<LoginProps> = ({ onLogin, onFetchHotelData }) => {
                 <div className="flex items-center space-x-4">
                   <div className="p-3 bg-white group-hover:bg-slate-800 rounded-2xl text-slate-800 group-hover:text-white shadow-sm transition-colors"><Lock size={24} /></div>
                   <div className="text-left">
-                    <p className="font-black group-hover:text-white text-slate-800">Gestor</p>
-                    <p className="text-xs text-slate-400 group-hover:text-slate-400 font-medium">Administrativo</p>
+                    <p className="font-black group-hover:text-white text-slate-800">Administrador Geral</p>
+                    <p className="text-xs text-slate-400 group-hover:text-slate-400 font-medium">Acesso Master</p>
                   </div>
                 </div>
                 <ChevronRight size={20} className="text-slate-300 group-hover:text-white" />
@@ -90,7 +121,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, onFetchHotelData }) => {
           ) : (
             <div className="space-y-6 animate-in slide-in-from-right-4 duration-300">
               <button 
-                onClick={() => { setAccessType(null); setSelectedHotel(''); setPassword(''); setError(''); }}
+                onClick={() => { setAccessType(null); setSelectedHotel(''); setUserName(''); setPassword(''); setError(''); }}
                 className="text-xs font-black text-blue-500 hover:underline flex items-center"
               >
                 <ChevronRight size={14} className="rotate-180 mr-1" /> Voltar
@@ -98,25 +129,55 @@ const Login: React.FC<LoginProps> = ({ onLogin, onFetchHotelData }) => {
 
               <div className="space-y-6">
                 {accessType === 'FUNCIONARIO' && (
-                  <div>
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center"><Building2 size={12} className="mr-1"/> Selecione sua Unidade</label>
-                    <div className="grid grid-cols-1 gap-3">
-                      {hotels.map(h => (
-                        <button 
-                          key={h.id}
-                          onClick={() => setSelectedHotel(h.id)}
-                          className={`p-5 rounded-3xl border-2 text-sm font-bold transition-all text-left flex items-center justify-between ${
-                            selectedHotel === h.id 
-                            ? 'border-emerald-500 bg-emerald-500 text-white shadow-lg' 
-                            : 'border-slate-100 bg-slate-50 text-slate-500 hover:border-slate-300'
-                          }`}
-                        >
-                          <span>{h.label}</span>
-                          {selectedHotel === h.id && <CheckCircle2 size={18} />}
-                        </button>
-                      ))}
+                  <>
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center"><Building2 size={12} className="mr-1"/> Selecione sua Unidade</label>
+                      <div className="grid grid-cols-1 gap-3">
+                        {hotels.map(h => (
+                          <button 
+                            key={h.id}
+                            onClick={() => setSelectedHotel(h.id)}
+                            className={`p-5 rounded-3xl border-2 text-sm font-bold transition-all text-left flex items-center justify-between ${
+                              selectedHotel === h.id 
+                              ? 'border-emerald-500 bg-emerald-500 text-white shadow-lg' 
+                              : 'border-slate-100 bg-slate-50 text-slate-500 hover:border-slate-300'
+                            }`}
+                          >
+                            <span>{h.label}</span>
+                            {selectedHotel === h.id && <CheckCircle2 size={18} />}
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                  </div>
+
+                    {selectedHotel && (
+                      <div className="space-y-4 animate-in slide-in-from-top-2 flex flex-col items-center justify-center pt-4">
+                        <p className="text-xs font-bold text-slate-400 text-center mb-2">Faça login com sua conta Google para acessar o sistema.</p>
+                        <GoogleLogin
+                          onSuccess={async (credentialResponse) => {
+                            setIsLoading(true);
+                            setError('');
+                            try {
+                              const decoded: any = jwtDecode(credentialResponse.credential!);
+                              const result = await onGoogleLogin(decoded.email, decoded.name, selectedHotel as HotelType);
+                              if (!result.success) {
+                                setError(result.message || 'Erro ao realizar login');
+                              }
+                            } catch (err) {
+                              console.error(err);
+                              setError('Erro ao processar login com o Google');
+                            }
+                            setIsLoading(false);
+                          }}
+                          onError={() => {
+                            setError('Falha ao conectar com o Google');
+                          }}
+                          theme="filled_blue"
+                          shape="pill"
+                        />
+                      </div>
+                    )}
+                  </>
                 )}
 
                 {accessType === 'GESTOR' && (
@@ -139,15 +200,15 @@ const Login: React.FC<LoginProps> = ({ onLogin, onFetchHotelData }) => {
                   </div>
                 )}
 
-                <button 
-                  onClick={handleEnter}
-                  disabled={isLoading}
-                  className={`w-full py-5 rounded-[2rem] font-black text-white shadow-xl transition-all active:scale-95 hover:brightness-110 disabled:opacity-50 ${
-                    accessType === 'GESTOR' ? 'bg-slate-900' : 'bg-emerald-500'
-                  }`}
-                >
-                  {isLoading ? 'Acessando...' : 'Entrar no Sistema'}
-                </button>
+                {accessType === 'GESTOR' && (
+                  <button 
+                    onClick={handleEnter}
+                    disabled={isLoading}
+                    className="w-full py-5 rounded-[2rem] font-black text-white shadow-xl transition-all active:scale-95 hover:brightness-110 disabled:opacity-50 bg-slate-900"
+                  >
+                    {isLoading ? 'Acessando...' : 'Entrar no Sistema'}
+                  </button>
+                )}
               </div>
             </div>
           )}

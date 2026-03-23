@@ -13,6 +13,12 @@ const APPS_SCRIPT_CODE = `/**
  * Google Apps Script para Gestão Hotel Village - V47 (Setores com Cargos e Uniformes por Função)
  */
 
+function isHeaderRow(val) {
+  if (!val) return false;
+  var s = val.toString().toLowerCase().trim();
+  return s === 'id' || s === 'código' || s === 'codigo' || s === 'apartamento' || s === 'nome' || s === 'data' || s === 'chave' || s === 'numero' || s === 'número';
+}
+
 function doGet(e) {
   var lock = LockService.getScriptLock();
   try {
@@ -28,7 +34,8 @@ function doGet(e) {
     var sheetApts = ss.getSheetByName('Apartamentos_' + hotel);
     if (sheetApts) {
       var data = sheetApts.getDataRange().getValues();
-      for (var i = 1; i < data.length; i++) {
+      for (var i = 0; i < data.length; i++) {
+        if (i === 0 && isHeaderRow(data[i][0])) continue;
         var num = data[i][0]; var floor = data[i][1]; if(!num || !floor) continue;
         var aptId = floor + "-" + num;
         result.apartments[aptId] = {
@@ -48,7 +55,8 @@ function doGet(e) {
     var sheetEmp = ss.getSheetByName('Funcionarios_' + hotel);
     if (sheetEmp) {
       var dE = sheetEmp.getDataRange().getValues();
-      for (var k = 1; k < dE.length; k++) { 
+      for (var k = 0; k < dE.length; k++) { 
+        if (k === 0 && isHeaderRow(dE[k][0])) continue;
         if(!dE[k][0]) continue; 
         result.employees.push({ 
           id: dE[k][0].toString(), name: dE[k][1], role: dE[k][2], gender: dE[k][3] || 'M',
@@ -65,7 +73,8 @@ function doGet(e) {
     var sheetExtra = ss.getSheetByName('Extras_' + hotel);
     if (sheetExtra) {
       var dExt = sheetExtra.getDataRange().getValues();
-      for (var l = 1; l < dExt.length; l++) {
+      for (var l = 0; l < dExt.length; l++) {
+        if (l === 0 && isHeaderRow(dExt[l][0])) continue;
         if(!dExt[l][0]) continue;
         result.extras.push({
           id: dExt[l][0].toString(), name: dExt[l][1], phone: dExt[l][2],
@@ -79,7 +88,8 @@ function doGet(e) {
     var sheetInv = ss.getSheetByName('Estoque_' + hotel);
     if (sheetInv) {
       var dataI = sheetInv.getDataRange().getValues();
-      for (var m = 1; m < dataI.length; m++) {
+      for (var m = 0; m < dataI.length; m++) {
+        if (m === 0 && isHeaderRow(dataI[m][0])) continue;
         if(!dataI[m][0]) continue;
         result.inventory.push({ 
           id: dataI[m][0].toString(), ean: dataI[m][1].toString(), name: dataI[m][2], category: dataI[m][3], 
@@ -94,8 +104,9 @@ function doGet(e) {
     var sheetHist = ss.getSheetByName('Historico_Estoque_' + hotel);
     if (sheetHist) {
       var dH = sheetHist.getDataRange().getValues();
-      var start = Math.max(1, dH.length - 200);
+      var start = Math.max(0, dH.length - 200);
       for (var n = start; n < dH.length; n++) {
+         if (n === 0 && isHeaderRow(dH[n][0])) continue;
          if(!dH[n][0]) continue;
          result.inventoryHistory.unshift({
            id: dH[n][0].toString(), itemId: dH[n][1].toString(), itemName: dH[n][2],
@@ -108,7 +119,8 @@ function doGet(e) {
     var sheetSec = ss.getSheetByName('Setores_' + hotel);
     if (sheetSec) {
       var dSc = sheetSec.getDataRange().getValues();
-      for (var s = 1; s < dSc.length; s++) {
+      for (var s = 0; s < dSc.length; s++) {
+        if (s === 0 && isHeaderRow(dSc[s][0])) continue;
         if(!dSc[s][0]) continue;
         result.sectors.push({ 
             id: dSc[s][0].toString(), 
@@ -123,7 +135,8 @@ function doGet(e) {
     var sheetSup = ss.getSheetByName('Fornecedores_' + hotel);
     if (sheetSup) {
       var dSup = sheetSup.getDataRange().getValues();
-      for (var su = 1; su < dSup.length; su++) {
+      for (var su = 0; su < dSup.length; su++) {
+         if (su === 0 && isHeaderRow(dSup[su][0])) continue;
          if(!dSup[su][0]) continue;
          result.suppliers.push({
            id: dSup[su][0].toString(), name: dSup[su][1], contact: dSup[su][2], category: dSup[su][3]
@@ -135,7 +148,8 @@ function doGet(e) {
     var sheetBud = ss.getSheetByName('Orcamentos_' + hotel);
     if (sheetBud) {
       var dB = sheetBud.getDataRange().getValues();
-      for (var b = 1; b < dB.length; b++) {
+      for (var b = 0; b < dB.length; b++) {
+         if (b === 0 && isHeaderRow(dB[b][0])) continue;
          if(!dB[b][0]) continue;
          result.budgets.push({
             id: dB[b][0].toString(), title: dB[b][1], objective: dB[b][2], 
@@ -153,6 +167,71 @@ function doGet(e) {
        for(var c=0; c<dC.length; c++) {
           if(dC[c][0] === 'showSuppliersTab') result.config.showSuppliersTab = dC[c][1] === 'true';
        }
+    }
+
+    // 10. Users
+    var sheetUsers = ss.getSheetByName('Users_' + hotel);
+    if (sheetUsers) {
+      var dU = sheetUsers.getDataRange().getValues();
+      for (var u = 0; u < dU.length; u++) {
+        if (u === 0 && isHeaderRow(dU[u][0])) continue;
+        if(!dU[u][0]) continue;
+        result.users = result.users || [];
+        result.users.push({
+          id: dU[u][0].toString(),
+          name: dU[u][1],
+          password: dU[u][2],
+          role: dU[u][3],
+          allowedTabs: dU[u][4],
+          email: dU[u][5] || '',
+          status: dU[u][6] || 'APPROVED'
+        });
+      }
+    }
+
+    // 11. Vehicles
+    var sheetVehicles = ss.getSheetByName('Vehicles_' + hotel);
+    if (sheetVehicles) {
+      var dV = sheetVehicles.getDataRange().getValues();
+      for (var v = 0; v < dV.length; v++) {
+        if (v === 0 && isHeaderRow(dV[v][0])) continue;
+        if(!dV[v][0]) continue;
+        result.vehicles = result.vehicles || [];
+        result.vehicles.push({
+          id: dV[v][0].toString(),
+          guest_name: dV[v][1],
+          plate: dV[v][2],
+          identifier: dV[v][3],
+          location: dV[v][4],
+          check_out_date: dV[v][5],
+          model: dV[v][6],
+          color: dV[v][7],
+          is_on_trip: dV[v][8] === true || dV[v][8] === 'true',
+          payment_pending: dV[v][9] === true || dV[v][9] === 'true',
+          trip_start: dV[v][10],
+          check_in_date: dV[v][11],
+          is_active: dV[v][12] === true || dV[v][12] === 'true',
+          deleted_date: dV[v][13],
+          photos: safeParse(dV[v][14], []),
+          driveFolderId: dV[v][15]
+        });
+      }
+    }
+
+    // 12. Parking Locations
+    var sheetParking = ss.getSheetByName('Patios_' + hotel);
+    if (sheetParking) {
+      var dP = sheetParking.getDataRange().getValues();
+      for (var p = 0; p < dP.length; p++) {
+        if (p === 0 && isHeaderRow(dP[p][0])) continue;
+        if(!dP[p][0]) continue;
+        result.parkingLocations = result.parkingLocations || [];
+        result.parkingLocations.push({
+          id: dP[p][0].toString(),
+          name: dP[p][1],
+          totalSpots: dP[p][2]
+        });
+      }
     }
 
     return ContentService.createTextOutput(JSON.stringify({status: 'success', data: result})).setMimeType(ContentService.MimeType.JSON);
@@ -179,6 +258,29 @@ function doPost(e) {
        else if(req.targetType === 'SECTOR') target = 'Setores_' + hotel;
        else if(req.targetType === 'BUDGET') target = 'Orcamentos_' + hotel;
        else if(req.targetType === 'SUPPLIER') target = 'Fornecedores_' + hotel;
+       else if(req.targetType === 'USER') target = 'Users_' + hotel;
+       else if(req.targetType === 'PARKING_LOCATION') target = 'Patios_' + hotel;
+       else if(req.targetType === 'VEHICLE') {
+         target = 'Vehicles_' + hotel;
+         // Handle Drive folder deletion
+         var sheetVehicles = ss.getSheetByName(target);
+         if (sheetVehicles) {
+           var dV = sheetVehicles.getDataRange().getValues();
+           for (var i = 1; i < dV.length; i++) {
+             if (dV[i][0].toString() === req.id.toString()) {
+               var folderId = dV[i][15];
+               if (folderId) {
+                 try {
+                   DriveApp.getFolderById(folderId).setTrashed(true);
+                 } catch(e) {
+                   // Ignore if folder not found
+                 }
+               }
+               break;
+             }
+           }
+         }
+       }
        
        if(target) deleteRow(ss.getSheetByName(target), req.id);
     } 
@@ -271,6 +373,106 @@ function doPost(e) {
        var sheet = ss.getSheetByName('Config_' + hotel) || ss.insertSheet('Config_' + hotel);
        if(req.showSuppliersTab !== undefined) upsert(sheet, 'showSuppliersTab', ['showSuppliersTab', req.showSuppliersTab.toString()]);
     }
+    else if (req.dataType === 'USER') {
+       var sheet = ss.getSheetByName('Users_' + hotel) || ss.insertSheet('Users_' + hotel);
+       var rowData = [
+         req.id ? req.id.toString() : '', 
+         req.name || '', 
+         req.password || '', 
+         req.role || 'FUNCIONARIO', 
+         req.allowedTabs || '[]', 
+         req.email || '', 
+         req.status || 'APPROVED'
+       ];
+       upsert(sheet, req.id.toString(), rowData);
+    }
+    else if (req.dataType === 'PARKING_LOCATION') {
+       var sheet = ss.getSheetByName('Patios_' + hotel) || ss.insertSheet('Patios_' + hotel);
+       var rowData = [
+         req.id.toString(), req.name, req.totalSpots
+       ];
+       upsert(sheet, req.id.toString(), rowData);
+    }
+    else if (req.dataType === 'VEHICLE') {
+       var sheet = ss.getSheetByName('Vehicles_' + hotel) || ss.insertSheet('Vehicles_' + hotel);
+       
+       var folderId = req.driveFolderId || "";
+       var photos = req.photos ? JSON.parse(req.photos) : [];
+       
+       if (req.newFiles && req.newFiles.length > 0) {
+          // Create hierarchy: Avaria dos veículos -> Month -> Day -> Guest Name - Plate
+          var rootFolder = getOrCreateFolder(DriveApp.getRootFolder(), "Avaria dos veículos");
+          var date = new Date();
+          var monthName = date.toLocaleString('pt-BR', { month: 'long' });
+          monthName = monthName.charAt(0).toUpperCase() + monthName.slice(1);
+          var monthFolder = getOrCreateFolder(rootFolder, monthName);
+          var dayFolder = getOrCreateFolder(monthFolder, date.getDate().toString());
+          
+          var folderName = req.guest_name + " - " + req.plate;
+          var vehicleFolder;
+          
+          if (folderId) {
+             try {
+               vehicleFolder = DriveApp.getFolderById(folderId);
+             } catch(e) {
+               vehicleFolder = getOrCreateFolder(dayFolder, folderName);
+             }
+          } else {
+             vehicleFolder = getOrCreateFolder(dayFolder, folderName);
+          }
+          
+          folderId = vehicleFolder.getId();
+          
+          req.newFiles.forEach(function(file) {
+             var decoded = Utilities.base64Decode(file.data);
+             var blob = Utilities.newBlob(decoded, file.mimeType, file.fileName);
+             var newFile = vehicleFolder.createFile(blob);
+             newFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+             
+             // Replace base64 string with drive link
+             for(var i=0; i<photos.length; i++) {
+                if(typeof photos[i] === 'string' && photos[i].indexOf(file.data) !== -1) {
+                   photos[i] = newFile.getDownloadUrl();
+                }
+             }
+          });
+       }
+       
+       var rowData = [
+         req.id.toString(), req.guest_name || '', req.plate || '', req.identifier || '', req.location || '', req.check_out_date || '',
+         req.model || '', req.color || '', req.is_on_trip || false, req.payment_pending || false, req.trip_start || '',
+         req.check_in_date || '', req.is_active || false, req.deleted_date || '', JSON.stringify(photos), folderId
+       ];
+       upsert(sheet, req.id.toString(), rowData);
+    }
+    else if (req.dataType === 'CHECKOUT_VEHICLE') {
+       var sheet = ss.getSheetByName('Vehicles_' + hotel);
+       if (sheet) {
+         var dV = sheet.getDataRange().getValues();
+         for (var i = 1; i < dV.length; i++) {
+           if (dV[i][0].toString() === req.id.toString()) {
+             sheet.getRange(i + 1, 6).setValue(new Date().toISOString()); // Update check_out_date
+             sheet.getRange(i + 1, 13).setValue(false); // Update is_active to false
+             sheet.getRange(i + 1, 14).setValue(new Date().toISOString()); // Set deleted_date
+             var folderId = dV[i][15];
+             if (folderId) {
+               // Schedule deletion for 24 hours later
+               ScriptApp.newTrigger('deleteVehicleFolder')
+                 .timeBased()
+                 .after(24 * 60 * 60 * 1000)
+                 .create();
+                 
+               // Store folder ID in script properties to know what to delete
+               var props = PropertiesService.getScriptProperties();
+               var pendingDeletions = JSON.parse(props.getProperty('pendingDeletions') || '[]');
+               pendingDeletions.push(folderId);
+               props.setProperty('pendingDeletions', JSON.stringify(pendingDeletions));
+             }
+             break;
+           }
+         }
+       }
+    }
 
     SpreadsheetApp.flush();
 
@@ -331,6 +533,32 @@ function saveFileToDrive(fileObj, folderName) {
 function safeParse(s, f) { try { if (!s || s == "") return f; return JSON.parse(s); } catch(e) { return f; } }
 function upsert(s, id, r) { var d = s.getDataRange().getValues(); var ids = id.toString().trim(); for (var i = 0; i < d.length; i++) { if (d[i][0].toString().trim() == ids) { s.getRange(i+1, 1, 1, r.length).setValues([r]); return; } } s.appendRow(r); }
 function deleteRow(s, id) { if(!s) return; var d = s.getDataRange().getValues(); var ids = id.toString().trim(); for (var i = 0; i < d.length; i++) { if (d[i][0].toString().trim() == ids) { s.deleteRow(i + 1); break; } } }
+
+function deleteVehicleFolder() {
+  var props = PropertiesService.getScriptProperties();
+  var pendingDeletions = JSON.parse(props.getProperty('pendingDeletions') || '[]');
+  var newPending = [];
+  
+  for (var i = 0; i < pendingDeletions.length; i++) {
+    var folderId = pendingDeletions[i];
+    try {
+      var folder = DriveApp.getFolderById(folderId);
+      folder.setTrashed(true);
+    } catch(e) {
+      // If folder not found or already deleted, ignore
+    }
+  }
+  
+  props.setProperty('pendingDeletions', JSON.stringify(newPending));
+  
+  // Clean up triggers
+  var triggers = ScriptApp.getProjectTriggers();
+  for (var i = 0; i < triggers.length; i++) {
+    if (triggers[i].getHandlerFunction() === 'deleteVehicleFolder') {
+      ScriptApp.deleteTrigger(triggers[i]);
+    }
+  }
+}
 `;
 
 const IntegrationsView: React.FC<IntegrationsViewProps> = ({ integrations, theme, onUpdate }) => {

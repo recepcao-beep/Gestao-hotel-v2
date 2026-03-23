@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { ViewType, UserRole, HotelTheme } from '../types';
+import { ViewType, UserRole, HotelTheme, User } from '../types';
 import { 
   LayoutDashboard, 
   Hotel, 
@@ -8,25 +8,27 @@ import {
   Users,
   Package,
   FileBarChart,
-  CalendarDays
+  CalendarDays,
+  Car
 } from 'lucide-react';
 
 interface BottomNavProps {
   currentView: ViewType;
   onViewChange: (view: ViewType) => void;
   theme: HotelTheme;
-  role: UserRole;
+  user: User;
 }
 
-const BottomNav: React.FC<BottomNavProps> = ({ currentView, onViewChange, theme, role }) => {
+const BottomNav: React.FC<BottomNavProps> = ({ currentView, onViewChange, theme, user }) => {
+  const role = user.role;
   const menuItems = [
-    { id: ViewType.DASHBOARD, label: 'Início', icon: LayoutDashboard, visible: role === 'GESTOR' },
-    { id: ViewType.TODAY_SCHEDULE, label: 'Hoje', icon: CalendarDays, visible: true },
-    { id: ViewType.APARTMENTS, label: 'Aptos', icon: Hotel, visible: true },
-    { id: ViewType.REPORTS, label: 'Rels', icon: FileBarChart, visible: true },
-    { id: ViewType.BUDGETS, label: 'Orcas', icon: ReceiptPoundSterling, visible: role === 'GESTOR' },
-    { id: ViewType.INVENTORY, label: 'Estoque', icon: Package, visible: true },
-    { id: ViewType.EMPLOYEES, label: 'Equipe', icon: Users, visible: role === 'GESTOR' },
+    { id: ViewType.DASHBOARD, label: 'Início', icon: LayoutDashboard, visible: role === 'GESTOR' || user.allowedTabs?.includes(ViewType.DASHBOARD) },
+    { id: ViewType.APARTMENTS, label: 'Aptos', icon: Hotel, visible: role === 'GESTOR' || user.allowedTabs?.includes(ViewType.APARTMENTS) },
+    { id: ViewType.PARKING, label: 'Vagas', icon: Car, visible: role === 'GESTOR' || user.allowedTabs?.includes(ViewType.PARKING) },
+    { id: ViewType.REPORTS, label: 'Rels', icon: FileBarChart, visible: role === 'GESTOR' || user.allowedTabs?.includes(ViewType.REPORTS) },
+    { id: ViewType.BUDGETS, label: 'Orcas', icon: ReceiptPoundSterling, visible: role === 'GESTOR' || user.allowedTabs?.includes(ViewType.BUDGETS) },
+    { id: ViewType.INVENTORY, label: 'Estoque', icon: Package, visible: role === 'GESTOR' || user.allowedTabs?.includes(ViewType.INVENTORY) },
+    { id: ViewType.EMPLOYEES, label: 'Equipe', icon: Users, visible: role === 'GESTOR' || user.allowedTabs?.includes(ViewType.EMPLOYEES) },
   ];
 
   return (

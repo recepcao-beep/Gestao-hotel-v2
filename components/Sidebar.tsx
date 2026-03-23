@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { ViewType, HotelType, HotelTheme, UserRole } from '../types';
+import { ViewType, HotelType, HotelTheme, UserRole, User } from '../types';
 import { 
   LayoutDashboard, 
   Hotel, 
@@ -12,7 +12,8 @@ import {
   MapPin,
   LogOut,
   Package,
-  FileBarChart
+  FileBarChart,
+  Car
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -22,7 +23,7 @@ interface SidebarProps {
   onHotelChange: (hotel: HotelType) => void;
   onLogout: () => void;
   theme: HotelTheme;
-  role: UserRole;
+  user: User;
 }
 
 const HotelLogo = ({ type }: { type: HotelType }) => {
@@ -55,16 +56,18 @@ const HotelLogo = ({ type }: { type: HotelType }) => {
   );
 };
 
-const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange, currentHotel, onHotelChange, onLogout, theme, role }) => {
+const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange, currentHotel, onHotelChange, onLogout, theme, user }) => {
   const [isHotelOpen, setIsHotelOpen] = useState(true);
+  const role = user.role;
 
   const menuItems = [
-    { id: ViewType.DASHBOARD, label: 'Dashboard', icon: LayoutDashboard, visible: role === 'GESTOR' },
-    { id: ViewType.APARTMENTS, label: 'Apartamentos', icon: Hotel, visible: true },
-    { id: ViewType.REPORTS, label: 'Relatórios', icon: FileBarChart, visible: true },
-    { id: ViewType.BUDGETS, label: 'Orçamentos', icon: ReceiptPoundSterling, visible: role === 'GESTOR' },
-    { id: ViewType.INVENTORY, label: 'Estoque', icon: Package, visible: true },
-    { id: ViewType.EMPLOYEES, label: 'Funcionários', icon: Users, visible: role === 'GESTOR' },
+    { id: ViewType.DASHBOARD, label: 'Dashboard', icon: LayoutDashboard, visible: role === 'GESTOR' || user.allowedTabs?.includes(ViewType.DASHBOARD) },
+    { id: ViewType.APARTMENTS, label: 'Apartamentos', icon: Hotel, visible: role === 'GESTOR' || user.allowedTabs?.includes(ViewType.APARTMENTS) },
+    { id: ViewType.PARKING, label: 'Estacionamento', icon: Car, visible: role === 'GESTOR' || user.allowedTabs?.includes(ViewType.PARKING) },
+    { id: ViewType.REPORTS, label: 'Relatórios', icon: FileBarChart, visible: role === 'GESTOR' || user.allowedTabs?.includes(ViewType.REPORTS) },
+    { id: ViewType.BUDGETS, label: 'Orçamentos', icon: ReceiptPoundSterling, visible: role === 'GESTOR' || user.allowedTabs?.includes(ViewType.BUDGETS) },
+    { id: ViewType.INVENTORY, label: 'Estoque', icon: Package, visible: role === 'GESTOR' || user.allowedTabs?.includes(ViewType.INVENTORY) },
+    { id: ViewType.EMPLOYEES, label: 'Funcionários', icon: Users, visible: role === 'GESTOR' || user.allowedTabs?.includes(ViewType.EMPLOYEES) },
   ];
 
   const hotels: { id: HotelType; label: string }[] = [

@@ -26,7 +26,8 @@ import {
   Phone,
   Settings,
   List,
-  AlertCircle
+  AlertCircle,
+  ShoppingCart
 } from 'lucide-react';
 
 interface EmployeesViewProps {
@@ -77,7 +78,7 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
   const [newSectorUniformRole, setNewSectorUniformRole] = useState('');
 
   const [searchTerm, setSearchTerm] = useState('');
-  const [viewMode, setViewMode] = useState<'LIST' | 'SCALE' | 'TODAY' | 'EXTRAS'>('LIST');
+  const [viewMode, setViewMode] = useState<'LIST' | 'SCALE' | 'TODAY' | 'EXTRAS' | 'ORDERS'>('LIST');
   const [activeFormTab, setActiveFormTab] = useState<'DADOS' | 'ESCALA' | 'UNIFORMES'>('DADOS');
   const [selectedBadge, setSelectedBadge] = useState<Employee | null>(null);
   const [viewingHistoryEmployee, setViewingHistoryEmployee] = useState<Employee | null>(null);
@@ -387,8 +388,61 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
 
   const currentSector = sectors.find(s => s.id === selectedSectorId);
 
+  // Calculation for ORDERS view (Card Display)
+  const ordersBySector = useMemo(() => {
+    const result: Record<string, Employee[]> = {};
+    const empsToCheck = selectedSectorId ? filteredEmployees : employees;
+
+    empsToCheck.forEach(emp => {
+        if (emp.status !== 'Ativo') return;
+        const hasShortage = (emp.uniforms || []).some(u => (u.required || 0) - u.quantity > 0);
+        if (hasShortage) {
+            const secName = sectors.find(s => s.id === emp.sectorId)?.name || 'Sem Setor';
+            if (!result[secName]) result[secName] = [];
+            result[secName].push(emp);
+        }
+    });
+    return result;
+  }, [employees, filteredEmployees, selectedSectorId, sectors]);
+
+  // Aggregation for PRINT view (Table Display)
+  const printAggregatedOrders = useMemo(() => {
+    const data: Record<string, { sector: string, name: string, size: string, qty: number }> = {};
+    let grandTotal = 0;
+
+    // Use all employees if no sector selected, otherwise filter
+    const empsToPrint = selectedSectorId ? filteredEmployees : employees;
+
+    empsToPrint.forEach(emp => {
+        if(emp.status !== 'Ativo') return;
+        const secName = sectors.find(s => s.id === emp.sectorId)?.name || 'Outros';
+        
+        emp.uniforms?.forEach(u => {
+            const shortage = Math.max(0, (u.required || 0) - u.quantity);
+            if(shortage > 0) {
+                // Key to group same item + size within same sector
+                const key = `${secName}-${u.name}-${u.size || 'UN'}`;
+                if(!data[key]) {
+                    data[key] = { sector: secName, name: u.name, size: u.size || 'Único', qty: 0 };
+                }
+                data[key].qty += shortage;
+                grandTotal += shortage;
+            }
+        });
+    });
+
+    return {
+        items: Object.values(data).sort((a,b) => {
+            // Sort by Sector Name, then Item Name
+            if (a.sector !== b.sector) return a.sector.localeCompare(b.sector);
+            return a.name.localeCompare(b.name);
+        }),
+        total: grandTotal
+    };
+  }, [employees, filteredEmployees, selectedSectorId, sectors]);
+
   // Return specific render for non-selected sector
-  if (!selectedSectorId && viewMode !== 'TODAY') {
+  if (!selectedSectorId && viewMode !== 'TODAY' && viewMode !== 'ORDERS') {
       return (
       <div className="space-y-8 animate-in fade-in duration-500">
         <div className="flex flex-col md:flex-row justify-between items-center gap-4">
@@ -399,6 +453,12 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
               className="bg-white border-2 border-slate-100 text-slate-600 px-6 py-3 rounded-xl font-bold flex items-center space-x-2 shadow-sm hover:border-blue-200 transition-all"
             >
               <CalendarDays size={18} /> <span>Escalados Hoje</span>
+            </button>
+            <button 
+              onClick={() => setViewMode('ORDERS')} 
+              className="bg-white border-2 border-slate-100 text-slate-600 px-6 py-3 rounded-xl font-bold flex items-center space-x-2 shadow-sm hover:border-blue-200 transition-all"
+            >
+              <ShoppingCart size={18} /> <span>Pedidos</span>
             </button>
             <button 
               onClick={() => { resetSectorForm(); setIsSectorModalOpen(true); }} 
@@ -546,29 +606,69 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
   return (
     <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-500 pb-20">
       
+      {/* HIDDEN PRINT LAYOUT */}
+      <div className="hidden print:block fixed inset-0 z-[9999] bg-white p-8 overflow-y-auto">
+         <div className="text-center mb-8 border-b-2 border-slate-800 pb-4">
+            <h1 className="text-2xl font-black uppercase tracking-widest text-slate-900">Pedido de Uniformes</h1>
+            <p className="text-xs font-bold text-slate-500 mt-1">Gerado em {new Date().toLocaleDateString()}</p>
+         </div>
+         
+         <table className="w-full text-left border-collapse">
+            <thead>
+               <tr className="border-b-2 border-slate-200">
+                  <th className="py-2 text-xs font-black uppercase text-slate-500">Setor</th>
+                  <th className="py-2 text-xs font-black uppercase text-slate-500">Peça</th>
+                  <th className="py-2 text-center text-xs font-black uppercase text-slate-500">Tam.</th>
+                  <th className="py-2 text-right text-xs font-black uppercase text-slate-500">Qtd.</th>
+               </tr>
+            </thead>
+            <tbody>
+               {printAggregatedOrders.items.map((item, idx) => (
+                  <tr key={idx} className="border-b border-slate-100">
+                     <td className="py-3 text-xs font-bold text-slate-800 uppercase">{item.sector}</td>
+                     <td className="py-3 text-xs font-medium text-slate-700">{item.name}</td>
+                     <td className="py-3 text-center text-xs font-bold text-slate-600 uppercase">{item.size}</td>
+                     <td className="py-3 text-right text-sm font-black text-slate-900">{item.qty}</td>
+                  </tr>
+               ))}
+            </tbody>
+            <tfoot>
+               <tr className="border-t-2 border-slate-800">
+                  <td colSpan={3} className="py-4 text-right text-sm font-black uppercase text-slate-800 tracking-widest">Total Geral</td>
+                  <td className="py-4 text-right text-xl font-black text-slate-900">{printAggregatedOrders.total}</td>
+               </tr>
+            </tfoot>
+         </table>
+      </div>
+
       {/* Header and Controls */}
-      <div className="flex flex-col md:flex-row gap-4 justify-between items-center bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm">
+      <div className="flex flex-col md:flex-row gap-4 justify-between items-center bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm print:hidden">
         <div className="flex items-center space-x-3">
-          <button onClick={() => onSelectSector(null)} className="p-2 bg-slate-50 rounded-xl text-slate-400 hover:text-slate-600 transition-colors">
+          <button onClick={() => { onSelectSector(null); setViewMode('LIST'); }} className="p-2 bg-slate-50 rounded-xl text-slate-400 hover:text-slate-600 transition-colors">
             <ChevronLeft size={20} />
           </button>
           <div>
-            <h2 className="text-xl font-black text-slate-800 uppercase tracking-tighter">{currentSector?.name}</h2>
+            <h2 className="text-xl font-black text-slate-800 uppercase tracking-tighter">{currentSector?.name || 'Gestão de Equipe'}</h2>
             <p className="text-[9px] text-slate-400 font-black uppercase tracking-widest">
-                {viewMode === 'EXTRAS' ? `${filteredExtras.length} Profissionais` : `${filteredEmployees.length} Colaboradores`}
+                {viewMode === 'EXTRAS' ? `${filteredExtras.length} Profissionais` : (viewMode === 'ORDERS' ? 'Pedido de Uniformes' : `${filteredEmployees.length} Colaboradores`)}
             </p>
           </div>
         </div>
         
-        <div className="flex bg-slate-50 p-1.5 rounded-2xl border border-slate-100">
-          <button onClick={() => setViewMode('LIST')} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all ${viewMode === 'LIST' ? 'bg-white shadow-md text-slate-900' : 'text-slate-400'}`}>Listagem</button>
-          <button onClick={() => setViewMode('SCALE')} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all ${viewMode === 'SCALE' ? 'bg-white shadow-md text-slate-900' : 'text-slate-400'}`}>Escala</button>
-          <button onClick={() => setViewMode('EXTRAS')} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all ${viewMode === 'EXTRAS' ? 'bg-white shadow-md text-slate-900' : 'text-slate-400'}`}>Extras</button>
+        <div className="flex bg-slate-50 p-1.5 rounded-2xl border border-slate-100 overflow-x-auto">
+          <button onClick={() => setViewMode('LIST')} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all whitespace-nowrap ${viewMode === 'LIST' ? 'bg-white shadow-md text-slate-900' : 'text-slate-400'}`}>Listagem</button>
+          <button onClick={() => setViewMode('SCALE')} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all whitespace-nowrap ${viewMode === 'SCALE' ? 'bg-white shadow-md text-slate-900' : 'text-slate-400'}`}>Escala</button>
+          <button onClick={() => setViewMode('EXTRAS')} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all whitespace-nowrap ${viewMode === 'EXTRAS' ? 'bg-white shadow-md text-slate-900' : 'text-slate-400'}`}>Extras</button>
+          <button onClick={() => setViewMode('ORDERS')} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all whitespace-nowrap ${viewMode === 'ORDERS' ? 'bg-white shadow-md text-slate-900' : 'text-slate-400'}`}>Pedidos</button>
         </div>
 
         {viewMode === 'EXTRAS' ? (
             <button onClick={() => setIsAddingExtra(true)} className="text-white px-6 py-3 rounded-xl font-bold flex items-center space-x-2 shadow-lg" style={{ backgroundColor: theme.primary }}>
                 <UserPlus size={18} /> <span className="hidden sm:inline">Cadastrar Extra</span>
+            </button>
+        ) : viewMode === 'ORDERS' ? (
+            <button onClick={() => window.print()} className="bg-slate-900 text-white px-6 py-3 rounded-xl font-bold flex items-center space-x-2 shadow-lg">
+                <Printer size={18} /> <span className="hidden sm:inline">Imprimir</span>
             </button>
         ) : (
             <button onClick={() => setIsAddingEmployee(true)} className="text-white px-6 py-3 rounded-xl font-bold flex items-center space-x-2 shadow-lg" style={{ backgroundColor: theme.primary }}>
@@ -577,8 +677,62 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
         )}
       </div>
 
+      {viewMode === 'ORDERS' && (
+         <div className="space-y-8 animate-in slide-in-from-right-4 print:hidden">
+            {Object.keys(ordersBySector).length === 0 ? (
+               <div className="py-20 text-center border-2 border-dashed border-slate-200 rounded-[3rem]">
+                  <CheckCircle2 size={48} className="mx-auto text-slate-200 mb-4" />
+                  <p className="text-slate-400 font-bold italic">Todos os funcionários estão com uniformes em dia.</p>
+               </div>
+            ) : (
+               Object.entries(ordersBySector).map(([secName, emps]) => (
+                  <div key={secName} className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden">
+                     <div className="bg-slate-50 px-8 py-4 border-b border-slate-100 flex items-center space-x-3">
+                        <Building2 size={20} className="text-slate-400"/>
+                        <h3 className="font-black text-slate-800 uppercase tracking-wide">{secName}</h3>
+                     </div>
+                     <div className="divide-y divide-slate-50">
+                        {(emps as Employee[]).map(emp => (
+                           <div key={emp.id} className="p-6 md:p-8 hover:bg-slate-50/50 transition-colors">
+                              <div className="flex flex-col md:flex-row md:items-start gap-6">
+                                 <div className="flex items-center space-x-4 md:w-1/3">
+                                    <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-sm text-white font-black ${emp.gender === 'F' ? 'bg-rose-400' : 'bg-blue-400'}`}>
+                                       {emp.name[0]}
+                                    </div>
+                                    <div>
+                                       <h4 className="font-black text-slate-800 text-lg leading-none mb-1">{emp.name}</h4>
+                                       <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{emp.role}</p>
+                                    </div>
+                                 </div>
+                                 <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                                    {(emp.uniforms || []).filter(u => (u.required || 0) - u.quantity > 0).map((u, idx) => (
+                                       <div key={idx} className="flex items-center justify-between p-3 bg-red-50 border border-red-100 rounded-xl">
+                                          <div className="flex items-center space-x-3">
+                                             <Shirt size={16} className="text-red-400"/>
+                                             <div>
+                                                <p className="text-xs font-black text-slate-700">{u.name}</p>
+                                                <p className="text-[9px] font-bold text-slate-400 uppercase">Tam: {u.size || 'ND'}</p>
+                                             </div>
+                                          </div>
+                                          <div className="text-right">
+                                             <span className="block text-lg font-black text-red-500 leading-none">{(u.required || 0) - u.quantity}</span>
+                                             <span className="text-[8px] font-bold text-red-300 uppercase">Faltam</span>
+                                          </div>
+                                       </div>
+                                    ))}
+                                 </div>
+                              </div>
+                           </div>
+                        ))}
+                     </div>
+                  </div>
+               ))
+            )}
+         </div>
+      )}
+
       {viewMode === 'LIST' && (
-        <div className="space-y-4 animate-in slide-in-from-bottom-2">
+        <div className="space-y-4 animate-in slide-in-from-bottom-2 print:hidden">
           <div className="relative max-w-md">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" size={16} />
             <input type="text" placeholder="Buscar colaborador..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-9 pr-4 py-3 rounded-xl border border-slate-100 text-sm font-bold bg-white shadow-inner" />
@@ -617,7 +771,7 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
       )}
 
       {viewMode === 'SCALE' && (
-        <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden animate-in slide-in-from-right-2">
+        <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden animate-in slide-in-from-right-2 print:hidden">
            <div className="p-6 border-b border-slate-50 flex items-center justify-between">
               <h3 className="font-black text-slate-800">Escala Mensal</h3>
               <input 
@@ -677,7 +831,7 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
       )}
 
       {viewMode === 'EXTRAS' && (
-         <div className="space-y-4 animate-in slide-in-from-right-2">
+         <div className="space-y-4 animate-in slide-in-from-right-2 print:hidden">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                {filteredExtras.length === 0 ? (
                   <div className="col-span-full py-20 text-center text-slate-300 font-bold italic">
@@ -708,7 +862,7 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
                            <div className="flex justify-between items-center bg-slate-50 p-3 rounded-xl">
                               <span className="text-[9px] font-black text-slate-400 uppercase">Qualidade</span>
                               <div className="flex gap-0.5">
-                                 {[1,2,3,4,5].map(star => (
+                                 {[1, 2, 3, 4, 5].map(star => (
                                     <div key={star} className={`w-2 h-2 rounded-full ${star <= extra.serviceQuality ? 'bg-emerald-400' : 'bg-slate-200'}`}></div>
                                  ))}
                               </div>
@@ -728,7 +882,7 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
 
       {/* Modal Cadastro/Edição de Funcionário CLT */}
       {isAddingEmployee && (
-        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[400] flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[400] flex items-center justify-center p-4 print:hidden">
            <div className="bg-white w-full max-w-3xl rounded-[3rem] shadow-2xl max-h-[90vh] overflow-hidden flex flex-col animate-in zoom-in duration-300">
               <div className="p-8 border-b flex justify-between items-center bg-slate-50/50">
                  <div>
@@ -993,7 +1147,7 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
 
       {/* Modal EXTRA LABOR */}
       {isAddingExtra && (
-        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[400] flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[400] flex items-center justify-center p-4 print:hidden">
            <div className="bg-white w-full max-w-lg rounded-[2.5rem] shadow-2xl overflow-hidden animate-in zoom-in duration-200">
               <div className="p-8 border-b flex justify-between items-center bg-slate-50/50">
                  <h2 className="text-xl font-black text-slate-800">{editingExtra ? 'Editar Profissional' : 'Novo Extra'}</h2>

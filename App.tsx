@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { ViewType, AppState, Apartment, Budget, Employee, Integration, HotelType, HotelData, HotelTheme, User, Sector, InventoryItem, InventoryOperation, Supplier, ExtraLabor } from './types';
+import { ViewType, AppState, Apartment, Budget, Employee, Integration, HotelType, HotelData, HotelTheme, User, Sector, InventoryItem, InventoryOperation, Supplier, ExtraLabor, ParkingLocation, Vehicle } from './types';
 import Sidebar from './components/Sidebar';
 import BottomNav from './components/BottomNav';
 import Dashboard from './components/Dashboard';
@@ -12,9 +12,10 @@ import EmployeesView from './components/EmployeesView';
 import InventoryView from './components/InventoryView';
 import ReportsView from './components/ReportsView';
 import SettingsView from './components/SettingsView';
+import ParkingView from './components/ParkingView';
 import Login from './components/Login';
 
-const GLOBAL_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyHwnTqgnBMecAsscAIJgpfe7gHPwjWbZ42qbm3EvXvX_oq9WzbrrT99knh7L4wdvDe4g/exec";
+const GLOBAL_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxP4sMITqTCMP5geKlkr4qVFAE_UyDG7vcpWvR7vsVKokUSrSaFTBdqZuv61gvf9MSr_g/exec";
 
 const getInitialHotelData = (): HotelData => ({
   apartments: {},
@@ -36,13 +37,25 @@ const getInitialHotelData = (): HotelData => ({
 
 const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
 
+const safeJSONParse = (value: any, defaultValue: any) => {
+  if (typeof value === 'string' && value.trim() !== '') {
+    try {
+      return JSON.parse(value);
+    } catch (e) {
+      console.warn(`Failed to parse JSON: ${value}`, e);
+      return defaultValue;
+    }
+  }
+  return value || defaultValue;
+};
+
 const App: React.FC = () => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const initialSyncRef = useRef(false);
   
   const [state, setState] = useState<AppState>(() => {
-    // Incrementado para V43 para garantir limpeza de cache com novos campos
-    const saved = localStorage.getItem('hotel_village_state_v43');
+    // Incrementado para V44 para garantir limpeza de cache com a nova URL do script
+    const saved = localStorage.getItem('hotel_village_state_v44');
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
@@ -99,9 +112,11 @@ const App: React.FC = () => {
         redirect: 'follow'
       });
       
+      console.log("Fetch response status:", response.status);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       
       const result = await response.json();
+      console.log("Fetch result:", result);
       
       if (result && result.status === 'success') {
         const incomingData = result.data;
@@ -130,7 +145,7 @@ const App: React.FC = () => {
             sundayOffs: sOffs,
             sectorId: emp.sectorId?.toString() || '',
             salary: parseFloat(emp.salary) || 0,
-            uniforms: typeof emp.uniforms === 'string' ? JSON.parse(emp.uniforms) : (emp.uniforms || []),
+            uniforms: safeJSONParse(emp.uniforms, []),
             photo: emp.photo || '' // Normalized photo field
           };
         });
@@ -141,7 +156,7 @@ const App: React.FC = () => {
           id: ext.id?.toString() || '',
           name: ext.name || '',
           phone: ext.phone || '',
-          availability: typeof ext.availability === 'string' ? JSON.parse(ext.availability) : (ext.availability || []),
+          availability: safeJSONParse(ext.availability, []),
           serviceQuality: parseFloat(ext.serviceQuality) || 0,
           sectorId: ext.sectorId?.toString() || '',
           observation: ext.observation || ''
@@ -151,7 +166,7 @@ const App: React.FC = () => {
           ...sec,
           id: sec.id?.toString() || '',
           name: sec.name || 'Setor Sem Nome',
-          standardUniform: typeof sec.standardUniform === 'string' ? JSON.parse(sec.standardUniform) : (sec.standardUniform || [])
+          standardUniform: safeJSONParse(sec.standardUniform, [])
         }));
 
         // NORMALIZAÇÃO DE ORÇAMENTOS
@@ -160,7 +175,7 @@ const App: React.FC = () => {
           id: b.id?.toString() || '',
           title: b.title || 'Sem Título',
           objective: b.objective || '',
-          items: (typeof b.items === 'string' ? JSON.parse(b.items) : (b.items || [])).map((it: any) => ({
+          items: safeJSONParse(b.items, []).map((it: any) => ({
             ...it,
             description: it.description || 'Serviço',
             materials: (it.materials || []).map((m: any) => ({
@@ -168,8 +183,8 @@ const App: React.FC = () => {
               quotes: m.quotes || [{ supplier: '', value: 0 }, { supplier: '', value: 0 }, { supplier: '', value: 0 }]
             }))
           })),
-          quotes: typeof b.quotes === 'string' ? JSON.parse(b.quotes) : (b.quotes || []),
-          files: typeof b.files === 'string' ? JSON.parse(b.files) : (b.files || []), // Normalized files
+          quotes: safeJSONParse(b.quotes, []),
+          files: safeJSONParse(b.files, []), // Normalized files
           createdAt: typeof b.createdAt === 'string' ? new Date(b.createdAt).getTime() : (b.createdAt || Date.now())
         }));
 
@@ -196,39 +211,90 @@ const App: React.FC = () => {
             id: s.id?.toString()
         }));
 
+        const normalizedVehicles = (incomingData.vehicles || []).map((v: any) => ({
+            ...v,
+            id: v.id?.toString(),
+            is_on_trip: v.is_on_trip === true || v.is_on_trip === 'true',
+            payment_pending: v.payment_pending === true || v.payment_pending === 'true',
+            is_active: v.is_active === true || v.is_active === 'true',
+            photos: safeJSONParse(v.photos, [])
+        }));
+
+        const normalizedUsers = (incomingData.users || []).map((u: any) => ({
+            ...u,
+            id: u.id?.toString(),
+            name: u.name?.toString() || '',
+            password: u.password?.toString() || '',
+            allowedTabs: safeJSONParse(u.allowedTabs, []),
+            email: u.email?.toString() || '',
+            status: u.status?.toString() || 'APPROVED',
+            hotel: targetHotel
+        }));
+        console.log("Normalized users:", normalizedUsers);
+
+        const normalizedParkingLocations = (incomingData.parkingLocations || []).map((l: any) => ({
+            ...l,
+            id: l.id?.toString(),
+            totalSpots: parseInt(l.totalSpots) || 0
+        }));
+
+        let normalizedConfig = incomingData.config;
+        if (typeof normalizedConfig === 'string') {
+          try {
+            normalizedConfig = JSON.parse(normalizedConfig);
+          } catch (e) {
+            normalizedConfig = { showSuppliersTab: true };
+          }
+        }
+
         const normalizedApartments: Record<string, Apartment> = {};
         Object.entries(incomingData.apartments || {}).forEach(([id, apt]: [string, any]) => {
           normalizedApartments[id] = {
             ...apt,
             defects: Array.isArray(apt.defects) ? apt.defects : [],
             beds: Array.isArray(apt.beds) ? apt.beds : [],
-            moveisDetalhes: Array.isArray(apt.moveisDetalhes) ? apt.moveisDetalhes : []
+            moveisDetalhes: Array.isArray(apt.moveisDetalhes) ? apt.moveisDetalhes : [],
+            customAnswers: safeJSONParse(apt.customAnswers, {})
           };
         });
 
-        setState(prev => ({
-          ...prev,
-          hotels: {
-            ...prev.hotels,
-            [targetHotel]: {
-              ...prev.hotels[targetHotel],
-              ...incomingData,
-              apartments: normalizedApartments,
-              employees: normalizedEmployees,
-              extras: normalizedExtras,
-              sectors: normalizedSectors,
-              budgets: normalizedBudgets,
-              inventory: normalizedInventory,
-              inventoryHistory: normalizedInventoryHistory,
-              suppliers: normalizedSuppliers
-            }
-          },
-          integrations: prev.integrations.map(i => i.id === 'global-sync' ? { ...i, lastSync: Date.now(), status: 'Connected' } : i)
-        }));
-        return incomingData;
+        const normalizedData = {
+          ...incomingData,
+          apartments: normalizedApartments,
+          employees: normalizedEmployees,
+          extras: normalizedExtras,
+          sectors: normalizedSectors,
+          budgets: normalizedBudgets,
+          inventory: normalizedInventory,
+          inventoryHistory: normalizedInventoryHistory,
+          suppliers: normalizedSuppliers,
+          vehicles: normalizedVehicles,
+          users: normalizedUsers,
+          parkingLocations: normalizedParkingLocations
+        };
+
+        setState(prev => {
+          const finalData = {
+            ...prev.hotels[targetHotel],
+            ...normalizedData,
+            config: normalizedConfig || prev.hotels[targetHotel].config
+          };
+
+          return {
+            ...prev,
+            hotels: {
+              ...prev.hotels,
+              [targetHotel]: finalData
+            },
+            integrations: prev.integrations.map(i => i.id === 'global-sync' ? { ...i, lastSync: Date.now(), status: 'Connected' } : i)
+          };
+        });
+        
+        // Return the data so Login can use it immediately
+        return normalizedData;
       }
     } catch (error) { 
-      console.warn(`Erro ao carregar ${targetHotel}:`, error);
+      console.error(`Erro ao carregar ${targetHotel}:`, error);
     } finally { 
       setIsRefreshing(false); 
     }
@@ -250,17 +316,17 @@ const App: React.FC = () => {
   }, [loadDataFromSheet, state.currentHotel]);
 
   useEffect(() => { 
-    localStorage.setItem('hotel_village_state_v43', JSON.stringify(state)); 
+    localStorage.setItem('hotel_village_state_v44', JSON.stringify(state)); 
   }, [state]);
 
-  const syncToSheet = async (dataType: 'APARTMENT' | 'BUDGET' | 'EMPLOYEE' | 'EXTRA' | 'SECTOR' | 'INVENTORY' | 'INVENTORY_OP' | 'SUPPLIER' | 'CONFIG' | 'DELETE', data: any, newFiles?: any[]) => {
+  const syncToSheet = async (dataType: 'APARTMENT' | 'BUDGET' | 'EMPLOYEE' | 'EXTRA' | 'SECTOR' | 'INVENTORY' | 'INVENTORY_OP' | 'SUPPLIER' | 'CONFIG' | 'DELETE' | 'USER' | 'PARKING_LOCATION' | 'VEHICLE' | 'CHECKOUT_VEHICLE', data: any, newFiles?: any[], hotelOverride?: HotelType) => {
     try {
       const scriptUrl = state.integrations[0]?.url || GLOBAL_SCRIPT_URL;
       await fetch(scriptUrl, {
         method: 'POST',
         mode: 'no-cors',
         body: JSON.stringify({
-          hotel: state.currentHotel,
+          hotel: hotelOverride || state.currentHotel,
           dataType,
           ...data,
           newFiles
@@ -273,7 +339,7 @@ const App: React.FC = () => {
 
   const currentHotelData = state.hotels[state.currentHotel];
 
-  const handleLogin = (user: User) => setState(prev => ({ ...prev, currentUser: user }));
+  const handleLogin = (user: User) => setState(prev => ({ ...prev, currentUser: user, currentHotel: user.hotel || prev.currentHotel }));
   const handleLogout = () => setState(prev => ({ ...prev, currentUser: null, currentView: ViewType.DASHBOARD }));
   
   const handleViewChange = (view: ViewType) => setState(prev => ({ 
@@ -300,7 +366,12 @@ const App: React.FC = () => {
         }
       }
     }));
-    syncToSheet('APARTMENT', apt, newFiles);
+    
+    const aptToSync = {
+      ...apt,
+      customAnswers: JSON.stringify(apt.customAnswers || {})
+    };
+    syncToSheet('APARTMENT', aptToSync, newFiles);
   };
 
   const handleSaveBudget = (budget: Budget, newFiles?: any[]) => {
@@ -507,17 +578,20 @@ const App: React.FC = () => {
   };
 
   const handleUpdateConfig = (config: any) => {
-    setState(prev => ({
-      ...prev,
-      hotels: {
-        ...prev.hotels,
-        [prev.currentHotel]: {
-          ...prev.hotels[prev.currentHotel],
-          config: { ...prev.hotels[prev.currentHotel].config, ...config }
+    setState(prev => {
+      const newConfig = { ...prev.hotels[prev.currentHotel].config, ...config };
+      syncToSheet('CONFIG', { config: JSON.stringify(newConfig) });
+      return {
+        ...prev,
+        hotels: {
+          ...prev.hotels,
+          [prev.currentHotel]: {
+            ...prev.hotels[prev.currentHotel],
+            config: newConfig
+          }
         }
-      }
-    }));
-    syncToSheet('CONFIG', config);
+      };
+    });
   };
 
   const handleUpdateIntegration = (integration: Integration) => {
@@ -525,6 +599,150 @@ const App: React.FC = () => {
       ...prev,
       integrations: prev.integrations.map(i => i.id === integration.id ? integration : i)
     }));
+  };
+
+  const handleSaveUser = (user: User) => {
+    const targetHotel = user.hotel || state.currentHotel;
+    setState(prev => {
+      const hotelData = prev.hotels[targetHotel];
+      const existingUsers = hotelData.users || [];
+      const updatedUsers = existingUsers.find(u => u.id === user.id)
+        ? existingUsers.map(u => u.id === user.id ? user : u)
+        : [...existingUsers, user];
+      
+      return {
+        ...prev,
+        hotels: {
+          ...prev.hotels,
+          [targetHotel]: {
+            ...hotelData,
+            users: updatedUsers
+          }
+        }
+      };
+    });
+    syncToSheet('USER', { ...user, allowedTabs: JSON.stringify(user.allowedTabs || []) }, undefined, targetHotel);
+  };
+
+  const handleDeleteUser = (userId: string) => {
+    setState(prev => {
+      const hotelData = prev.hotels[prev.currentHotel];
+      const existingUsers = hotelData.users || [];
+      return {
+        ...prev,
+        hotels: {
+          ...prev.hotels,
+          [prev.currentHotel]: {
+            ...hotelData,
+            users: existingUsers.filter(u => u.id !== userId)
+          }
+        }
+      };
+    });
+    syncToSheet('DELETE', { id: userId, targetType: 'USER' });
+  };
+
+  const handleSaveParkingLocation = (location: ParkingLocation) => {
+    setState(prev => {
+      const hotelData = prev.hotels[prev.currentHotel];
+      const existingLocations = hotelData.parkingLocations || [];
+      const updatedLocations = existingLocations.find(l => l.id === location.id)
+        ? existingLocations.map(l => l.id === location.id ? location : l)
+        : [...existingLocations, location];
+      
+      return {
+        ...prev,
+        hotels: {
+          ...prev.hotels,
+          [prev.currentHotel]: {
+            ...hotelData,
+            parkingLocations: updatedLocations
+          }
+        }
+      };
+    });
+    syncToSheet('PARKING_LOCATION', location);
+  };
+
+  const handleDeleteParkingLocation = (locationId: string) => {
+    setState(prev => {
+      const hotelData = prev.hotels[prev.currentHotel];
+      const existingLocations = hotelData.parkingLocations || [];
+      return {
+        ...prev,
+        hotels: {
+          ...prev.hotels,
+          [prev.currentHotel]: {
+            ...hotelData,
+            parkingLocations: existingLocations.filter(l => l.id !== locationId)
+          }
+        }
+      };
+    });
+    syncToSheet('DELETE', { id: locationId, targetType: 'PARKING_LOCATION' });
+  };
+
+  const handleSaveVehicle = (vehicle: Vehicle, newFiles?: any[]) => {
+    setState(prev => {
+      const hotelData = prev.hotels[prev.currentHotel];
+      const existingVehicles = hotelData.vehicles || [];
+      const updatedVehicles = existingVehicles.find(v => v.id === vehicle.id)
+        ? existingVehicles.map(v => v.id === vehicle.id ? vehicle : v)
+        : [...existingVehicles, vehicle];
+      
+      return {
+        ...prev,
+        hotels: {
+          ...prev.hotels,
+          [prev.currentHotel]: {
+            ...hotelData,
+            vehicles: updatedVehicles
+          }
+        }
+      };
+    });
+    syncToSheet('VEHICLE', { ...vehicle, photos: JSON.stringify(vehicle.photos || []) }, newFiles);
+  };
+
+  const handleDeleteVehicle = (id: string) => {
+    setState(prev => {
+      const hotelData = prev.hotels[prev.currentHotel];
+      return {
+        ...prev,
+        hotels: {
+          ...prev.hotels,
+          [prev.currentHotel]: {
+            ...hotelData,
+            vehicles: (hotelData.vehicles || []).filter(v => v.id !== id)
+          }
+        }
+      };
+    });
+    syncToSheet('DELETE', { id, targetType: 'VEHICLE' });
+  };
+
+  const handleCheckoutVehicle = (id: string) => {
+    setState(prev => {
+      const hotelData = prev.hotels[prev.currentHotel];
+      const existingVehicles = hotelData.vehicles || [];
+      const updatedVehicles = existingVehicles.map(v => {
+        if (v.id === id) {
+          return { ...v, is_active: false, check_out_date: new Date().toISOString() };
+        }
+        return v;
+      });
+      return {
+        ...prev,
+        hotels: {
+          ...prev.hotels,
+          [prev.currentHotel]: {
+            ...hotelData,
+            vehicles: updatedVehicles
+          }
+        }
+      };
+    });
+    syncToSheet('CHECKOUT_VEHICLE', { id });
   };
 
   const renderContent = () => {
@@ -549,6 +767,7 @@ const App: React.FC = () => {
           theme={theme} 
           onBack={() => setState(prev => ({ ...prev, selectedApartmentId: null }))} 
           onSave={handleSaveApartment}
+          checklistConfig={state.hotels[state.currentHotel].config?.apartmentChecklist || []}
         />
       );
     }
@@ -635,6 +854,23 @@ const App: React.FC = () => {
             onSaveSupplier={handleSaveSupplier} 
             onDeleteSupplier={handleDeleteSupplier} 
             onUpdate={handleUpdateIntegration} 
+            users={currentHotelData.users || []}
+            onSaveUser={handleSaveUser}
+            onDeleteUser={handleDeleteUser}
+            parkingLocations={currentHotelData.parkingLocations || []}
+            onSaveParkingLocation={handleSaveParkingLocation}
+            onDeleteParkingLocation={handleDeleteParkingLocation}
+          />
+        );
+      case ViewType.PARKING:
+        return (
+          <ParkingView 
+            theme={theme} 
+            parkingLocations={currentHotelData.parkingLocations} 
+            vehicles={currentHotelData.vehicles || []}
+            onSaveVehicle={handleSaveVehicle}
+            onDeleteVehicle={handleDeleteVehicle}
+            onCheckoutVehicle={handleCheckoutVehicle}
           />
         );
       default:
@@ -642,8 +878,41 @@ const App: React.FC = () => {
     }
   };
 
+  const handleGoogleLogin = async (email: string, name: string, hotel: HotelType) => {
+    try {
+      const hotelData = await loadDataFromSheet(hotel);
+      if (!hotelData) return { success: false, message: 'Erro ao conectar com o servidor' };
+
+      const user = hotelData.users?.find((u: any) => u.email === email);
+      if (user) {
+        if (user.status === 'PENDING') {
+          return { success: false, message: 'Seu acesso está pendente de aprovação pelo Gestor.' };
+        } else {
+          handleLogin({ ...user, hotel });
+          return { success: true };
+        }
+      } else {
+        const newUser: User = {
+          id: `user_${Date.now()}`,
+          name: name,
+          email: email,
+          password: '',
+          role: 'FUNCIONARIO',
+          status: 'PENDING',
+          allowedTabs: [],
+          hotel: hotel
+        };
+        handleSaveUser(newUser);
+        return { success: false, message: 'Solicitação de acesso enviada! Aguarde a aprovação do Gestor.' };
+      }
+    } catch (error) {
+      console.error("Google Login Error:", error);
+      return { success: false, message: 'Erro ao processar login com o Google' };
+    }
+  };
+
   if (!state.currentUser) {
-    return <Login onLogin={handleLogin} onFetchHotelData={loadDataFromSheet} />;
+    return <Login onLogin={handleLogin} onFetchHotelData={loadDataFromSheet} onGoogleLogin={handleGoogleLogin} />;
   }
 
   return (
@@ -655,7 +924,7 @@ const App: React.FC = () => {
         onHotelChange={handleHotelChange} 
         onLogout={handleLogout} 
         theme={theme} 
-        role={state.currentUser.role} 
+        user={state.currentUser} 
       />
       
       <main className="flex-1 p-4 md:p-8 md:ml-64 mb-20 md:mb-0 transition-all duration-300">
@@ -670,7 +939,7 @@ const App: React.FC = () => {
         currentView={state.currentView} 
         onViewChange={handleViewChange} 
         theme={theme} 
-        role={state.currentUser.role} 
+        user={state.currentUser} 
       />
     </div>
   );

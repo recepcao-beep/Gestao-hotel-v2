@@ -7,15 +7,21 @@ export enum ViewType {
   EMPLOYEES = 'EMPLOYEES',
   INVENTORY = 'INVENTORY',
   REPORTS = 'REPORTS',
-  TODAY_SCHEDULE = 'TODAY_SCHEDULE'
+  TODAY_SCHEDULE = 'TODAY_SCHEDULE',
+  PARKING = 'PARKING'
 }
 
 export type UserRole = 'GESTOR' | 'FUNCIONARIO';
 
 export interface User {
+  id: string;
+  name: string;
+  password?: string;
   role: UserRole;
   hotel?: HotelType;
-  name?: string;
+  allowedTabs?: ViewType[];
+  email?: string;
+  status?: 'PENDING' | 'APPROVED';
 }
 
 export type HotelType = 'VILLAGE' | 'GOLDEN_PARK' | 'THERMAL_RESORT';
@@ -180,6 +186,34 @@ export interface Integration {
   url?: string;
 }
 
+export interface Vehicle {
+  id: string;
+  guest_name: string;
+  plate: string;
+  identifier: string;
+  location: string;
+  check_out_date: string;
+  model?: string;
+  color?: string;
+  is_on_trip: boolean;
+  payment_pending: boolean;
+  trip_start?: string;
+  check_in_date?: string;
+  is_active: boolean;
+  deleted_date?: string;
+  photos?: string[];
+}
+
+export interface VehicleHistory {
+  id: string;
+  vehicleId: string;
+  vehiclePlate: string;
+  action: string;
+  timestamp: string;
+  user: string;
+  details?: string;
+}
+
 export interface BedConfig {
   type: 'Casal' | 'Solteiro';
   baseStatus?: 'Nova' | 'Antiga';
@@ -219,6 +253,24 @@ export interface Apartment {
   luminariaType?: 'Arandela' | 'Vidro' | 'Quadrado';
   luminariaColor?: 'Branco' | 'Preto';
   tvBrand?: 'LG' | 'Samsung' | 'Philco' | 'Smart Roku' | 'Toshiba';
+  customAnswers?: Record<string, any>;
+}
+
+export type FieldType = 'single_choice' | 'multiple_choice' | 'boolean' | 'number' | 'text';
+
+export interface FormFieldConfig {
+  id: string;
+  title: string;
+  icon: string;
+  color: string;
+  type: FieldType;
+  options?: string[];
+}
+
+export interface ParkingLocation {
+  id: string;
+  name: string;
+  totalSpots: number;
 }
 
 export interface HotelData {
@@ -230,8 +282,12 @@ export interface HotelData {
   inventory: InventoryItem[];
   inventoryHistory: InventoryOperation[];
   suppliers: Supplier[];
+  parkingLocations?: ParkingLocation[];
+  vehicles?: Vehicle[];
+  users?: User[];
   config?: {
     showSuppliersTab: boolean;
+    apartmentChecklist?: FormFieldConfig[];
   };
 }
 
@@ -244,4 +300,5 @@ export interface AppState {
   selectedSectorId: string | null;
   integrations: Integration[];
   currentUser: User | null;
+  users?: User[];
 }
