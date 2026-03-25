@@ -213,7 +213,8 @@ function doGet(e) {
           is_active: dV[v][12] === true || dV[v][12] === 'true',
           deleted_date: dV[v][13],
           photos: safeParse(dV[v][14], []),
-          driveFolderId: dV[v][15]
+          driveFolderId: dV[v][15],
+          history: safeParse(dV[v][16], [])
         });
       }
     }
@@ -441,7 +442,7 @@ function doPost(e) {
        var rowData = [
          req.id.toString(), req.guest_name || '', req.plate || '', req.identifier || '', req.location || '', req.check_out_date || '',
          req.model || '', req.color || '', req.is_on_trip || false, req.payment_pending || false, req.trip_start || '',
-         req.check_in_date || '', req.is_active || false, req.deleted_date || '', JSON.stringify(photos), folderId
+         req.check_in_date || '', req.is_active || false, req.deleted_date || '', JSON.stringify(photos), folderId, req.history || '[]'
        ];
        upsert(sheet, req.id.toString(), rowData);
     }
@@ -454,6 +455,9 @@ function doPost(e) {
              sheet.getRange(i + 1, 6).setValue(new Date().toISOString()); // Update check_out_date
              sheet.getRange(i + 1, 13).setValue(false); // Update is_active to false
              sheet.getRange(i + 1, 14).setValue(new Date().toISOString()); // Set deleted_date
+             if (req.history) {
+               sheet.getRange(i + 1, 17).setValue(req.history);
+             }
              var folderId = dV[i][15];
              if (folderId) {
                // Schedule deletion for 24 hours later

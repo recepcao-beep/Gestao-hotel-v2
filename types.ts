@@ -202,6 +202,7 @@ export interface Vehicle {
   is_active: boolean;
   deleted_date?: string;
   photos?: string[];
+  history?: VehicleHistory[];
 }
 
 export interface VehicleHistory {

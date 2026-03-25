@@ -67,31 +67,31 @@ const ApartmentDetailView: React.FC<ApartmentDetailViewProps> = ({ apartment, th
     updateField('moveisDetalhes', next);
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const fullBase64 = reader.result?.toString() || '';
-        const base64Data = fullBase64.split(',')[1] || '';
-        const desc = newDefectText.trim() || 'Avaria fotografada';
-        
-        const newDefect: Defect = {
-          id: `${data.id}-${Date.now()}`,
-          description: desc,
-          driveLink: 'pendente',
-          timestamp: Date.now(),
-          fileName: file.name,
-          fileType: file.type,
-          data: fullBase64
-        };
-        
-        setNewFiles(prev => [...prev, { data: base64Data, mimeType: file.type, fileName: file.name }]);
-        setData(prev => ({ ...prev, defects: [...(prev.defects || []), newDefect] }));
-        setNewDefectText('');
-        if (fileInputRef.current) fileInputRef.current.value = '';
+      const { compressImage } = await import('../utils/imageUtils');
+      const compressedDataUrl = await compressImage(file, 1024, 1024, 0.7);
+      
+      const fullBase64 = compressedDataUrl;
+      const base64Data = fullBase64.split(',')[1] || '';
+      const mimeType = fullBase64.split(':')[1].split(';')[0] || file.type;
+      const desc = newDefectText.trim() || 'Avaria fotografada';
+      
+      const newDefect: Defect = {
+        id: `${data.id}-${Date.now()}`,
+        description: desc,
+        driveLink: 'pendente',
+        timestamp: Date.now(),
+        fileName: file.name,
+        fileType: mimeType,
+        data: fullBase64
       };
-      reader.readAsDataURL(file);
+      
+      setNewFiles(prev => [...prev, { data: base64Data, mimeType: mimeType, fileName: file.name }]);
+      setData(prev => ({ ...prev, defects: [...(prev.defects || []), newDefect] }));
+      setNewDefectText('');
+      if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
 

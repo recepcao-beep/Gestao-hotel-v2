@@ -87,18 +87,32 @@ const BudgetsView: React.FC<BudgetsViewProps> = ({ budgets, theme, onSave, onDel
     setIsAdding(true);
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (files) {
-      Array.from(files).forEach((file: File) => {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          const fullBase64 = reader.result?.toString() || '';
-          const base64Data = fullBase64.split(',')[1] || '';
-          setNewFiles(prev => [...prev, { data: base64Data, mimeType: file.type, fileName: file.name }]);
-        };
-        reader.readAsDataURL(file);
-      });
+      const { compressImage } = await import('../utils/imageUtils');
+      
+      for (const file of Array.from(files) as File[]) {
+        if (file.type.startsWith('image/')) {
+          try {
+            const compressedDataUrl = await compressImage(file, 1024, 1024, 0.7);
+            const fullBase64 = compressedDataUrl;
+            const base64Data = fullBase64.split(',')[1] || '';
+            const mimeType = fullBase64.split(':')[1].split(';')[0] || file.type;
+            setNewFiles(prev => [...prev, { data: base64Data, mimeType: mimeType, fileName: file.name }]);
+          } catch (err) {
+            console.error('Error compressing image:', err);
+          }
+        } else {
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            const fullBase64 = reader.result?.toString() || '';
+            const base64Data = fullBase64.split(',')[1] || '';
+            setNewFiles(prev => [...prev, { data: base64Data, mimeType: file.type, fileName: file.name }]);
+          };
+          reader.readAsDataURL(file);
+        }
+      }
     }
   };
 

@@ -15,7 +15,7 @@ import SettingsView from './components/SettingsView';
 import ParkingView from './components/ParkingView';
 import Login from './components/Login';
 
-const GLOBAL_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxP4sMITqTCMP5geKlkr4qVFAE_UyDG7vcpWvR7vsVKokUSrSaFTBdqZuv61gvf9MSr_g/exec";
+const GLOBAL_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxumWPrtIrOYvgzlmisGn0_pKMdQwTq8_Fc6oFLHIBzMRvSwpZiXWaJzFpN-9xmm4_-cg/exec";
 
 const getInitialHotelData = (): HotelData => ({
   apartments: {},
@@ -339,7 +339,13 @@ const App: React.FC = () => {
 
   const currentHotelData = state.hotels[state.currentHotel];
 
-  const handleLogin = (user: User) => setState(prev => ({ ...prev, currentUser: user, currentHotel: user.hotel || prev.currentHotel }));
+  const handleLogin = (user: User) => {
+    const targetHotel = user.hotel || state.currentHotel;
+    setState(prev => ({ ...prev, currentUser: user, currentHotel: targetHotel }));
+    if (user.role === 'GESTOR') {
+      loadDataFromSheet(targetHotel);
+    }
+  };
   const handleLogout = () => setState(prev => ({ ...prev, currentUser: null, currentView: ViewType.DASHBOARD }));
   
   const handleViewChange = (view: ViewType) => setState(prev => ({ 
@@ -701,7 +707,7 @@ const App: React.FC = () => {
         }
       };
     });
-    syncToSheet('VEHICLE', { ...vehicle, photos: JSON.stringify(vehicle.photos || []) }, newFiles);
+    syncToSheet('VEHICLE', { ...vehicle, photos: JSON.stringify(vehicle.photos || []), history: JSON.stringify(vehicle.history || []) }, newFiles);
   };
 
   const handleDeleteVehicle = (id: string) => {
@@ -721,13 +727,15 @@ const App: React.FC = () => {
     syncToSheet('DELETE', { id, targetType: 'VEHICLE' });
   };
 
-  const handleCheckoutVehicle = (id: string) => {
+  const handleCheckoutVehicle = (id: string, history?: any[]) => {
+    let finalHistory: any[] = [];
     setState(prev => {
       const hotelData = prev.hotels[prev.currentHotel];
       const existingVehicles = hotelData.vehicles || [];
       const updatedVehicles = existingVehicles.map(v => {
         if (v.id === id) {
-          return { ...v, is_active: false, check_out_date: new Date().toISOString() };
+          finalHistory = history || v.history || [];
+          return { ...v, is_active: false, check_out_date: new Date().toISOString(), history: finalHistory };
         }
         return v;
       });
@@ -742,7 +750,7 @@ const App: React.FC = () => {
         }
       };
     });
-    syncToSheet('CHECKOUT_VEHICLE', { id });
+    syncToSheet('CHECKOUT_VEHICLE', { id, history: JSON.stringify(finalHistory) });
   };
 
   const renderContent = () => {
@@ -868,9 +876,12 @@ const App: React.FC = () => {
             theme={theme} 
             parkingLocations={currentHotelData.parkingLocations} 
             vehicles={currentHotelData.vehicles || []}
+            currentUser={state.currentUser}
             onSaveVehicle={handleSaveVehicle}
             onDeleteVehicle={handleDeleteVehicle}
             onCheckoutVehicle={handleCheckoutVehicle}
+            onRefresh={() => loadDataFromSheet()}
+            isRefreshing={isRefreshing}
           />
         );
       default:

@@ -1,14 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { HotelTheme, Vehicle, VehicleHistory, ParkingLocation } from '../types';
+import { HotelTheme, Vehicle, VehicleHistory, ParkingLocation, User as AppUser } from '../types';
 import { Car, LayoutDashboard, History, Plus, Search, MapPin, Calendar, User, CreditCard, CheckCircle2, AlertTriangle, X, KeySquare, Palette, Edit, LogOut, Trash2, DollarSign, Camera, Image as ImageIcon } from 'lucide-react';
 
 interface ParkingViewProps {
   theme: HotelTheme;
   parkingLocations?: ParkingLocation[];
   vehicles: Vehicle[];
+  currentUser: AppUser | null;
   onSaveVehicle: (vehicle: Vehicle, newFiles?: any[]) => void;
   onDeleteVehicle: (id: string) => void;
-  onCheckoutVehicle: (id: string) => void;
+  onCheckoutVehicle: (id: string, history?: any[]) => void;
+  onRefresh?: () => void;
+  isRefreshing?: boolean;
 }
 
 const MOCK_VEHICLES: Vehicle[] = [
@@ -56,7 +59,7 @@ const MOCK_VEHICLES: Vehicle[] = [
   }
 ];
 
-const ParkingView: React.FC<ParkingViewProps> = ({ theme, parkingLocations = [], vehicles, onSaveVehicle, onDeleteVehicle, onCheckoutVehicle }) => {
+const ParkingView: React.FC<ParkingViewProps> = ({ theme, parkingLocations = [], vehicles, currentUser, onSaveVehicle, onDeleteVehicle, onCheckoutVehicle, onRefresh, isRefreshing }) => {
   const [activeTab, setActiveTab] = useState<'VEHICLES' | 'DASHBOARD' | 'HISTORY'>('VEHICLES');
   const [searchTerm, setSearchTerm] = useState('');
   const [filter, setFilter] = useState<'ALL' | 'ON_TRIP' | 'CHECKED_OUT_TODAY'>('ALL');
@@ -64,7 +67,6 @@ const ParkingView: React.FC<ParkingViewProps> = ({ theme, parkingLocations = [],
   const [isAddingVehicle, setIsAddingVehicle] = useState(false);
   const [editingVehicleId, setEditingVehicleId] = useState<string | null>(null);
   
-  const [historyLogs, setHistoryLogs] = useState<VehicleHistory[]>([]);
   const [viewingHistoryId, setViewingHistoryId] = useState<string | null>(null);
   const [viewingPhotos, setViewingPhotos] = useState<string[] | null>(null);
   
@@ -94,18 +96,19 @@ const ParkingView: React.FC<ParkingViewProps> = ({ theme, parkingLocations = [],
     { id: 'HISTORY', label: 'Histórico', icon: History },
   ];
 
-  const addHistory = (vehicleId: string, plate: string, action: string, details?: string) => {
-    const newLog: VehicleHistory = {
+  const createHistoryLog = (vehicleId: string, plate: string, action: string, details?: string): VehicleHistory => {
+    return {
       id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
       vehicleId,
       vehiclePlate: plate,
       action,
       timestamp: new Date().toISOString(),
-      user: 'Usuário Atual', // Mock user
+      user: currentUser?.name || 'Sistema',
       details
     };
-    setHistoryLogs(prev => [newLog, ...prev]);
   };
+
+  const historyLogs = vehicles.flatMap(v => v.history || []).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
   // Auto-delete effect
   useEffect(() => {
@@ -113,39 +116,22 @@ const ParkingView: React.FC<ParkingViewProps> = ({ theme, parkingLocations = [],
     today.setHours(0, 0, 0, 0);
     
     let changed = false;
-    const newLogs: VehicleHistory[] = [];
     
-    const updated = vehicles.map(v => {
+    vehicles.forEach(v => {
       if (v.is_active && v.check_out_date) {
         const checkoutDate = new Date(v.check_out_date);
         checkoutDate.setHours(0, 0, 0, 0);
         if (checkoutDate < today) {
           changed = true;
-          newLogs.push({
-            id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
-            vehicleId: v.id,
-            vehiclePlate: v.plate,
-            action: 'Exclusão Automática',
-            timestamp: new Date().toISOString(),
-            user: 'Sistema',
-            details: 'Data de checkout expirada'
-          });
-          return { ...v, is_active: false, deleted_date: new Date().toISOString() };
+          const newLog = createHistoryLog(v.id, v.plate, 'Exclusão Automática', 'Data de checkout expirada');
+          newLog.user = 'Sistema';
+          const newHistory = [...(v.history || []), newLog];
+          onCheckoutVehicle(v.id, newHistory);
         }
       }
-      return v;
     });
-
-    if (changed) {
-      updated.forEach(v => {
-        if (!v.is_active && vehicles.find(old => old.id === v.id)?.is_active) {
-          onCheckoutVehicle(v.id);
-        }
-      });
-      setHistoryLogs(prev => [...newLogs, ...prev]);
-    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [vehicles]);
 
   const filteredVehicles = vehicles.filter(v => {
     const matchesSearch = v.plate.toLowerCase().includes(searchTerm.toLowerCase()) || 
@@ -186,8 +172,9 @@ const ParkingView: React.FC<ParkingViewProps> = ({ theme, parkingLocations = [],
             fileName: `photo_${Date.now()}_${index}.jpg`
           };
         });
+        const newLog = createHistoryLog(updatedVehicle.id, updatedVehicle.plate, 'Edição', 'Informações do veículo atualizadas');
+        updatedVehicle.history = [...(updatedVehicle.history || []), newLog];
         onSaveVehicle(updatedVehicle, newFiles);
-        addHistory(updatedVehicle.id, updatedVehicle.plate, 'Edição', 'Informações do veículo atualizadas');
       }
       setEditingVehicleId(null);
     } else {
@@ -215,8 +202,9 @@ const ParkingView: React.FC<ParkingViewProps> = ({ theme, parkingLocations = [],
           fileName: `photo_${Date.now()}_${index}.jpg`
         };
       });
+      const newLog = createHistoryLog(newVehicle.id, newVehicle.plate, 'Cadastro', 'Veículo registrado no sistema');
+      newVehicle.history = [newLog];
       onSaveVehicle(newVehicle, newFiles);
-      addHistory(newVehicle.id, newVehicle.plate, 'Cadastro', 'Veículo registrado no sistema');
     }
     setIsAddingVehicle(false);
     setFormData({ guest_name: '', plate: '', identifier: '', location: '', check_out_date: '', model: '', color: '', photos: [] });
@@ -228,19 +216,18 @@ const ParkingView: React.FC<ParkingViewProps> = ({ theme, parkingLocations = [],
     setIsAddingVehicle(true);
   };
 
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
       const files = Array.from(e.target.files) as File[];
-      const readers = files.map(file => {
-        return new Promise<string>((resolve) => {
-          const reader = new FileReader();
-          reader.onloadend = () => resolve(reader.result as string);
-          reader.readAsDataURL(file);
-        });
-      });
-      Promise.all(readers).then(newPhotos => {
-        setFormData(prev => ({ ...prev, photos: [...(prev.photos || []), ...newPhotos] }));
-      });
+      
+      // Import compressImage dynamically or assume it's imported at the top
+      const { compressImage } = await import('../utils/imageUtils');
+      
+      const compressedPhotos = await Promise.all(
+        files.map(file => compressImage(file, 1024, 1024, 0.7))
+      );
+      
+      setFormData(prev => ({ ...prev, photos: [...(prev.photos || []), ...compressedPhotos] }));
     }
   };
 
@@ -254,8 +241,9 @@ const ParkingView: React.FC<ParkingViewProps> = ({ theme, parkingLocations = [],
         is_on_trip: true,
         trip_start: new Date().toISOString()
       };
+      const newLog = createHistoryLog(vehicle.id, vehicle.plate, 'Saída para Passeio');
+      updatedVehicle.history = [...(vehicle.history || []), newLog];
       onSaveVehicle(updatedVehicle);
-      addHistory(vehicle.id, vehicle.plate, 'Saída para Passeio');
     }
   };
 
@@ -269,8 +257,9 @@ const ParkingView: React.FC<ParkingViewProps> = ({ theme, parkingLocations = [],
         is_on_trip: false,
         trip_start: undefined
       };
+      const newLog = createHistoryLog(vehicle.id, vehicle.plate, 'Retorno de Passeio', `Estacionado por: ${parkedBy === 'GUEST' ? 'Hóspede' : 'Motorista'}`);
+      updatedVehicle.history = [...(vehicle.history || []), newLog];
       onSaveVehicle(updatedVehicle);
-      addHistory(vehicle.id, vehicle.plate, 'Retorno de Passeio', `Estacionado por: ${parkedBy === 'GUEST' ? 'Hóspede' : 'Motorista'}`);
     }
     
     setReturningVehicleId(null);
@@ -279,8 +268,8 @@ const ParkingView: React.FC<ParkingViewProps> = ({ theme, parkingLocations = [],
 
   const togglePayment = (vehicle: Vehicle) => {
     const newStatus = !vehicle.payment_pending;
-    onSaveVehicle({ ...vehicle, payment_pending: newStatus });
-    addHistory(vehicle.id, vehicle.plate, 'Alteração de Pagamento', newStatus ? 'Marcado como Pendente' : 'Marcado como Pago');
+    const newLog = createHistoryLog(vehicle.id, vehicle.plate, 'Alteração de Pagamento', newStatus ? 'Marcado como Pendente' : 'Marcado como Pago');
+    onSaveVehicle({ ...vehicle, payment_pending: newStatus, history: [...(vehicle.history || []), newLog] });
   };
 
   const handleCheckout = (vehicle: Vehicle) => {
@@ -289,8 +278,8 @@ const ParkingView: React.FC<ParkingViewProps> = ({ theme, parkingLocations = [],
 
   const confirmCheckout = () => {
     if (!vehicleToCheckout) return;
-    onCheckoutVehicle(vehicleToCheckout.id);
-    addHistory(vehicleToCheckout.id, vehicleToCheckout.plate, 'Check Out', 'Veículo finalizado e removido da tela');
+    const newLog = createHistoryLog(vehicleToCheckout.id, vehicleToCheckout.plate, 'Check Out', 'Veículo finalizado e removido da tela');
+    onCheckoutVehicle(vehicleToCheckout.id, [...(vehicleToCheckout.history || []), newLog]);
     setVehicleToCheckout(null);
   };
 
@@ -301,7 +290,6 @@ const ParkingView: React.FC<ParkingViewProps> = ({ theme, parkingLocations = [],
   const confirmDelete = () => {
     if (!vehicleToDelete) return;
     onDeleteVehicle(vehicleToDelete.id);
-    addHistory(vehicleToDelete.id, vehicleToDelete.plate, 'Exclusão', 'Veículo excluído manualmente');
     setVehicleToDelete(null);
   };
 
@@ -324,22 +312,36 @@ const ParkingView: React.FC<ParkingViewProps> = ({ theme, parkingLocations = [],
           </div>
         </div>
 
-        <div className="flex bg-white p-1.5 rounded-2xl shadow-sm border border-slate-100 overflow-x-auto scrollbar-hide w-full md:w-auto">
-          {tabs.map(tab => (
+        <div className="flex items-center gap-2">
+          {onRefresh && (
             <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id as any)}
-              className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
-                activeTab === tab.id
-                  ? 'text-white shadow-md'
-                  : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'
-              }`}
-              style={{ backgroundColor: activeTab === tab.id ? theme.primary : 'transparent' }}
+              onClick={onRefresh}
+              disabled={isRefreshing}
+              className="p-3 bg-white text-slate-500 rounded-2xl border border-slate-100 shadow-sm hover:bg-slate-50 hover:text-slate-700 transition-all disabled:opacity-50"
+              title="Atualizar dados"
             >
-              <tab.icon size={16} />
-              <span>{tab.label}</span>
+              <svg className={`w-5 h-5 ${isRefreshing ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
             </button>
-          ))}
+          )}
+          <div className="flex bg-white p-1.5 rounded-2xl shadow-sm border border-slate-100 overflow-x-auto scrollbar-hide w-full md:w-auto">
+            {tabs.map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id as any)}
+                className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
+                  activeTab === tab.id
+                    ? 'text-white shadow-md'
+                    : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'
+                }`}
+                style={{ backgroundColor: activeTab === tab.id ? theme.primary : 'transparent' }}
+              >
+                <tab.icon size={16} />
+                <span>{tab.label}</span>
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -817,7 +819,7 @@ const ParkingView: React.FC<ParkingViewProps> = ({ theme, parkingLocations = [],
                                <div className="flex flex-col items-center justify-center pt-5 pb-6">
                                   <Camera className="w-8 h-8 mb-3 text-slate-400" />
                                   <p className="mb-2 text-sm text-slate-500 font-bold"><span className="font-black">Clique para enviar</span> ou arraste as fotos</p>
-                                  <p className="text-xs text-slate-400">PNG, JPG (Máx. 5MB)</p>
+                                  <p className="text-xs text-slate-400">PNG, JPG (Máx. 20MB)</p>
                                </div>
                                <input type="file" className="hidden" multiple accept="image/*" onChange={handlePhotoUpload} />
                             </label>

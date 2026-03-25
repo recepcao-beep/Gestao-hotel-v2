@@ -218,18 +218,19 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
     setIsAddingExtra(true);
   };
 
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const fullBase64 = reader.result?.toString() || '';
-        const base64Data = fullBase64.split(',')[1] || '';
-        setPhotoPreview(fullBase64);
-        setNewPhotoFile({ data: base64Data, mimeType: file.type, fileName: file.name });
-        setIsPhotoRemoved(false);
-      };
-      reader.readAsDataURL(file);
+      const { compressImage } = await import('../utils/imageUtils');
+      const compressedDataUrl = await compressImage(file, 512, 512, 0.7);
+      
+      const fullBase64 = compressedDataUrl;
+      const base64Data = fullBase64.split(',')[1] || '';
+      const mimeType = fullBase64.split(':')[1].split(';')[0] || file.type;
+      
+      setPhotoPreview(fullBase64);
+      setNewPhotoFile({ data: base64Data, mimeType: mimeType, fileName: file.name });
+      setIsPhotoRemoved(false);
     }
   };
 
