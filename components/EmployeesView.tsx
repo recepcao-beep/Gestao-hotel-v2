@@ -1,6 +1,11 @@
 
 import React, { useState, useRef, useMemo, useEffect } from 'react';
+import * as pdfjsLib from 'pdfjs-dist';
+import pdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import { Employee, Sector, HotelTheme, UniformItem, ExtraLabor, InventoryOperation } from '../types';
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
+
 import { 
   Search, 
   UserPlus, 
@@ -27,7 +32,8 @@ import {
   Settings,
   List,
   AlertCircle,
-  ShoppingCart
+  ShoppingCart,
+  Upload
 } from 'lucide-react';
 
 interface EmployeesViewProps {
@@ -69,6 +75,7 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
   // Sector Management State
   const [isSectorModalOpen, setIsSectorModalOpen] = useState(false);
   const [editingSector, setEditingSector] = useState<Sector | null>(null);
+  const [sectorToDelete, setSectorToDelete] = useState<Sector | null>(null);
   const [sectorName, setSectorName] = useState('');
   const [sectorRoles, setSectorRoles] = useState<string[]>([]);
   const [newRole, setNewRole] = useState('');
@@ -78,13 +85,194 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
   const [newSectorUniformRole, setNewSectorUniformRole] = useState('');
 
   const [searchTerm, setSearchTerm] = useState('');
-  const [viewMode, setViewMode] = useState<'LIST' | 'SCALE' | 'TODAY' | 'EXTRAS' | 'ORDERS'>('LIST');
+  const [viewMode, setViewMode] = useState<'LIST' | 'SCALE' | 'TODAY' | 'EXTRAS' | 'ORDERS' | 'WEEKLY_SCALE'>('LIST');
   const [activeFormTab, setActiveFormTab] = useState<'DADOS' | 'ESCALA' | 'UNIFORMES'>('DADOS');
   const [selectedBadge, setSelectedBadge] = useState<Employee | null>(null);
   const [viewingHistoryEmployee, setViewingHistoryEmployee] = useState<Employee | null>(null);
 
   // Scale Date State
   const [scaleDate, setScaleDate] = useState(new Date());
+  const [hpoUploaded, setHpoUploaded] = useState(false);
+  const [weeklyScaleData, setWeeklyScaleData] = useState<any[]>([]);
+
+  const handleHpoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.type !== 'application/pdf') {
+      alert("Por favor, selecione um arquivo PDF.");
+      return;
+    }
+
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      let fullText = '';
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const textContent = await page.getTextContent();
+        const pageText = textContent.items.map((item: any) => item.str).join(' ');
+        fullText += pageText + '\n';
+      }
+
+      console.log("PDF Text Extracted:", fullText);
+
+      // Regex to find: Date UHs Int Ocupação Disponível Pax CheckIn WalkIn CheckOut
+      const rowRegex = /(\d{2}\s*\/\s*\d{2}\s*\/\s*\d{2,4})\s+(\d+)\s+(\d+)\s+(\d+(?:\s*\(\s*[\d.,\s]+%?\s*\))?)\s+(\d+(?:\s*\(\s*[\d.,\s]+%?\s*\))?)\s+((?:\d+\s*\/\s*)*\d+)\s+(\d+)\s+(\d+)\s+(\d+)/g;
+      const matches = [...fullText.matchAll(rowRegex)];
+      
+      console.log("Matches found:", matches.length);
+
+      const parsedData = matches.map(match => {
+        const dateStr = match[1].replace(/\s/g, ''); // DD/MM/YY
+        const checkIn = parseInt(match[7], 10);
+        const checkOut = parseInt(match[9], 10);
+        
+        // Convert DD/MM/YY to Date object
+        const [day, month, year] = dateStr.split('/');
+        const fullYear = year.length === 2 ? parseInt(year) + 2000 : parseInt(year);
+        const dateObj = new Date(fullYear, parseInt(month) - 1, parseInt(day));
+        
+        const weekdays = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
+        const weekday = weekdays[dateObj.getDay()];
+        
+        const formattedDate = `${weekday} ${day}/${month}/${fullYear}`;
+
+        return {
+          date: formattedDate,
+          in: checkIn,
+          out: checkOut,
+          shifts: [] as string[]
+        };
+      });
+
+      // Generate shifts based on actual employees and their schedules
+      const sectorEmployees = employees.filter(emp => emp.sectorId === currentSector?.id);
+      
+      if (parsedData.length > 0) {
+        parsedData.forEach(day => {
+          const dateParts = day.date.split(' ')[1].split('/'); // "Segunda-feira 09/03/2026" -> "09/03/2026"
+          const yearPart = dateParts[2].length === 2 ? parseInt(dateParts[2]) + 2000 : parseInt(dateParts[2]);
+          const dateObj = new Date(yearPart, parseInt(dateParts[1]) - 1, parseInt(dateParts[0]));
+          
+          const workingEmps: Employee[] = [];
+          const offEmps: Employee[] = [];
+
+          sectorEmployees.forEach(emp => {
+            let isWorking = false;
+            if (emp.scheduleType === '12x36') {
+              const dayOfMonth = dateObj.getDate();
+              if (emp.shiftType === 'Par') {
+                isWorking = dayOfMonth % 2 === 0;
+              } else if (emp.shiftType === 'Ímpar') {
+                isWorking = dayOfMonth % 2 !== 0;
+              } else {
+                // Fallback if shiftType is not set, we can use startDate or default to Par
+                if (emp.startDate) {
+                  const start = new Date(emp.startDate + 'T00:00:00');
+                  const current = new Date(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate());
+                  const diffTime = current.getTime() - start.getTime();
+                  const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+                  isWorking = Math.abs(diffDays) % 2 === 0;
+                } else {
+                  isWorking = dayOfMonth % 2 === 0;
+                }
+              }
+            } else if (emp.scheduleType === '6x1') {
+              const dayOfWeek = dateObj.getDay();
+              const weekdays = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
+              const dayName = weekdays[dayOfWeek];
+
+              if (dayOfWeek === 0) {
+                const nthSunday = Math.ceil(dateObj.getDate() / 7);
+                if (emp.sundayOffs && emp.sundayOffs.includes(nthSunday)) {
+                  isWorking = false;
+                } else if (emp.fixedDayOff === 'Domingo') {
+                  isWorking = false;
+                } else {
+                  isWorking = true;
+                }
+              } else {
+                if (emp.fixedDayOff === dayName) {
+                  isWorking = false;
+                } else {
+                  isWorking = true;
+                }
+              }
+            } else {
+              // Intermitente
+              isWorking = false;
+            }
+
+            if (isWorking) {
+              workingEmps.push(emp);
+            } else {
+              offEmps.push(emp);
+            }
+          });
+
+          // Base shifts
+          const scheduledShifts = new Set<string>();
+          day.shifts = workingEmps.map(emp => {
+            const shiftTime = emp.workingHours || '08:00-16:20';
+            scheduledShifts.add(shiftTime);
+            return `${shiftTime} - ${emp.name.split(' ')[0]}`;
+          });
+
+          // Ensure all unique working hours in the sector are covered
+          const allSectorShifts = new Set<string>(sectorEmployees.map(e => e.workingHours || '08:00-16:20'));
+          allSectorShifts.forEach(shiftTime => {
+            if (!scheduledShifts.has(shiftTime)) {
+              // We need an extra for this shift
+              const availableExtraIndex = offEmps.findIndex(e => !day.shifts.some(s => s.includes(e.name.split(' ')[0])));
+              if (availableExtraIndex !== -1) {
+                const extraEmp = offEmps[availableExtraIndex];
+                day.shifts.push(`${shiftTime} - ${extraEmp.name.split(' ')[0]} (Extra)`);
+                // Remove from offEmps so they aren't used again for another missing shift
+                offEmps.splice(availableExtraIndex, 1);
+              } else {
+                day.shifts.push(`${shiftTime} - Extra (Não definido)`);
+              }
+            }
+          });
+
+          // Rule: If checkIn > 50, add up to 2 off employees (preferably receptionists) from 14:00-19:00
+          if (day.in > 50) {
+            let availableExtras = offEmps.filter(e => e.role.toLowerCase().includes('recep') && !day.shifts.some(s => s.includes(e.name.split(' ')[0])));
+            if (availableExtras.length < 2) {
+               const others = offEmps.filter(e => !e.role.toLowerCase().includes('recep') && !day.shifts.some(s => s.includes(e.name.split(' ')[0])));
+               availableExtras = [...availableExtras, ...others];
+            }
+            
+            const selectedExtras = availableExtras.slice(0, 2);
+            selectedExtras.forEach(emp => {
+              day.shifts.push(`14:00-19:00 - ${emp.name.split(' ')[0]} (Extra)`);
+            });
+          }
+          
+          // Sort shifts chronologically
+          day.shifts.sort((a, b) => {
+            const timeA = a.split('-')[0].trim();
+            const timeB = b.split('-')[0].trim();
+            return timeA.localeCompare(timeB);
+          });
+          
+          // Fallback if no employees are registered in the sector
+          if (sectorEmployees.length === 0) {
+             day.shifts.push("Sem funcionários cadastrados neste setor");
+          }
+        });
+        
+        setWeeklyScaleData(parsedData);
+        setHpoUploaded(true);
+      } else {
+        alert("Não foi possível encontrar dados de ocupação no PDF. Verifique o formato do arquivo.");
+      }
+    } catch (error) {
+      console.error("Error parsing PDF:", error);
+      alert("Erro ao ler o arquivo PDF.");
+    }
+  };
 
   // Form State Employee
   const [name, setName] = useState('');
@@ -474,16 +662,16 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
           {sectors.map((sec) => (
             <div key={sec.id} className="relative group">
-              <div className="absolute top-4 right-4 z-10 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+              <div className="absolute top-4 right-4 z-10 flex gap-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
                 <button 
                   onClick={(e) => { e.stopPropagation(); handleEditSector(sec); }}
-                  className="p-2 bg-white/80 rounded-full text-slate-300 hover:text-blue-500 hover:bg-white transition-all"
+                  className="p-2 bg-white/80 rounded-full text-slate-300 hover:text-blue-500 hover:bg-white transition-all shadow-sm"
                 >
                   <Edit2 size={16} />
                 </button>
                 <button 
-                  onClick={(e) => { e.stopPropagation(); if(confirm('Tem certeza? Isso pode afetar dados vinculados.')) onDeleteSector(sec.id); }}
-                  className="p-2 bg-white/80 rounded-full text-slate-300 hover:text-rose-500 hover:bg-white transition-all"
+                  onClick={(e) => { e.stopPropagation(); setSectorToDelete(sec); }}
+                  className="p-2 bg-white/80 rounded-full text-slate-300 hover:text-rose-500 hover:bg-white transition-all shadow-sm"
                 >
                   <Trash2 size={16} />
                 </button>
@@ -599,6 +787,39 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
              </div>
           </div>
         )}
+
+        {sectorToDelete && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[500] flex items-center justify-center p-4">
+            <div className="bg-white w-full max-w-sm rounded-[2rem] shadow-2xl overflow-hidden animate-in zoom-in duration-200">
+              <div className="p-6 text-center">
+                <div className="w-16 h-16 bg-rose-100 text-rose-500 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <AlertCircle size={32} />
+                </div>
+                <h3 className="text-xl font-black text-slate-800 mb-2">Excluir Setor?</h3>
+                <p className="text-sm font-bold text-slate-500 mb-6">
+                  Tem certeza que deseja excluir o setor <strong>{sectorToDelete.name}</strong>? Esta ação não pode ser desfeita e pode afetar os colaboradores vinculados a ele.
+                </p>
+                <div className="flex gap-3">
+                  <button 
+                    onClick={() => setSectorToDelete(null)}
+                    className="flex-1 py-3 rounded-xl font-black text-xs uppercase text-slate-500 bg-slate-100 hover:bg-slate-200 transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                  <button 
+                    onClick={() => {
+                      onDeleteSector(sectorToDelete.id);
+                      setSectorToDelete(null);
+                    }}
+                    className="flex-1 py-3 rounded-xl font-black text-xs uppercase text-white bg-rose-500 hover:bg-rose-600 transition-colors shadow-lg shadow-rose-500/30"
+                  >
+                    Excluir
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
       );
   }
@@ -658,7 +879,8 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
         
         <div className="flex bg-slate-50 p-1.5 rounded-2xl border border-slate-100 overflow-x-auto">
           <button onClick={() => setViewMode('LIST')} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all whitespace-nowrap ${viewMode === 'LIST' ? 'bg-white shadow-md text-slate-900' : 'text-slate-400'}`}>Listagem</button>
-          <button onClick={() => setViewMode('SCALE')} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all whitespace-nowrap ${viewMode === 'SCALE' ? 'bg-white shadow-md text-slate-900' : 'text-slate-400'}`}>Escala</button>
+          <button onClick={() => setViewMode('SCALE')} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all whitespace-nowrap ${viewMode === 'SCALE' ? 'bg-white shadow-md text-slate-900' : 'text-slate-400'}`}>Escala Mensal</button>
+          <button onClick={() => setViewMode('WEEKLY_SCALE')} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all whitespace-nowrap ${viewMode === 'WEEKLY_SCALE' ? 'bg-white shadow-md text-slate-900' : 'text-slate-400'}`}>Escala Semanal</button>
           <button onClick={() => setViewMode('EXTRAS')} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all whitespace-nowrap ${viewMode === 'EXTRAS' ? 'bg-white shadow-md text-slate-900' : 'text-slate-400'}`}>Extras</button>
           <button onClick={() => setViewMode('ORDERS')} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all whitespace-nowrap ${viewMode === 'ORDERS' ? 'bg-white shadow-md text-slate-900' : 'text-slate-400'}`}>Pedidos</button>
         </div>
@@ -757,12 +979,12 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
                     </p>
                   </div>
                 </div>
-                <div className="flex gap-4 items-center">
-                  <div className="flex space-x-2">
-                    <button onClick={() => setSelectedBadge(emp)} className="p-3 bg-slate-50 text-slate-400 hover:text-blue-500 rounded-xl transition-all"><QrCode size={18}/></button>
-                    <button onClick={() => setViewingHistoryEmployee(emp)} className="p-3 bg-slate-50 text-slate-400 hover:text-amber-500 rounded-xl transition-all"><History size={18}/></button>
-                    <button onClick={() => handleEditEmployee(emp)} className="p-3 bg-slate-50 text-slate-400 hover:text-blue-500 rounded-xl transition-all"><Edit2 size={18}/></button>
-                    <button onClick={() => onDelete(emp.id)} className="p-3 bg-slate-50 text-slate-400 hover:text-rose-500 rounded-xl transition-all"><Trash2 size={18}/></button>
+                <div className="flex gap-4 items-center w-full md:w-auto">
+                  <div className="flex flex-wrap justify-center gap-2 w-full">
+                    <button onClick={() => setSelectedBadge(emp)} className="p-3 bg-slate-50 text-slate-400 hover:text-blue-500 rounded-xl transition-all flex-1 md:flex-none flex justify-center"><QrCode size={18}/></button>
+                    <button onClick={() => setViewingHistoryEmployee(emp)} className="p-3 bg-slate-50 text-slate-400 hover:text-amber-500 rounded-xl transition-all flex-1 md:flex-none flex justify-center"><History size={18}/></button>
+                    <button onClick={() => handleEditEmployee(emp)} className="p-3 bg-slate-50 text-slate-400 hover:text-blue-500 rounded-xl transition-all flex-1 md:flex-none flex justify-center"><Edit2 size={18}/></button>
+                    <button onClick={() => onDelete(emp.id)} className="p-3 bg-slate-50 text-slate-400 hover:text-rose-500 rounded-xl transition-all flex-1 md:flex-none flex justify-center"><Trash2 size={18}/></button>
                   </div>
                 </div>
               </div>
@@ -772,54 +994,71 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
       )}
 
       {viewMode === 'SCALE' && (
-        <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden animate-in slide-in-from-right-2 print:hidden">
-           <div className="p-6 border-b border-slate-50 flex items-center justify-between">
-              <h3 className="font-black text-slate-800">Escala Mensal</h3>
-              <input 
-                 type="month" 
-                 value={scaleDate.toISOString().slice(0, 7)}
-                 onChange={(e) => setScaleDate(new Date(e.target.value + '-02'))} // +02 prevents timezone issues
-                 className="px-4 py-2 rounded-xl border border-slate-200 font-bold text-xs outline-none"
-              />
+        <div className="bg-white rounded-[1rem] border border-slate-200 shadow-sm overflow-hidden animate-in slide-in-from-right-2 print:border-none print:shadow-none">
+           <div className="p-4 border-b border-slate-200 flex items-center justify-between bg-slate-50 print:hidden">
+              <h3 className="font-black text-slate-800 uppercase text-lg tracking-widest">ESCALA {currentSector?.name} - {scaleDate.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }).toUpperCase()}</h3>
+              <div className="flex gap-2 items-center">
+                 <button onClick={() => window.print()} className="bg-slate-200 text-slate-700 px-3 py-2 rounded font-bold flex items-center space-x-2 hover:bg-slate-300 transition-colors text-xs">
+                    <Printer size={14} /> <span>Imprimir</span>
+                 </button>
+                 <input 
+                    type="month" 
+                    value={scaleDate.toISOString().slice(0, 7)}
+                    onChange={(e) => setScaleDate(new Date(e.target.value + '-02'))}
+                    className="px-4 py-2 rounded border border-slate-300 font-bold text-xs outline-none"
+                 />
+              </div>
            </div>
-           <div className="overflow-x-auto pb-4">
-              <table className="w-full text-left border-collapse">
+           <div className="hidden print:block p-4 text-center">
+              <h3 className="font-black text-slate-800 uppercase text-xl tracking-widest">ESCALA {currentSector?.name} - {scaleDate.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }).toUpperCase()}</h3>
+           </div>
+           <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse border border-slate-300">
                  <thead>
-                    <tr className="bg-slate-50/50">
-                       <th className="sticky left-0 bg-white z-10 px-6 py-4 font-black text-[10px] uppercase text-slate-400 tracking-widest border-b border-slate-100 min-w-[200px]">Colaborador</th>
+                    <tr>
+                       <th rowSpan={2} className="sticky left-0 bg-white z-20 px-4 py-2 font-black text-xs uppercase text-slate-800 border border-slate-300 min-w-[250px] text-center align-bottom">
+                          <div className="flex items-end justify-between h-full">
+                             <span className="[writing-mode:vertical-rl] transform rotate-180 text-[10px] text-slate-500 mr-2">QUADRO DE FUNCIONÁRIOS</span>
+                             <span className="flex-1 text-center pb-1">COLABORADOR</span>
+                          </div>
+                       </th>
+                       <th rowSpan={2} className="sticky left-[250px] bg-white z-20 px-2 py-2 font-black text-xs uppercase text-slate-800 border border-slate-300 min-w-[100px] text-center align-bottom pb-1">JORNADA</th>
                        {scaleData.map((d, i) => (
-                          <th key={i} className={`px-2 py-4 text-[9px] font-black text-center border-b border-slate-100 min-w-[35px] ${d.isSunday ? 'bg-red-50 text-red-400' : 'text-slate-400'}`}>
-                             <div className="flex flex-col">
-                                <span>{d.date}</span>
-                                <span>{d.weekdayShort}</span>
+                          <th key={i} className="px-1 py-2 text-[10px] font-bold text-center border border-slate-300 min-w-[24px] h-32 align-bottom">
+                             <div className="[writing-mode:vertical-rl] transform rotate-180 flex items-center justify-start h-full pb-2">
+                                {d.weekdayFull}
                              </div>
                           </th>
                        ))}
                     </tr>
+                    <tr>
+                       {scaleData.map((d, i) => (
+                          <th key={i} className="px-1 py-1 text-xs font-black text-center border border-slate-300 bg-slate-100">
+                             {d.date}
+                          </th>
+                       ))}
+                    </tr>
                  </thead>
-                 <tbody className="divide-y divide-slate-50">
+                 <tbody>
                     {filteredEmployees.map(emp => (
-                       <tr key={emp.id} className="hover:bg-slate-50/30 transition-colors">
-                          <td className="sticky left-0 bg-white z-10 px-6 py-4 border-r border-slate-50 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
-                             <p className="font-black text-xs text-slate-800 truncate max-w-[180px]">{emp.name}</p>
-                             <p className="text-[8px] font-bold text-slate-400 uppercase">{emp.role}</p>
+                       <tr key={emp.id} className="hover:bg-slate-50 transition-colors">
+                          <td className="sticky left-0 bg-white z-10 px-2 py-1 border border-slate-300 text-xs font-bold text-slate-700 uppercase truncate max-w-[250px]">
+                             {emp.name}
+                          </td>
+                          <td className="sticky left-[250px] bg-white z-10 px-2 py-1 border border-slate-300 text-xs font-medium text-slate-700 text-center">
+                             {emp.workingHours || '08:00-16:20'}
                           </td>
                           {scaleData.map((d, i) => {
                              const status = getShiftStatus(emp, d);
-                             let cellClass = "";
                              let text = "";
                              
-                             if (status === 'FÉRIAS') { cellClass = "bg-amber-100 text-amber-600"; text = "F"; }
-                             else if (status.startsWith('D')) { cellClass = "bg-red-100 text-red-500"; text = "F"; } // Domingo
-                             else if (status === 'F') { cellClass = "bg-blue-100 text-blue-500"; text = "F"; } // Folga Fixa
+                             if (status === 'FÉRIAS') { text = "F"; }
+                             else if (status.startsWith('D')) { text = status; }
+                             else if (status === 'F') { text = "F"; }
                              
                              return (
-                                <td key={i} className={`text-center p-1 border-r border-slate-50 last:border-none ${d.isSunday ? 'bg-slate-50/50' : ''}`}>
-                                   {text && (
-                                      <div className={`w-6 h-6 mx-auto rounded flex items-center justify-center text-[9px] font-black ${cellClass}`}>
-                                         {text}
-                                      </div>
-                                   )}
+                                <td key={i} className={`text-center p-0 border border-slate-300 text-xs font-bold ${text ? 'text-slate-800' : ''}`}>
+                                   {text}
                                 </td>
                              );
                           })}
@@ -828,6 +1067,114 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
                  </tbody>
               </table>
            </div>
+           
+           <div className="flex flex-col md:flex-row gap-4 p-4 bg-white border-t border-slate-200">
+              <div className="w-full md:w-1/3">
+                 <table className="w-full border-collapse border border-slate-300 text-xs font-bold">
+                    <thead>
+                       <tr>
+                          <th colSpan={2} className="border border-slate-300 bg-slate-100 py-1 text-center uppercase">LEGENDA</th>
+                       </tr>
+                    </thead>
+                    <tbody>
+                       <tr>
+                          <td className="border border-slate-300 py-1 text-center w-1/3">F</td>
+                          <td className="border border-slate-300 py-1 px-2 uppercase text-[10px]">FOLGA</td>
+                       </tr>
+                       <tr>
+                          <td className="border border-slate-300 py-1 text-center"></td>
+                          <td className="border border-slate-300 py-1 px-2 uppercase text-[10px]">DIA DE TRABALHO</td>
+                       </tr>
+                       <tr>
+                          <td className="border border-slate-300 py-1 text-center">BH</td>
+                          <td className="border border-slate-300 py-1 px-2 uppercase text-[10px]">BANCO DE HORA</td>
+                       </tr>
+                       <tr>
+                          <td className="border border-slate-300 py-1 text-center">D</td>
+                          <td className="border border-slate-300 py-1 px-2 uppercase text-[10px]">DOMINGO</td>
+                       </tr>
+                    </tbody>
+                 </table>
+              </div>
+              <div className="w-full md:w-2/3">
+                 <table className="w-full border-collapse border border-slate-300 text-xs font-bold h-full">
+                    <thead>
+                       <tr>
+                          <th className="border border-slate-300 bg-slate-100 py-1 text-center uppercase">OBSERVAÇÕES GERAIS:</th>
+                       </tr>
+                    </thead>
+                    <tbody>
+                       <tr><td className="border border-slate-300 h-6"></td></tr>
+                       <tr><td className="border border-slate-300 h-6"></td></tr>
+                       <tr><td className="border border-slate-300 h-6"></td></tr>
+                    </tbody>
+                 </table>
+              </div>
+           </div>
+        </div>
+      )}
+
+      {viewMode === 'WEEKLY_SCALE' && (
+        <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden animate-in slide-in-from-right-2 p-8 print:p-0 print:border-none print:shadow-none">
+          {!hpoUploaded ? (
+            <div className="text-center py-16 print:hidden">
+              <div className="w-20 h-20 bg-blue-50 text-blue-500 rounded-full flex items-center justify-center mx-auto mb-6">
+                <Download size={40} />
+              </div>
+              <h3 className="text-2xl font-black text-slate-800 mb-2">Upload de HPO</h3>
+              <p className="text-slate-500 font-bold mb-8 max-w-md mx-auto">
+                Faça o upload do arquivo HPO (Previsão de Ocupação Semanal) para gerar a escala da semana automaticamente.
+              </p>
+              <label className="cursor-pointer inline-flex items-center space-x-2 bg-slate-900 text-white px-8 py-4 rounded-xl font-black uppercase text-sm shadow-lg hover:bg-slate-800 transition-colors">
+                <Upload size={20} />
+                <span>Selecionar Arquivo HPO</span>
+                <input 
+                  type="file" 
+                  className="hidden" 
+                  accept=".pdf"
+                  onChange={handleHpoUpload}
+                />
+              </label>
+            </div>
+          ) : (
+            <div className="space-y-8">
+              <div className="flex justify-between items-center border-b border-slate-100 pb-6 print:hidden">
+                <div>
+                  <h3 className="text-2xl font-black text-slate-800">Escala Semanal Gerada</h3>
+                  <p className="text-slate-500 font-bold text-sm">Baseado no HPO importado</p>
+                </div>
+                <div className="flex gap-3">
+                  <button onClick={() => window.print()} className="bg-slate-100 text-slate-600 px-4 py-2 rounded-xl font-bold flex items-center space-x-2 hover:bg-slate-200 transition-colors">
+                    <Printer size={16} /> <span>Imprimir</span>
+                  </button>
+                  <button onClick={() => setHpoUploaded(false)} className="bg-rose-50 text-rose-500 px-4 py-2 rounded-xl font-bold flex items-center space-x-2 hover:bg-rose-100 transition-colors">
+                    <Trash2 size={16} /> <span>Remover HPO</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 print:grid-cols-2 print:gap-4">
+                {weeklyScaleData.map((day, i) => (
+                  <div key={i} className="bg-slate-50 rounded-2xl p-6 border border-slate-100">
+                    <h4 className="font-black text-slate-800 text-lg mb-2">{day.date}</h4>
+                    <div className="flex gap-4 mb-4 text-sm font-bold">
+                      <span className="text-emerald-600">Check inn {day.in}</span>
+                      <span className="text-rose-600">Check out {day.out}</span>
+                    </div>
+                    <div className="w-full h-px bg-slate-200 mb-4"></div>
+                    <div className="space-y-2">
+                      {day.shifts.map((shift, j) => (
+                        <div key={j} className="text-slate-700 font-medium text-sm flex items-center">
+                          <Clock size={14} className="mr-2 text-slate-400" />
+                          {shift}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -870,7 +1217,7 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
                            </div>
                         </div>
 
-                        <div className="absolute top-4 right-4 flex space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <div className="absolute top-4 right-4 flex space-x-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
                            <button onClick={() => handleEditExtra(extra)} className="p-2 bg-white rounded-full shadow-sm text-slate-400 hover:text-blue-500"><Edit2 size={14}/></button>
                            <button onClick={() => onDeleteExtra(extra.id)} className="p-2 bg-white rounded-full shadow-sm text-slate-400 hover:text-rose-500"><Trash2 size={14}/></button>
                         </div>

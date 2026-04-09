@@ -7,6 +7,7 @@ import {
   Filter, 
   Printer, 
   AlertTriangle,
+  Clock,
   Tv,
   Lightbulb,
   Droplets,
@@ -136,15 +137,29 @@ const FILTER_SECTIONS = [
   }
 ];
 
+// Group apartments by floor for the filter
+const getApartmentOptions = (apartments: Record<string, Apartment>) => {
+  const floors = Array.from(new Set(Object.values(apartments).map(a => a.floor))).sort((a, b) => a - b);
+  return floors.map(floor => ({
+    floor,
+    rooms: Object.values(apartments)
+      .filter(a => a.floor === floor)
+      .map(a => a.roomNumber.toString())
+      .sort((a, b) => parseInt(a) - parseInt(b))
+  }));
+};
+
 const ReportsView: React.FC<ReportsViewProps> = ({ apartments, theme, onSelectApartment }) => {
-  const [selectedFloor, setSelectedFloor] = useState<number | 'all'>('all');
+  const [selectedFloors, setSelectedFloors] = useState<number[]>([]);
   const [activeReport, setActiveReport] = useState<string>('AVARIAS_GERAIS');
   const [searchTerm, setSearchTerm] = useState('');
+  const [defectSearchTerm, setDefectSearchTerm] = useState('');
   
   // Advanced Filters State
   const [showFilters, setShowFilters] = useState(false);
-  const [activeFilters, setActiveFilters] = useState<Record<string, string>>({});
+  const [activeFilters, setActiveFilters] = useState<Record<string, string[]>>({});
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({ 'status': true });
+  const [dateFilter, setDateFilter] = useState<'all' | '7d' | '30d'>('all');
 
   const floors = [200, 300, 400, 500, 600, 700];
 
@@ -159,73 +174,143 @@ const ReportsView: React.FC<ReportsViewProps> = ({ apartments, theme, onSelectAp
 
   const toggleFilter = (key: string, value: string) => {
     setActiveFilters(prev => {
-      const next = { ...prev };
-      if (next[key] === value) {
-        delete next[key];
+      const current = prev[key] || [];
+      const next = current.includes(value) 
+        ? current.filter(v => v !== value) 
+        : [...current, value];
+      
+      const newState = { ...prev };
+      if (next.length === 0) {
+        delete newState[key];
       } else {
-        next[key] = value;
+        newState[key] = next;
       }
-      return next;
+      return newState;
     });
   };
 
-  const hasActiveFilters = Object.keys(activeFilters).length > 0;
+  const hasActiveFilters = Object.keys(activeFilters).length > 0 || dateFilter !== 'all' || defectSearchTerm !== '';
+
+  const removeFilter = (key: string) => {
+    if (key === 'date') {
+      setDateFilter('all');
+    } else if (key === 'defectSearch') {
+      setDefectSearchTerm('');
+    } else {
+      setActiveFilters(prev => {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+    }
+  };
+
+  const clearAllFilters = () => {
+    setActiveFilters({});
+    setDateFilter('all');
+    setDefectSearchTerm('');
+    setSearchTerm('');
+  };
+
+  const toggleFloor = (floor: number) => {
+    setSelectedFloors(prev => 
+      prev.includes(floor) ? prev.filter(f => f !== floor) : [...prev, floor]
+    );
+  };
 
   const filteredData = useMemo(() => {
     let list: Apartment[] = Object.values(apartments);
 
     // 1. Filter by Floor
-    if (selectedFloor !== 'all') {
-      list = list.filter(apt => apt.floor === selectedFloor);
+    if (selectedFloors.length > 0) {
+      list = list.filter(apt => selectedFloors.includes(apt.floor));
     }
 
-    // 2. Filter by Search Term
+    // 2. Filter by Search Term (Room Number)
     if (searchTerm) {
-      list = list.filter(apt => apt.roomNumber.toString().includes(searchTerm));
+      const searchTerms = searchTerm.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+      list = list.filter(apt => 
+        searchTerms.some(term => apt.roomNumber.toString().includes(term))
+      );
+    }
+
+    // 2.1 Filter by Defect Search Term
+    if (defectSearchTerm) {
+      const lowerSearch = defectSearchTerm.toLowerCase();
+      list = list.filter(apt => 
+        apt.defects?.some(d => d.description.toLowerCase().includes(lowerSearch))
+      );
+    }
+
+    // 2.2 Filter by Date
+    if (dateFilter !== 'all') {
+      const now = Date.now();
+      const days = dateFilter === '7d' ? 7 : 30;
+      const threshold = now - (days * 24 * 60 * 60 * 1000);
+      list = list.filter(apt => 
+        apt.defects?.some(d => d.timestamp >= threshold)
+      );
     }
 
     // 3. Logic: If Manual Filters are active, use them exclusively. Otherwise use the Preset.
     if (hasActiveFilters) {
+       const bedFilters = Object.entries(activeFilters).filter(([k]) => k.startsWith('bed_')) as [string, string[]][];
+       const otherFilters = Object.entries(activeFilters).filter(([k]) => !k.startsWith('bed_')) as [string, string[]][];
+
        list = list.filter(apt => {
-          return Object.entries(activeFilters).every(([key, value]) => {
-            if (!value) return true;
+          // Check non-bed filters
+          const passOthers = otherFilters.every(([key, values]) => {
+            if (!values || values.length === 0) return true;
             
-            // Explicit cast to ensure type safety (resolves 'unknown' type issues)
-            const strValue = String(value);
+            return values.some(strValue => {
+              // Lógica Status Geral
+              if (key === 'status_geral') {
+                const hasDefects = (apt?.defects?.length || 0) > 0;
+                const isUrgent = apt?.pisoStatus === 'Reparo urgente' || apt?.banheiroStatus === 'Reparo urgente';
+                if (strValue === 'Com Avaria') return hasDefects;
+                if (strValue === 'Urgente') return isUrgent;
+                if (strValue === 'Sem Avaria') return !hasDefects && !isUrgent;
+              }
 
-            // Lógica Status Geral
-            if (key === 'status_geral') {
-              const hasDefects = (apt?.defects?.length || 0) > 0;
-              const isUrgent = apt?.pisoStatus === 'Reparo urgente' || apt?.banheiroStatus === 'Reparo urgente';
-              if (strValue === 'Com Avaria') return hasDefects;
-              if (strValue === 'Urgente') return isUrgent;
-              if (strValue === 'Sem Avaria') return !hasDefects && !isUrgent;
-            }
+              // Lógica de Arrays
+              if (key === 'moveisDetalhes') {
+                return apt.moveisDetalhes?.includes(strValue);
+              }
 
-            // Lógica de Camas
-            if (key.startsWith('bed_')) {
-              if (!apt.beds || apt.beds.length === 0) return false;
-              if (key === 'bed_type') return apt.beds.some(b => b.type === strValue);
-              if (key === 'bed_base_status') return apt.beds.some(b => b.baseStatus === strValue);
-              if (key === 'bed_mattress_status') return apt.beds.some(b => b.mattressStatus === strValue);
-              if (key === 'bed_has_skirt') return apt.beds.some(b => (strValue === 'Sim' ? b.hasSkirt : !b.hasSkirt));
-              return true;
-            }
+              // Lógica Booleana
+              if (['temCortina', 'temCofre', 'temPortaControle', 'temEspelhoCorpo', 'temCabide', 'temSuporteShampoo', 'temSuportePapel'].includes(key)) {
+                return (apt as any)[key] === (strValue === 'Sim');
+              }
 
-            // Lógica de Arrays
-            if (key === 'moveisDetalhes') {
-              return apt.moveisDetalhes?.includes(strValue);
-            }
-
-            // Lógica Booleana
-            if (['temCortina', 'temCofre', 'temPortaControle', 'temEspelhoCorpo', 'temCabide', 'temSuporteShampoo', 'temSuportePapel'].includes(key)) {
-              const boolValue = strValue === 'Sim';
-              return (apt as any)[key] === boolValue;
-            }
-
-            // Comparação Direta
-            return (apt as any)[key] === strValue;
+              // Comparação Direta (com suporte a números)
+              const aptValue = (apt as any)[key];
+              if (typeof aptValue === 'number') {
+                return aptValue.toString() === strValue;
+              }
+              return aptValue === strValue;
+            });
           });
+
+          if (!passOthers) return false;
+
+          // Check bed filters (Intersection logic: at least one bed must match ALL active bed filters)
+          if (bedFilters.length > 0) {
+            if (!apt.beds || apt.beds.length === 0) return false;
+            return apt.beds.some(bed => {
+              return bedFilters.every(([key, values]) => {
+                if (!values || values.length === 0) return true;
+                return values.some(strValue => {
+                  if (key === 'bed_type') return bed.type === strValue;
+                  if (key === 'bed_base_status') return bed.baseStatus === strValue;
+                  if (key === 'bed_mattress_status') return bed.mattressStatus === strValue;
+                  if (key === 'bed_has_skirt') return (strValue === 'Sim' ? bed.hasSkirt === true : !bed.hasSkirt);
+                  return true;
+                });
+              });
+            });
+          }
+
+          return true;
        });
     } else {
       // Use Presets if no manual filters
@@ -243,7 +328,7 @@ const ReportsView: React.FC<ReportsViewProps> = ({ apartments, theme, onSelectAp
     }
 
     return list.sort((a, b) => a.roomNumber - b.roomNumber);
-  }, [apartments, selectedFloor, activeReport, searchTerm, activeFilters, hasActiveFilters]);
+  }, [apartments, selectedFloors, activeReport, searchTerm, activeFilters, hasActiveFilters, defectSearchTerm, dateFilter]);
 
   const stats = useMemo(() => {
     return {
@@ -268,16 +353,16 @@ const ReportsView: React.FC<ReportsViewProps> = ({ apartments, theme, onSelectAp
           </div>
           <div className="flex flex-wrap gap-2">
             <button 
-              onClick={() => setSelectedFloor('all')}
-              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all border-2 ${selectedFloor === 'all' ? 'bg-slate-800 border-slate-800 text-white' : 'bg-slate-50 border-slate-50 text-slate-500'}`}
+              onClick={() => setSelectedFloors([])}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all border-2 ${selectedFloors.length === 0 ? 'bg-slate-800 border-slate-800 text-white' : 'bg-slate-50 border-slate-50 text-slate-500'}`}
             >
               Todos
             </button>
             {floors.map(f => (
               <button 
                 key={f}
-                onClick={() => setSelectedFloor(f)}
-                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all border-2 ${selectedFloor === f ? 'bg-slate-800 border-slate-800 text-white' : 'bg-slate-50 border-slate-50 text-slate-500'}`}
+                onClick={() => toggleFloor(f)}
+                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all border-2 ${selectedFloors.includes(f) ? 'bg-slate-800 border-slate-800 text-white' : 'bg-slate-50 border-slate-50 text-slate-500'}`}
               >
                 {f}
               </button>
@@ -301,7 +386,7 @@ const ReportsView: React.FC<ReportsViewProps> = ({ apartments, theme, onSelectAp
               }`}
             >
               <Filter size={16} />
-              <span>{hasActiveFilters ? `Filtros Ativos (${Object.keys(activeFilters).length})` : 'Filtros Avançados'}</span>
+              <span>{hasActiveFilters ? `Filtros Ativos` : 'Filtros Avançados'}</span>
             </button>
             
             {!hasActiveFilters && (
@@ -332,6 +417,43 @@ const ReportsView: React.FC<ReportsViewProps> = ({ apartments, theme, onSelectAp
         </div>
       </div>
 
+      {/* Filter Chips Summary */}
+      {hasActiveFilters && (
+        <div className="flex flex-wrap gap-2 no-print items-center bg-white/50 p-4 rounded-2xl border border-slate-100">
+          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest mr-2">Filtros:</span>
+          {defectSearchTerm && (
+            <div className="flex items-center bg-blue-50 text-blue-600 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase border border-blue-100">
+              <Search size={12} className="mr-1.5" />
+              <span>Avaria: {defectSearchTerm}</span>
+              <button onClick={() => removeFilter('defectSearch')} className="ml-2 hover:text-blue-800"><X size={12}/></button>
+            </div>
+          )}
+          {dateFilter !== 'all' && (
+            <div className="flex items-center bg-amber-50 text-amber-600 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase border border-amber-100">
+              <Clock size={12} className="mr-1.5" />
+              <span>Período: {dateFilter === '7d' ? '7 dias' : '30 dias'}</span>
+              <button onClick={() => removeFilter('date')} className="ml-2 hover:text-amber-800"><X size={12}/></button>
+            </div>
+          )}
+          {Object.entries(activeFilters).map(([key, values]) => {
+            const section = FILTER_SECTIONS.find(s => s.filters.some(f => f.key === key));
+            const filter = section?.filters.find(f => f.key === key);
+            return (values as string[]).map(value => (
+              <div key={`${key}-${value}`} className="flex items-center bg-slate-800 text-white px-3 py-1.5 rounded-xl text-[10px] font-black uppercase border border-slate-700">
+                <span>{filter?.label}: {value}</span>
+                <button onClick={() => toggleFilter(key, value)} className="ml-2 hover:text-slate-300"><X size={12}/></button>
+              </div>
+            ));
+          })}
+          <button 
+            onClick={clearAllFilters}
+            className="text-[10px] font-black text-rose-500 uppercase hover:underline ml-2"
+          >
+            Limpar Tudo
+          </button>
+        </div>
+      )}
+
       {/* Filter Modal / Overlay */}
       {showFilters && (
         <div className="fixed inset-0 bg-slate-900/50 z-[200] flex justify-end" onClick={() => setShowFilters(false)}>
@@ -347,19 +469,86 @@ const ReportsView: React.FC<ReportsViewProps> = ({ apartments, theme, onSelectAp
               </div>
               
               <div className="flex-1 overflow-y-auto p-6 space-y-6">
-                 {hasActiveFilters && (
-                    <div className="flex justify-end">
-                      <button 
-                        onClick={() => setActiveFilters({})}
-                        className="text-[10px] font-black text-red-500 flex items-center space-x-1 hover:underline bg-red-50 px-3 py-1.5 rounded-lg"
-                      >
-                        <X size={12} />
-                        <span>LIMPAR FILTROS ATIVOS</span>
-                      </button>
+                 {/* Search by Defect Description */}
+                 <div className="space-y-3">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Buscar por Avaria</label>
+                    <div className="relative">
+                       <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" size={16} />
+                       <input 
+                         type="text" 
+                         placeholder="Ex: lâmpada, vazamento..." 
+                         value={defectSearchTerm}
+                         onChange={e => setDefectSearchTerm(e.target.value)}
+                         className="w-full pl-10 pr-4 py-3 bg-slate-50 rounded-2xl border-2 border-slate-100 text-sm font-bold focus:border-blue-500 outline-none transition-all"
+                       />
+                    </div>
+                 </div>
+
+                 {/* Date Range Filter */}
+                 <div className="space-y-3">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Período das Avarias</label>
+                    <div className="flex gap-2">
+                       {['all', '7d', '30d'].map(opt => (
+                          <button
+                            key={opt}
+                            onClick={() => setDateFilter(opt as any)}
+                            className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase border-2 transition-all ${
+                               dateFilter === opt 
+                               ? 'bg-slate-800 border-slate-800 text-white shadow-md' 
+                               : 'bg-white border-slate-100 text-slate-400'
+                            }`}
+                          >
+                             {opt === 'all' ? 'Sempre' : (opt === '7d' ? '7 Dias' : '30 Dias')}
+                          </button>
+                       ))}
+                    </div>
+                 </div>
+
+                 <div className="w-full h-px bg-slate-100 my-4"></div>
+
+                 {/* Apartment Selection */}
+               <div className="border-b border-slate-50">
+                  <button 
+                    onClick={() => toggleSection('apartments')}
+                    className="w-full p-6 flex items-center justify-between hover:bg-slate-50 transition-colors"
+                  >
+                    <div className="flex items-center space-x-3">
+                      <div className="p-2 bg-slate-100 rounded-lg text-slate-600"><Building2 size={18}/></div>
+                      <div className="text-left">
+                        <p className="text-sm font-black text-slate-800 uppercase tracking-tight">Apartamentos Específicos</p>
+                        <p className="text-[10px] font-bold text-slate-400 uppercase">Selecione unidades individuais</p>
+                      </div>
+                    </div>
+                    {expandedSections['apartments'] ? <ChevronUp size={20} className="text-slate-300"/> : <ChevronDown size={20} className="text-slate-300"/>}
+                  </button>
+                  
+                  {expandedSections['apartments'] && (
+                    <div className="p-4 bg-white space-y-4 max-h-[400px] overflow-y-auto">
+                      {getApartmentOptions(apartments).map(group => (
+                        <div key={group.floor} className="space-y-2">
+                          <p className="text-[9px] font-black text-slate-300 uppercase ml-1">Andar {group.floor}</p>
+                          <div className="flex flex-wrap gap-2">
+                            {group.rooms.map(room => (
+                              <button
+                                key={room}
+                                onClick={() => toggleFilter('roomNumber', room)}
+                                className={`px-3 py-2 rounded-xl text-[10px] font-bold border transition-all ${
+                                  activeFilters['roomNumber']?.includes(room)
+                                  ? 'bg-slate-800 border-slate-800 text-white shadow-md'
+                                  : 'bg-white border-slate-100 text-slate-500 hover:border-slate-300'
+                                }`}
+                              >
+                                {room}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   )}
+               </div>
 
-                 {FILTER_SECTIONS.map(section => {
+               {FILTER_SECTIONS.map(section => {
                     const isExpanded = expandedSections[section.id];
                     const sectionHasFilter = section.filters.some(f => activeFilters[f.key]);
                     const Icon = section.icon;
@@ -388,7 +577,7 @@ const ReportsView: React.FC<ReportsViewProps> = ({ apartments, theme, onSelectAp
                                                key={opt}
                                                onClick={() => toggleFilter(filter.key, opt)}
                                                className={`px-3 py-2 rounded-xl text-[10px] font-bold border transition-all ${
-                                                  activeFilters[filter.key] === opt
+                                                  activeFilters[filter.key]?.includes(opt)
                                                   ? 'bg-slate-800 border-slate-800 text-white shadow-md'
                                                   : 'bg-white border-slate-100 text-slate-500 hover:border-slate-300'
                                                }`}
@@ -430,7 +619,7 @@ const ReportsView: React.FC<ReportsViewProps> = ({ apartments, theme, onSelectAp
                 {hasActiveFilters ? 'Relatório Personalizado' : `Relatório: ${reportPresets.find(p => p.id === activeReport)?.label}`}
               </h4>
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center print:text-[8px]">
-                <span>{selectedFloor === 'all' ? 'Unidade Completa' : `Andar ${selectedFloor}`}</span>
+                <span>{selectedFloors.length === 0 ? 'Unidade Completa' : `Andares: ${selectedFloors.join(', ')}`}</span>
                 <span className="mx-2 opacity-30">|</span>
                 <span className="text-emerald-500">{stats.totalFound} Unidades Localizadas</span>
                 <span className="mx-2 opacity-30 no-print">|</span>

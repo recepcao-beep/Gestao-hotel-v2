@@ -15,7 +15,7 @@ import SettingsView from './components/SettingsView';
 import ParkingView from './components/ParkingView';
 import Login from './components/Login';
 
-const GLOBAL_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxumWPrtIrOYvgzlmisGn0_pKMdQwTq8_Fc6oFLHIBzMRvSwpZiXWaJzFpN-9xmm4_-cg/exec";
+const GLOBAL_API_URL = "/api/sheets";
 
 const getInitialHotelData = (): HotelData => ({
   apartments: {},
@@ -39,11 +39,14 @@ const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
 
 const safeJSONParse = (value: any, defaultValue: any) => {
   if (typeof value === 'string' && value.trim() !== '') {
-    try {
-      return JSON.parse(value);
-    } catch (e) {
-      console.warn(`Failed to parse JSON: ${value}`, e);
-      return defaultValue;
+    const trimmed = value.trim();
+    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+      try {
+        return JSON.parse(trimmed);
+      } catch (e) {
+        console.warn(`Failed to parse JSON: ${value}`, e);
+        return defaultValue;
+      }
     }
   }
   return value || defaultValue;
@@ -82,7 +85,7 @@ const App: React.FC = () => {
           type: 'Spreadsheet', 
           status: 'Disconnected', 
           lastSync: 0,
-          url: GLOBAL_SCRIPT_URL
+          url: GLOBAL_API_URL
         },
       ],
       currentUser: null
@@ -102,14 +105,12 @@ const App: React.FC = () => {
     const targetHotel = hotelOverride || state.currentHotel;
     setIsRefreshing(true);
     try {
-      // Usa URL do estado se disponível, senão usa a constante
-      const scriptUrl = state.integrations[0]?.url || GLOBAL_SCRIPT_URL;
-      const fetchUrl = `${scriptUrl}?hotel=${targetHotel}&nocache=${Date.now()}`;
+      // Usa URL da API local
+      const apiUrl = `${GLOBAL_API_URL}/load`;
+      const fetchUrl = `${apiUrl}?hotel=${targetHotel}&nocache=${Date.now()}`;
       
       const response = await fetch(fetchUrl, {
         method: 'GET',
-        mode: 'cors',
-        redirect: 'follow'
       });
       
       console.log("Fetch response status:", response.status);
@@ -122,7 +123,8 @@ const App: React.FC = () => {
         const incomingData = result.data;
         
         // NORMALIZAÇÃO RIGOROSA DE FUNCIONÁRIOS
-        const normalizedEmployees = (incomingData.employees || []).map((emp: any) => {
+        const rawEmployees = Array.isArray(incomingData.employees) ? incomingData.employees : [];
+        const normalizedEmployees = rawEmployees.map((emp: any) => {
           let sOffs: number[] = [];
           if (typeof emp.sundayOffs === 'string' && emp.sundayOffs !== '') {
             try {
@@ -151,7 +153,8 @@ const App: React.FC = () => {
         });
 
         // NORMALIZAÇÃO DE EXTRAS
-        const normalizedExtras = (incomingData.extras || []).map((ext: any) => ({
+        const rawExtras = Array.isArray(incomingData.extras) ? incomingData.extras : [];
+        const normalizedExtras = rawExtras.map((ext: any) => ({
           ...ext,
           id: ext.id?.toString() || '',
           name: ext.name || '',
@@ -162,7 +165,8 @@ const App: React.FC = () => {
           observation: ext.observation || ''
         }));
 
-        const normalizedSectors = (incomingData.sectors || []).map((sec: any) => ({
+        const rawSectors = Array.isArray(incomingData.sectors) ? incomingData.sectors : [];
+        const normalizedSectors = rawSectors.map((sec: any) => ({
           ...sec,
           id: sec.id?.toString() || '',
           name: sec.name || 'Setor Sem Nome',
@@ -170,7 +174,8 @@ const App: React.FC = () => {
         }));
 
         // NORMALIZAÇÃO DE ORÇAMENTOS
-        const normalizedBudgets = (incomingData.budgets || []).map((b: any) => ({
+        const rawBudgets = Array.isArray(incomingData.budgets) ? incomingData.budgets : [];
+        const normalizedBudgets = rawBudgets.map((b: any) => ({
           ...b,
           id: b.id?.toString() || '',
           title: b.title || 'Sem Título',
@@ -189,7 +194,8 @@ const App: React.FC = () => {
         }));
 
         // NORMALIZAÇÃO DE ESTOQUE
-        const normalizedInventory = (incomingData.inventory || []).map((inv: any) => ({
+        const rawInventory = Array.isArray(incomingData.inventory) ? incomingData.inventory : [];
+        const normalizedInventory = rawInventory.map((inv: any) => ({
             ...inv,
             id: inv.id?.toString(),
             quantity: parseFloat(inv.quantity) || 0,
@@ -198,7 +204,8 @@ const App: React.FC = () => {
             sectorId: inv.sectorId?.toString() || '' // Parse sectorId
         }));
 
-        const normalizedInventoryHistory = (incomingData.inventoryHistory || []).map((op: any) => ({
+        const rawInventoryHistory = Array.isArray(incomingData.inventoryHistory) ? incomingData.inventoryHistory : [];
+        const normalizedInventoryHistory = rawInventoryHistory.map((op: any) => ({
             ...op,
             id: op.id?.toString(),
             quantity: parseFloat(op.quantity) || 0,
@@ -206,12 +213,14 @@ const App: React.FC = () => {
             recipientName: op.recipientName || ''
         }));
 
-        const normalizedSuppliers = (incomingData.suppliers || []).map((s: any) => ({
+        const rawSuppliers = Array.isArray(incomingData.suppliers) ? incomingData.suppliers : [];
+        const normalizedSuppliers = rawSuppliers.map((s: any) => ({
             ...s,
             id: s.id?.toString()
         }));
 
-        const normalizedVehicles = (incomingData.vehicles || []).map((v: any) => ({
+        const rawVehicles = Array.isArray(incomingData.vehicles) ? incomingData.vehicles : [];
+        const normalizedVehicles = rawVehicles.map((v: any) => ({
             ...v,
             id: v.id?.toString(),
             is_on_trip: v.is_on_trip === true || v.is_on_trip === 'true',
@@ -220,7 +229,8 @@ const App: React.FC = () => {
             photos: safeJSONParse(v.photos, [])
         }));
 
-        const normalizedUsers = (incomingData.users || []).map((u: any) => ({
+        const rawUsers = Array.isArray(incomingData.users) ? incomingData.users : [];
+        const normalizedUsers = rawUsers.map((u: any) => ({
             ...u,
             id: u.id?.toString(),
             name: u.name?.toString() || '',
@@ -232,7 +242,8 @@ const App: React.FC = () => {
         }));
         console.log("Normalized users:", normalizedUsers);
 
-        const normalizedParkingLocations = (incomingData.parkingLocations || []).map((l: any) => ({
+        const rawParkingLocations = Array.isArray(incomingData.parkingLocations) ? incomingData.parkingLocations : [];
+        const normalizedParkingLocations = rawParkingLocations.map((l: any) => ({
             ...l,
             id: l.id?.toString(),
             totalSpots: parseInt(l.totalSpots) || 0
@@ -321,10 +332,12 @@ const App: React.FC = () => {
 
   const syncToSheet = async (dataType: 'APARTMENT' | 'BUDGET' | 'EMPLOYEE' | 'EXTRA' | 'SECTOR' | 'INVENTORY' | 'INVENTORY_OP' | 'SUPPLIER' | 'CONFIG' | 'DELETE' | 'USER' | 'PARKING_LOCATION' | 'VEHICLE' | 'CHECKOUT_VEHICLE', data: any, newFiles?: any[], hotelOverride?: HotelType) => {
     try {
-      const scriptUrl = state.integrations[0]?.url || GLOBAL_SCRIPT_URL;
-      await fetch(scriptUrl, {
+      const apiUrl = `${GLOBAL_API_URL}/action`;
+      await fetch(apiUrl, {
         method: 'POST',
-        mode: 'no-cors',
+        headers: {
+          'Content-Type': 'application/json'
+        },
         body: JSON.stringify({
           hotel: hotelOverride || state.currentHotel,
           dataType,

@@ -481,7 +481,8 @@ const InventoryView: React.FC<InventoryViewProps> = ({
           </div>
 
           <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden">
-            <div className="overflow-x-auto">
+            {/* Desktop Table */}
+            <div className="hidden md:block overflow-x-auto">
               <table className="w-full text-left">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-100">
@@ -520,6 +521,57 @@ const InventoryView: React.FC<InventoryViewProps> = ({
                   })}
                 </tbody>
               </table>
+            </div>
+
+            {/* Mobile Cards */}
+            <div className="md:hidden divide-y divide-slate-50">
+              {filteredItems.map(item => {
+                const isLow = item.quantity <= item.minQuantity;
+                return (
+                  <div key={item.id} className="p-6 space-y-4">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <p className="font-black text-slate-800 text-base leading-tight">{item.name}</p>
+                        <div className="flex flex-wrap gap-2 mt-2">
+                          {item.ean && <span className="text-[8px] text-blue-500 font-black uppercase flex items-center bg-blue-50 px-1.5 py-0.5 rounded"><Barcode size={8} className="mr-1" /> {item.ean}</span>}
+                          <span className="text-[8px] text-slate-400 font-bold uppercase bg-slate-50 px-1.5 py-0.5 rounded">{item.category}</span>
+                          <span className="text-[8px] text-slate-400 font-bold uppercase bg-slate-50 px-1.5 py-0.5 rounded">{item.unit}</span>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className={`text-2xl font-black ${isLow ? 'text-rose-500' : 'text-slate-800'}`}>{item.quantity}</p>
+                        <p className="text-[8px] font-black text-slate-400 uppercase">Saldo Atual</p>
+                      </div>
+                    </div>
+                    
+                    <div className="grid grid-cols-3 gap-4 py-3 border-y border-slate-50">
+                      <div>
+                        <p className="text-[8px] font-black text-slate-400 uppercase mb-1">Consumo</p>
+                        <p className="text-[10px] font-bold text-slate-600">{item.suggestion.mcd.toFixed(2)}/dia</p>
+                      </div>
+                      <div>
+                        <p className="text-[8px] font-black text-slate-400 uppercase mb-1">R$ Unit</p>
+                        <p className="text-[10px] font-bold text-slate-600">R$ {(item.price || 0).toLocaleString('pt-BR')}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-[8px] font-black text-slate-400 uppercase mb-1">R$ Total</p>
+                        <p className="text-[10px] font-black text-slate-900">R$ {item.totalValue.toLocaleString('pt-BR')}</p>
+                      </div>
+                    </div>
+
+                    <div className="flex justify-end space-x-2 pt-2">
+                      <button onClick={() => { setEditingItem(item); setName(item.name); setEan(item.ean || ''); setCategory(item.category); setInitialQuantity(item.quantity); setUnit(item.unit); setPrice(item.price || 0); setSupplierId(item.supplierId || ''); setIsAddingItem(true); }} className="flex-1 py-3 bg-slate-50 text-slate-600 rounded-xl font-black text-[10px] uppercase tracking-widest flex items-center justify-center">
+                        <Edit2 size={14} className="mr-2"/> Editar
+                      </button>
+                      {role !== 'FUNCIONARIO' && (
+                        <button onClick={() => onDelete(item.id)} className="flex-1 py-3 bg-rose-50 text-rose-500 rounded-xl font-black text-[10px] uppercase tracking-widest flex items-center justify-center">
+                          <Trash2 size={14} className="mr-2"/> Excluir
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
             {filteredItems.length === 0 && (
                 <div className="py-20 text-center text-slate-300 italic font-bold">

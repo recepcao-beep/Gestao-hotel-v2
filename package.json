@@ -4,22 +4,33 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "tsx api/server.ts",
     "build": "vite build",
-    "preview": "vite preview",
+    "start": "tsx api/server.ts",
     "lint": "tsc --noEmit"
   },
   "dependencies": {
     "@react-oauth/google": "^0.13.4",
+    "cookie-parser": "^1.4.7",
+    "dotenv": "^17.4.1",
+    "express": "^5.2.1",
+    "express-session": "^1.19.0",
+    "googleapis": "^171.4.0",
     "jwt-decode": "^4.0.0",
     "lucide-react": "^0.563.0",
+    "pdfjs-dist": "^5.5.207",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "recharts": "2.15.0"
   },
   "devDependencies": {
+    "@types/cookie-parser": "^1.4.10",
+    "@types/express": "^5.0.6",
+    "@types/express-session": "^1.18.2",
     "@types/node": "^22.14.0",
+    "@types/pdfjs-dist": "^2.10.377",
     "@vitejs/plugin-react": "^5.0.0",
+    "tsx": "^4.21.0",
     "typescript": "~5.8.2",
     "vite": "^6.2.0"
   }

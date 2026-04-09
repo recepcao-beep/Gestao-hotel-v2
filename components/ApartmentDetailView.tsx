@@ -148,80 +148,164 @@ const ApartmentDetailView: React.FC<ApartmentDetailViewProps> = ({ apartment, th
         </div>
       </div>
 
-      <div className="px-4 py-6 space-y-5 max-w-lg mx-auto">
+      <div className="px-4 py-6 space-y-10 max-w-lg mx-auto">
         
-        {/* PISO */}
-        {isFieldVisible('pisoType') && (
-          <section className="bg-white p-6 rounded-[2.5rem] border border-slate-50 shadow-sm space-y-4">
-            <SectionTitle icon={Droplets} title={getFieldConfig('pisoType')?.title || "Piso do Quarto"} color={getFieldConfig('pisoType')?.color || "text-blue-600"} />
-            <div className="grid grid-cols-3 gap-2">
-              {['Granito', 'Madeira', 'Cerâmica'].map(t => (
-                <button key={t} onClick={() => updateField('pisoType', t as any)} className={getStatusBtnClass(data.pisoType, t, 'bg-blue-600')}>{t}</button>
-              ))}
-            </div>
-            <div className="grid grid-cols-3 gap-2">
-              <button onClick={() => updateField('pisoStatus', 'Bom estado')} className={getStatusBtnClass(data.pisoStatus, 'Bom estado', 'bg-emerald-500')}>BOM</button>
-              <button onClick={() => updateField('pisoStatus', 'Tolerável')} className={getStatusBtnClass(data.pisoStatus, 'Tolerável', 'bg-amber-400 !text-slate-900')}>TOLERÁVEL</button>
-              <button onClick={() => updateField('pisoStatus', 'Reparo urgente')} className={getStatusBtnClass(data.pisoStatus, 'Reparo urgente', 'bg-rose-500')}>URGENTE</button>
-            </div>
-          </section>
-        )}
+        {/* SECTION 1: HALL DE ENTRADA */}
+        <section className="space-y-6">
+          <div className="flex items-center space-x-3 px-2 mb-2">
+            <div className="h-px flex-1 bg-slate-200"></div>
+            <h2 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em]">Hall de Entrada</h2>
+            <div className="h-px flex-1 bg-slate-200"></div>
+          </div>
 
-        {/* MOBILIÁRIO */}
-        {isFieldVisible('moveisStatus') && (
-          <section className="bg-white p-6 rounded-[2.5rem] border border-slate-50 shadow-sm space-y-4">
-            <SectionTitle icon={Layout} title={getFieldConfig('moveisStatus')?.title || "Mobiliário Geral"} color={getFieldConfig('moveisStatus')?.color || "text-slate-700"} />
-            <div className="grid grid-cols-2 gap-2">
-              <button onClick={() => { updateField('moveisStatus', 'Bom estado'); updateField('moveisDetalhes', []); }} className={getStatusBtnClass(data.moveisStatus, 'Bom estado', 'bg-emerald-500')}>BOM ESTADO</button>
-              <button onClick={() => updateField('moveisStatus', 'Danificado')} className={getStatusBtnClass(data.moveisStatus, 'Danificado', 'bg-rose-500')}>DANIFICADO</button>
+          {/* Luminária da pia */}
+          {isFieldVisible('luminariaType') && (
+            <div className="bg-white p-6 rounded-[2.5rem] border border-slate-50 shadow-sm space-y-4">
+              <SectionTitle icon={Lightbulb} title="Luminária da Pia" color="text-yellow-600" />
+              <div className="grid grid-cols-2 gap-2">
+                {['Arandela', 'Vidro'].map(t => (
+                  <button key={t} onClick={() => updateField('luminariaType', t as any)} className={getStatusBtnClass(data.luminariaType, t, 'bg-yellow-600')}>{t}</button>
+                ))}
+              </div>
             </div>
-            {data.moveisStatus === 'Danificado' && (
-              <div className="p-4 bg-rose-50 rounded-2xl border border-rose-100 space-y-3">
-                <p className="text-[9px] font-black text-rose-600 uppercase">Indique os móveis danificados:</p>
-                <div className="flex flex-col gap-2">
-                  {['Guarda Roupa', 'Criado mudo', 'Cômoda'].map(item => (
-                    <button key={item} onClick={() => toggleMoveisDetalhe(item)} className={`py-3 rounded-xl text-[10px] font-bold border-2 transition-all ${data.moveisDetalhes?.includes(item) ? 'bg-rose-500 text-white border-transparent' : 'bg-white text-rose-300 border-rose-100'}`}>{item}</button>
+          )}
+
+          {/* Cabides */}
+          {isFieldVisible('temCabide') && (
+            <div className="bg-white p-6 rounded-[2.5rem] border border-slate-50 shadow-sm space-y-4">
+              <SectionTitle icon={Box} title="Cabides" color="text-slate-800" />
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-black text-slate-500 uppercase">Possui cabides?</span>
+                <button onClick={() => updateField('temCabide', !data.temCabide)} className={`px-4 py-1.5 rounded-lg text-[10px] font-black ${data.temCabide ? 'bg-slate-800 text-white' : 'bg-white border text-slate-300'}`}>{data.temCabide ? 'SIM' : 'NÃO'}</button>
+              </div>
+              {data.temCabide && (
+                <div className="flex items-center justify-center space-x-6 py-2">
+                  <button onClick={() => updateField('cabideQuantity', Math.max(0, (data.cabideQuantity || 0) - 1))} className="w-10 h-10 bg-white border-2 rounded-xl flex items-center justify-center shadow-sm"><Minus size={18}/></button>
+                  <span className="text-2xl font-black text-slate-800">{data.cabideQuantity || 0}</span>
+                  <button onClick={() => updateField('cabideQuantity', (data.cabideQuantity || 0) + 1)} className="w-10 h-10 bg-white border-2 rounded-xl flex items-center justify-center shadow-sm"><Plus size={18}/></button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Espelho de corpo */}
+          {isFieldVisible('temEspelhoCorpo') && (
+            <div className="bg-white p-6 rounded-[2.5rem] border border-slate-50 shadow-sm space-y-4">
+              <SectionTitle icon={Box} title="Espelho de Corpo" color="text-amber-500" />
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-black text-slate-500 uppercase">Possui espelho?</span>
+                <button onClick={() => updateField('temEspelhoCorpo', !data.temEspelhoCorpo)} className={`px-4 py-1.5 rounded-lg text-[10px] font-black ${data.temEspelhoCorpo ? 'bg-amber-500 text-white shadow-md' : 'bg-white border text-slate-300'}`}>{data.temEspelhoCorpo ? 'SIM' : 'NÃO'}</button>
+              </div>
+              {data.temEspelhoCorpo && (
+                <div className="grid grid-cols-3 gap-1">
+                  {['Bom estado', 'Manchado', 'Danificado'].map(s => (
+                    <button key={s} onClick={() => updateField('espelhoCorpoStatus', s as any)} className={`py-2 rounded-lg text-[8px] font-black border-2 ${data.espelhoCorpoStatus === s ? 'bg-slate-800 text-white border-transparent' : 'bg-white text-slate-400 border-slate-100'}`}>{s.toUpperCase()}</button>
                   ))}
                 </div>
-              </div>
-            )}
-          </section>
-        )}
-
-        {/* BANHEIRO */}
-        {isFieldVisible('banheiroType') && (
-          <section className="bg-white p-6 rounded-[2.5rem] border border-slate-50 shadow-sm space-y-4">
-            <SectionTitle icon={Layers} title={getFieldConfig('banheiroType')?.title || "Banheiro"} color={getFieldConfig('banheiroType')?.color || "text-indigo-600"} />
-            <div className="grid grid-cols-2 gap-2">
-              <button onClick={() => updateField('banheiroType', 'Reformado')} className={getStatusBtnClass(data.banheiroType, 'Reformado', 'bg-indigo-600')}>Reformado</button>
-              <button onClick={() => updateField('banheiroType', 'Antigo')} className={getStatusBtnClass(data.banheiroType, 'Antigo', 'bg-indigo-600')}>Antigo</button>
+              )}
             </div>
-            {data.banheiroType === 'Antigo' && (
-              <div className="grid grid-cols-2 gap-2 animate-in slide-in-from-top-2">
-                <button onClick={() => updateField('banheiroStatus', 'Tolerável')} className={getStatusBtnClass(data.banheiroStatus, 'Tolerável', 'bg-amber-400 !text-slate-900')}>TOLERÁVEL</button>
-                <button onClick={() => updateField('banheiroStatus', 'Reparo urgente')} className={getStatusBtnClass(data.banheiroStatus, 'Reparo urgente', 'bg-rose-500')}>URGENTE</button>
-              </div>
-            )}
-          </section>
-        )}
+          )}
 
-        {/* CLIMATIZAÇÃO & TV */}
-        {(isFieldVisible('acBrand') || isFieldVisible('tvBrand')) && (
-          <section className="bg-white p-6 rounded-[2.5rem] border border-slate-50 shadow-sm space-y-4">
-            <SectionTitle icon={Wind} title="Climatização & TV" color="text-cyan-600" />
-            {isFieldVisible('acBrand') && (
-              <div>
-                <p className="text-[9px] font-black text-slate-300 uppercase mb-2 ml-1">{getFieldConfig('acBrand')?.title || "Marca do Ar:"}</p>
-                <div className="grid grid-cols-3 gap-2">
-                  {['Midea', 'LG', 'Gree'].map(b => (
-                    <button key={b} onClick={() => updateField('acBrand', b as any)} className={getStatusBtnClass(data.acBrand, b, 'bg-cyan-600')}>{b}</button>
-                  ))}
+          {/* Cofre */}
+          {isFieldVisible('temCofre') && (
+            <div className="bg-white p-6 rounded-[2.5rem] border border-slate-50 shadow-sm">
+              <button onClick={() => updateField('temCofre', !data.temCofre)} className="w-full flex items-center justify-between">
+                <div className="flex items-center space-x-3">
+                  <div className="p-2 bg-blue-50 text-blue-600 rounded-xl"><Box size={18} /></div>
+                  <span className="text-[10px] font-black text-slate-800 uppercase tracking-widest">Cofre</span>
                 </div>
+                <span className={`text-xs font-black ${data.temCofre ? 'text-blue-600' : 'text-slate-300'}`}>{data.temCofre ? 'POSSUI' : 'NÃO TEM'}</span>
+              </button>
+            </div>
+          )}
+        </section>
+
+        {/* SECTION 2: QUARTO */}
+        <section className="space-y-6">
+          <div className="flex items-center space-x-3 px-2 mb-2">
+            <div className="h-px flex-1 bg-slate-200"></div>
+            <h2 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em]">Quarto</h2>
+            <div className="h-px flex-1 bg-slate-200"></div>
+          </div>
+
+          {/* PISO */}
+          {isFieldVisible('pisoType') && (
+            <div className="bg-white p-6 rounded-[2.5rem] border border-slate-50 shadow-sm space-y-4">
+              <SectionTitle icon={Droplets} title="Piso" color="text-blue-600" />
+              <div className="grid grid-cols-3 gap-2">
+                {['Granito', 'Madeira', 'Cerâmica'].map(t => (
+                  <button key={t} onClick={() => updateField('pisoType', t as any)} className={getStatusBtnClass(data.pisoType, t, 'bg-blue-600')}>{t}</button>
+                ))}
               </div>
-            )}
+              <div className="grid grid-cols-3 gap-2">
+                <button onClick={() => updateField('pisoStatus', 'Bom estado')} className={getStatusBtnClass(data.pisoStatus, 'Bom estado', 'bg-emerald-500')}>BOM</button>
+                <button onClick={() => updateField('pisoStatus', 'Tolerável')} className={getStatusBtnClass(data.pisoStatus, 'Tolerável', 'bg-amber-400 !text-slate-900')}>TOLERÁVEL</button>
+                <button onClick={() => updateField('pisoStatus', 'Reparo urgente')} className={getStatusBtnClass(data.pisoStatus, 'Reparo urgente', 'bg-rose-500')}>URGENTE</button>
+              </div>
+            </div>
+          )}
+
+          {/* MOBILIÁRIO */}
+          {isFieldVisible('moveisStatus') && (
+            <div className="bg-white p-6 rounded-[2.5rem] border border-slate-50 shadow-sm space-y-4">
+              <SectionTitle icon={Layout} title="Mobiliário Geral" color="text-slate-700" />
+              <div className="grid grid-cols-2 gap-2">
+                <button onClick={() => { updateField('moveisStatus', 'Bom estado'); updateField('moveisDetalhes', []); }} className={getStatusBtnClass(data.moveisStatus, 'Bom estado', 'bg-emerald-500')}>BOM ESTADO</button>
+                <button onClick={() => updateField('moveisStatus', 'Danificado')} className={getStatusBtnClass(data.moveisStatus, 'Danificado', 'bg-rose-500')}>DANIFICADO</button>
+              </div>
+              {data.moveisStatus === 'Danificado' && (
+                <div className="p-4 bg-rose-50 rounded-2xl border border-rose-100 space-y-3">
+                  <p className="text-[9px] font-black text-rose-600 uppercase">Indique os móveis danificados:</p>
+                  <div className="flex flex-col gap-2">
+                    {['Guarda Roupa', 'Criado mudo', 'Cômoda'].map(item => (
+                      <button key={item} onClick={() => toggleMoveisDetalhe(item)} className={`py-3 rounded-xl text-[10px] font-bold border-2 transition-all ${data.moveisDetalhes?.includes(item) ? 'bg-rose-500 text-white border-transparent' : 'bg-white text-rose-300 border-rose-100'}`}>{item}</button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Cortina */}
+          {isFieldVisible('temCortina') && (
+            <div className="bg-white p-6 rounded-[2.5rem] border border-slate-50 shadow-sm space-y-4">
+              <SectionTitle icon={Box} title="Cortina" color="text-blue-600" />
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-black text-slate-500 uppercase">Possui cortina?</span>
+                <button 
+                  onClick={() => updateField('temCortina', !data.temCortina)} 
+                  className={`px-5 py-2 rounded-xl text-[9px] font-black transition-all ${data.temCortina ? 'bg-blue-600 text-white shadow-md' : 'bg-white text-slate-300 border-2 border-slate-50'}`}
+                >
+                  {data.temCortina ? 'SIM' : 'NÃO'}
+                </button>
+              </div>
+              {data.temCortina && (
+                <div className="space-y-3 animate-in fade-in">
+                  <div className="grid grid-cols-2 gap-2">
+                    <button onClick={() => updateField('cortinaStatus', 'Nova')} className={getStatusBtnClass(data.cortinaStatus, 'Nova', 'bg-slate-800')}>NOVA</button>
+                    <button onClick={() => updateField('cortinaStatus', 'Antiga')} className={getStatusBtnClass(data.cortinaStatus, 'Antiga', 'bg-slate-800')}>ANTIGA</button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button onClick={() => updateField('cortinaCoverage', 'Dois lados')} className={getStatusBtnClass(data.cortinaCoverage, 'Dois lados', 'bg-slate-800')}>DOIS LADOS</button>
+                    <button onClick={() => updateField('cortinaCoverage', 'Um lado')} className={getStatusBtnClass(data.cortinaCoverage, 'Um lado', 'bg-slate-800')}>UM LADO</button>
+                  </div>
+                  <input 
+                    type="text" 
+                    placeholder="Informe a metragem..." 
+                    value={data.cortinaSize} 
+                    onChange={e => updateField('cortinaSize', e.target.value)} 
+                    className="w-full p-4 rounded-xl border-2 border-slate-50 text-[10px] font-bold outline-none bg-slate-50 shadow-inner text-slate-800" 
+                  />
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* TV & Ar Condicionado */}
+          <div className="grid grid-cols-1 gap-4">
             {isFieldVisible('tvBrand') && (
-              <div>
-                <p className="text-[9px] font-black text-slate-300 uppercase mb-2 ml-1">{getFieldConfig('tvBrand')?.title || "Marca da TV:"}</p>
+              <div className="bg-white p-6 rounded-[2.5rem] border border-slate-50 shadow-sm space-y-4">
+                <SectionTitle icon={Tv} title="TV" color="text-slate-800" />
                 <div className="grid grid-cols-3 gap-2">
                   {['LG', 'Samsung', 'Philco', 'Smart Roku', 'Toshiba'].map(b => (
                     <button key={b} onClick={() => updateField('tvBrand', b as any)} className={getStatusBtnClass(data.tvBrand, b, 'bg-slate-800')}>{b}</button>
@@ -229,151 +313,134 @@ const ApartmentDetailView: React.FC<ApartmentDetailViewProps> = ({ apartment, th
                 </div>
               </div>
             )}
-          </section>
-        )}
+            {isFieldVisible('acBrand') && (
+              <div className="bg-white p-6 rounded-[2.5rem] border border-slate-50 shadow-sm space-y-4">
+                <SectionTitle icon={Wind} title="Ar Condicionado" color="text-cyan-600" />
+                <div className="grid grid-cols-3 gap-2">
+                  {['Midea', 'LG', 'Gree'].map(b => (
+                    <button key={b} onClick={() => updateField('acBrand', b as any)} className={getStatusBtnClass(data.acBrand, b, 'bg-cyan-600')}>{b}</button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
 
-        {/* ACESSÓRIOS DO QUARTO */}
-        {(isFieldVisible('temCortina') || isFieldVisible('temCofre') || isFieldVisible('temPortaControle') || isFieldVisible('temEspelhoCorpo') || isFieldVisible('temCabide')) && (
-          <section className="bg-white p-6 rounded-[2.5rem] border border-slate-50 shadow-sm space-y-5">
-            <SectionTitle icon={Box} title="Acessórios & Itens" color="text-amber-600" />
-            
-            <div className="space-y-4">
-              {/* Cortina */}
-              {isFieldVisible('temCortina') && (
-                <div className="p-5 bg-slate-50 rounded-[2rem] space-y-4">
-                  <div className="flex items-center justify-between px-1">
-                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-tighter">{getFieldConfig('temCortina')?.title || "CORTINA"}</span>
-                    <button 
-                      onClick={() => updateField('temCortina', !data.temCortina)} 
-                      className={`px-5 py-2 rounded-xl text-[9px] font-black transition-all ${data.temCortina ? 'bg-blue-600 text-white shadow-md' : 'bg-white text-slate-300 border-2 border-slate-50'}`}
-                    >
-                      {data.temCortina ? 'POSSUI' : 'NÃO TEM'}
-                    </button>
-                  </div>
-                  {data.temCortina && (
-                    <div className="space-y-3 animate-in fade-in">
-                      <div className="grid grid-cols-2 gap-2">
-                        <button onClick={() => updateField('cortinaStatus', 'Nova')} className={getStatusBtnClass(data.cortinaStatus, 'Nova', 'bg-slate-800')}>NOVA</button>
-                        <button onClick={() => updateField('cortinaStatus', 'Antiga')} className={getStatusBtnClass(data.cortinaStatus, 'Antiga', 'bg-slate-800')}>ANTIGA</button>
-                      </div>
-                      <div className="grid grid-cols-2 gap-2">
-                        <button onClick={() => updateField('cortinaCoverage', 'Dois lados')} className={getStatusBtnClass(data.cortinaCoverage, 'Dois lados', 'bg-slate-800')}>DOIS LADOS</button>
-                        <button onClick={() => updateField('cortinaCoverage', 'Um lado')} className={getStatusBtnClass(data.cortinaCoverage, 'Um lado', 'bg-slate-800')}>UM LADO</button>
-                      </div>
-                      <input 
-                        type="text" 
-                        placeholder="Informe a metragem..." 
-                        value={data.cortinaSize} 
-                        onChange={e => updateField('cortinaSize', e.target.value)} 
-                        className="w-full p-4 rounded-xl border-2 border-white text-[10px] font-bold outline-none bg-white shadow-inner text-slate-800" 
-                      />
+          {/* Porta Controle */}
+          {isFieldVisible('temPortaControle') && (
+            <div className="bg-white p-6 rounded-[2.5rem] border border-slate-50 shadow-sm">
+              <button onClick={() => updateField('temPortaControle', !data.temPortaControle)} className="w-full flex items-center justify-between">
+                <div className="flex items-center space-x-3">
+                  <div className="p-2 bg-blue-50 text-blue-600 rounded-xl"><Box size={18} /></div>
+                  <span className="text-[10px] font-black text-slate-800 uppercase tracking-widest">Porta Controle</span>
+                </div>
+                <span className={`text-xs font-black ${data.temPortaControle ? 'text-blue-600' : 'text-slate-300'}`}>{data.temPortaControle ? 'SIM' : 'NÃO'}</span>
+              </button>
+            </div>
+          )}
+
+          {/* Iluminação da Cabeceira */}
+          {isFieldVisible('luminariaType') && (
+            <div className="bg-white p-6 rounded-[2.5rem] border border-slate-50 shadow-sm space-y-4">
+              <SectionTitle icon={Lightbulb} title="Iluminação da Cabeceira" color="text-yellow-600" />
+              <div className="grid grid-cols-3 gap-2">
+                {['Arandela', 'Vidro', 'Quadrado'].map(t => (
+                  <button key={t} onClick={() => updateField('luminariaType', t as any)} className={getStatusBtnClass(data.luminariaType, t, 'bg-yellow-600')}>{t}</button>
+                ))}
+              </div>
+              {data.luminariaType === 'Quadrado' && (
+                 <div className="p-4 bg-slate-50 rounded-2xl space-y-3">
+                    <div className="grid grid-cols-2 gap-2">
+                       {['Branco', 'Preto'].map(color => (
+                         <button key={color} onClick={() => updateField('luminariaColor', color as any)} className={`py-4 rounded-xl text-[10px] font-black border-2 transition-all ${data.luminariaColor === color ? 'bg-white border-slate-200 text-slate-800 shadow-sm' : 'bg-white border-transparent text-slate-300'}`}>{color.toUpperCase()}</button>
+                       ))}
                     </div>
-                  )}
-                </div>
-              )}
-
-              {/* Cofre e Porta Controle */}
-              {(isFieldVisible('temCofre') || isFieldVisible('temPortaControle')) && (
-                <div className="grid grid-cols-2 gap-2">
-                  {isFieldVisible('temCofre') && (
-                    <button onClick={() => updateField('temCofre', !data.temCofre)} className="p-5 rounded-[2rem] bg-white border border-slate-50 shadow-sm flex flex-col items-center justify-center transition-all active:scale-95">
-                      <span className="text-[7px] font-black text-slate-400 uppercase mb-1 tracking-widest">{getFieldConfig('temCofre')?.title || "Possui Cofre?"}</span>
-                      <span className={`text-xs font-black ${data.temCofre ? 'text-blue-600' : 'text-slate-400'}`}>{data.temCofre ? 'SIM' : 'NÃO'}</span>
-                    </button>
-                  )}
-                  {isFieldVisible('temPortaControle') && (
-                    <button onClick={() => updateField('temPortaControle', !data.temPortaControle)} className="p-5 rounded-[2rem] bg-white border border-slate-50 shadow-sm flex flex-col items-center justify-center transition-all active:scale-95">
-                      <span className="text-[7px] font-black text-slate-400 uppercase mb-1 tracking-widest">{getFieldConfig('temPortaControle')?.title || "Porta-Controles?"}</span>
-                      <span className={`text-xs font-black ${data.temPortaControle ? 'text-blue-600' : 'text-slate-400'}`}>{data.temPortaControle ? 'SIM' : 'NÃO'}</span>
-                    </button>
-                  )}
-                </div>
-              )}
-
-              {/* Espelho Corpo */}
-              {isFieldVisible('temEspelhoCorpo') && (
-                <div className="p-4 bg-slate-50 rounded-2xl space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-black text-slate-500 uppercase">{getFieldConfig('temEspelhoCorpo')?.title || "Espelho de Corpo"}</span>
-                    <button onClick={() => updateField('temEspelhoCorpo', !data.temEspelhoCorpo)} className={`px-4 py-1.5 rounded-lg text-[10px] font-black ${data.temEspelhoCorpo ? 'bg-amber-500 text-white shadow-md' : 'bg-white border text-slate-300'}`}>{data.temEspelhoCorpo ? 'POSSUI' : 'NÃO TEM'}</button>
-                  </div>
-                  {data.temEspelhoCorpo && (
-                    <div className="grid grid-cols-3 gap-1">
-                      {['Bom estado', 'Manchado', 'Danificado'].map(s => (
-                        <button key={s} onClick={() => updateField('espelhoCorpoStatus', s as any)} className={`py-2 rounded-lg text-[8px] font-black border-2 ${data.espelhoCorpoStatus === s ? 'bg-slate-800 text-white border-transparent' : 'bg-white text-slate-400 border-slate-100'}`}>{s.toUpperCase()}</button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Cabides */}
-              {isFieldVisible('temCabide') && (
-                <div className="p-4 bg-slate-50 rounded-2xl space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-black text-slate-500 uppercase">{getFieldConfig('temCabide')?.title || "Cabides"}</span>
-                    <button onClick={() => updateField('temCabide', !data.temCabide)} className={`px-4 py-1.5 rounded-lg text-[10px] font-black ${data.temCabide ? 'bg-slate-800 text-white' : 'bg-white border text-slate-300'}`}>{data.temCabide ? 'POSSUI' : 'NÃO TEM'}</button>
-                  </div>
-                  {data.temCabide && (
-                    <div className="flex items-center justify-center space-x-6 py-2">
-                      <button onClick={() => updateField('cabideQuantity', Math.max(0, (data.cabideQuantity || 0) - 1))} className="w-10 h-10 bg-white border-2 rounded-xl flex items-center justify-center shadow-sm"><Minus size={18}/></button>
-                      <span className="text-2xl font-black text-slate-800">{data.cabideQuantity || 0}</span>
-                      <button onClick={() => updateField('cabideQuantity', (data.cabideQuantity || 0) + 1)} className="w-10 h-10 bg-white border-2 rounded-xl flex items-center justify-center shadow-sm"><Plus size={18}/></button>
-                    </div>
-                  )}
-                </div>
+                 </div>
               )}
             </div>
-          </section>
-        )}
+          )}
 
-        {/* BANHEIRO: ACESSÓRIOS */}
-        {(isFieldVisible('temSuporteShampoo') || isFieldVisible('temSuportePapel')) && (
-          <section className="bg-white p-6 rounded-[2.5rem] border border-slate-50 shadow-sm space-y-4">
-             <SectionTitle icon={Droplets} title="Banheiro: Acessórios" color="text-cyan-600" />
-             {isFieldVisible('temSuporteShampoo') && (
-               <div className="p-4 bg-slate-50 rounded-2xl space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-black text-slate-500 uppercase">{getFieldConfig('temSuporteShampoo')?.title || "Suporte de Shampoo"}</span>
-                    <button onClick={() => updateField('temSuporteShampoo', !data.temSuporteShampoo)} className={`px-4 py-1.5 rounded-lg text-[10px] font-black ${data.temSuporteShampoo ? 'bg-cyan-600 text-white shadow-md' : 'bg-white border text-slate-300'}`}>{data.temSuporteShampoo ? 'POSSUI' : 'NÃO TEM'}</button>
+          {/* Camas */}
+          {isFieldVisible('beds') && (
+            <div className="space-y-4">
+              <SectionTitle icon={Bed} title="Configuração das Camas" color="text-emerald-600" />
+              {(data.beds || []).map((bed, idx) => (
+                <div key={idx} className="bg-white p-6 rounded-[2.5rem] border border-slate-50 shadow-sm space-y-6">
+                  <div className="flex justify-between items-center">
+                    <h4 className="text-[11px] font-black text-slate-800 uppercase tracking-tighter">Cama {idx + 1}</h4>
+                    <div className="bg-emerald-50 text-emerald-500 px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest">{bed.type}</div>
                   </div>
-                  {data.temSuporteShampoo && (
-                    <div className="grid grid-cols-2 gap-2 animate-in fade-in">
-                      <button onClick={() => updateField('suporteShampooStatus', 'Bom estado')} className={getStatusBtnClass(data.suporteShampooStatus, 'Bom estado', 'bg-emerald-500')}>BOM ESTADO</button>
-                      <button onClick={() => updateField('suporteShampooStatus', 'Enferrujado')} className={getStatusBtnClass(data.suporteShampooStatus, 'Enferrujado', 'bg-rose-500')}>ENFERRUJADO</button>
+                  <div className="space-y-3">
+                    <label className="text-[9px] font-black text-slate-300 uppercase ml-1 tracking-widest">Base da Cama:</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button onClick={() => updateBed(idx, { baseStatus: 'Nova' })} className={getStatusBtnClass(bed.baseStatus, 'Nova', 'bg-emerald-500')}>NOVA</button>
+                      <button onClick={() => updateBed(idx, { baseStatus: 'Antiga' })} className={getStatusBtnClass(bed.baseStatus, 'Antiga', 'bg-amber-400 !text-slate-900')}>ANTIGA</button>
                     </div>
-                  )}
+                  </div>
+                  <div className="space-y-3">
+                    <label className="text-[9px] font-black text-slate-300 uppercase ml-1 tracking-widest">Colchão:</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button onClick={() => updateBed(idx, { mattressStatus: 'Novo' })} className={getStatusBtnClass(bed.mattressStatus, 'Novo', 'bg-emerald-500')}>NOVO</button>
+                      <button onClick={() => updateBed(idx, { mattressStatus: 'Antigo' })} className={getStatusBtnClass(bed.mattressStatus, 'Antigo', 'bg-amber-400 !text-slate-900')}>ANTIGO</button>
+                    </div>
+                  </div>
                 </div>
-             )}
-             {isFieldVisible('temSuportePapel') && (
-                <button onClick={() => updateField('temSuportePapel', !data.temSuportePapel)} className={`w-full p-5 rounded-2xl border-2 flex items-center justify-between transition-all ${data.temSuportePapel ? 'bg-slate-800 border-transparent text-white shadow-lg' : 'bg-white border-slate-50 text-slate-400'}`}>
-                   <span className="text-[9px] font-black uppercase">{getFieldConfig('temSuportePapel')?.title || "Suporte de Papel Higiênico"}</span>
-                   <span className="text-xs font-black">{data.temSuportePapel ? 'POSSUI' : 'NÃO TEM'}</span>
-                </button>
-             )}
-          </section>
-        )}
-
-        {/* ILUMINAÇÃO */}
-        {isFieldVisible('luminariaType') && (
-          <section className="bg-white p-6 rounded-[2.5rem] border border-slate-50 shadow-sm space-y-4">
-            <SectionTitle icon={Lightbulb} title={getFieldConfig('luminariaType')?.title || "Iluminação"} color={getFieldConfig('luminariaType')?.color || "text-yellow-600"} />
-            <div className="grid grid-cols-3 gap-2">
-              {['Arandela', 'Vidro', 'Quadrado'].map(t => (
-                <button key={t} onClick={() => updateField('luminariaType', t as any)} className={getStatusBtnClass(data.luminariaType, t, 'bg-yellow-600')}>{t}</button>
               ))}
             </div>
-            {data.luminariaType === 'Quadrado' && (
-               <div className="p-4 bg-slate-50 rounded-2xl space-y-3">
-                  <div className="grid grid-cols-2 gap-2">
-                     {['Branco', 'Preto'].map(color => (
-                       <button key={color} onClick={() => updateField('luminariaColor', color as any)} className={`py-4 rounded-xl text-[10px] font-black border-2 transition-all ${data.luminariaColor === color ? 'bg-white border-slate-200 text-slate-800 shadow-sm' : 'bg-white border-transparent text-slate-300'}`}>{color.toUpperCase()}</button>
-                     ))}
-                  </div>
-               </div>
-            )}
-          </section>
-        )}
+          )}
+        </section>
+
+        {/* SECTION 3: BANHEIRO */}
+        <section className="space-y-6">
+          <div className="flex items-center space-x-3 px-2 mb-2">
+            <div className="h-px flex-1 bg-slate-200"></div>
+            <h2 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em]">Banheiro</h2>
+            <div className="h-px flex-1 bg-slate-200"></div>
+          </div>
+
+          {/* Reformado ou Antigo */}
+          {isFieldVisible('banheiroType') && (
+            <div className="bg-white p-6 rounded-[2.5rem] border border-slate-50 shadow-sm space-y-4">
+              <SectionTitle icon={Layers} title="Estado do Banheiro" color="text-indigo-600" />
+              <div className="grid grid-cols-2 gap-2">
+                <button onClick={() => updateField('banheiroType', 'Reformado')} className={getStatusBtnClass(data.banheiroType, 'Reformado', 'bg-indigo-600')}>Reformado</button>
+                <button onClick={() => updateField('banheiroType', 'Antigo')} className={getStatusBtnClass(data.banheiroType, 'Antigo', 'bg-indigo-600')}>Antigo</button>
+              </div>
+              {data.banheiroType === 'Antigo' && (
+                <div className="grid grid-cols-2 gap-2 animate-in slide-in-from-top-2">
+                  <button onClick={() => updateField('banheiroStatus', 'Tolerável')} className={getStatusBtnClass(data.banheiroStatus, 'Tolerável', 'bg-amber-400 !text-slate-900')}>TOLERÁVEL</button>
+                  <button onClick={() => updateField('banheiroStatus', 'Reparo urgente')} className={getStatusBtnClass(data.banheiroStatus, 'Reparo urgente', 'bg-rose-500')}>URGENTE</button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Suporte Papel Higiênico */}
+          {isFieldVisible('temSuportePapel') && (
+            <div className="bg-white p-6 rounded-[2.5rem] border border-slate-50 shadow-sm">
+              <button onClick={() => updateField('temSuportePapel', !data.temSuportePapel)} className={`w-full p-5 rounded-2xl border-2 flex items-center justify-between transition-all ${data.temSuportePapel ? 'bg-slate-800 border-transparent text-white shadow-lg' : 'bg-white border-slate-50 text-slate-400'}`}>
+                 <span className="text-[9px] font-black uppercase">Suporte de Papel Higiênico</span>
+                 <span className="text-xs font-black">{data.temSuportePapel ? 'SIM' : 'NÃO'}</span>
+              </button>
+            </div>
+          )}
+
+          {/* Suporte Shampoo */}
+          {isFieldVisible('temSuporteShampoo') && (
+            <div className="bg-white p-6 rounded-[2.5rem] border border-slate-50 shadow-sm space-y-4">
+              <SectionTitle icon={Droplets} title="Suporte de Shampoo" color="text-cyan-600" />
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-black text-slate-500 uppercase">Possui suporte?</span>
+                <button onClick={() => updateField('temSuporteShampoo', !data.temSuporteShampoo)} className={`px-4 py-1.5 rounded-lg text-[10px] font-black ${data.temSuporteShampoo ? 'bg-cyan-600 text-white shadow-md' : 'bg-white border text-slate-300'}`}>{data.temSuporteShampoo ? 'SIM' : 'NÃO'}</button>
+              </div>
+              {data.temSuporteShampoo && (
+                <div className="grid grid-cols-2 gap-2 animate-in fade-in">
+                  <button onClick={() => updateField('suporteShampooStatus', 'Bom estado')} className={getStatusBtnClass(data.suporteShampooStatus, 'Bom estado', 'bg-emerald-500')}>BOM ESTADO</button>
+                  <button onClick={() => updateField('suporteShampooStatus', 'Enferrujado')} className={getStatusBtnClass(data.suporteShampooStatus, 'Enferrujado', 'bg-rose-500')}>ENFERRUJADO</button>
+                </div>
+              )}
+            </div>
+          )}
+        </section>
 
         {/* CUSTOM CHECKLIST ITEMS */}
         {(() => {
@@ -434,98 +501,10 @@ const ApartmentDetailView: React.FC<ApartmentDetailViewProps> = ({ apartment, th
           );
         })()}
 
-        {/* CONFIGURAÇÃO DAS CAMAS */}
-        {isFieldVisible('beds') && (
-          <div className="pt-2 space-y-4">
-            <SectionTitle icon={Bed} title={getFieldConfig('beds')?.title || "Configuração das Camas"} color={getFieldConfig('beds')?.color || "text-emerald-600"} />
-            
-            {(data.beds || []).map((bed, idx) => (
-              <section key={idx} className="bg-white p-6 rounded-[2.5rem] border border-slate-50 shadow-sm space-y-6">
-                <div className="flex justify-between items-center">
-                  <h4 className="text-[11px] font-black text-slate-800 uppercase tracking-tighter">Cama {idx + 1}</h4>
-                  <div className="bg-emerald-50 text-emerald-500 px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest">
-                    {bed.type}
-                  </div>
-                </div>
-
-                {/* Base da Cama */}
-                <div className="space-y-3">
-                  <label className="text-[9px] font-black text-slate-300 uppercase ml-1 tracking-widest">Base da Cama:</label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button onClick={() => updateBed(idx, { baseStatus: 'Nova' })} className={getStatusBtnClass(bed.baseStatus, 'Nova', 'bg-emerald-500')}>NOVA</button>
-                    <button onClick={() => updateBed(idx, { baseStatus: 'Antiga' })} className={getStatusBtnClass(bed.baseStatus, 'Antiga', 'bg-amber-400 !text-slate-900')}>ANTIGA</button>
-                  </div>
-                  {bed.baseStatus === 'Antiga' && (
-                    <div className="grid grid-cols-3 gap-1.5 animate-in slide-in-from-top-2">
-                      {['Rosa', 'Beje', 'Amarela', 'Branca', 'Preta Fosca', 'Cinza'].map(color => (
-                        <button 
-                          key={color} 
-                          onClick={() => updateBed(idx, { baseColor: color })} 
-                          className={`py-2 rounded-lg text-[8px] font-black border-2 transition-all ${bed.baseColor === color ? 'bg-slate-800 text-white border-transparent' : 'bg-white text-slate-300 border-slate-50'}`}
-                        >
-                          {color.toUpperCase()}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {/* Colchão */}
-                <div className="space-y-3">
-                  <label className="text-[9px] font-black text-slate-300 uppercase ml-1 tracking-widest">Colchão:</label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button onClick={() => updateBed(idx, { mattressStatus: 'Novo' })} className={getStatusBtnClass(bed.mattressStatus, 'Novo', 'bg-emerald-500')}>NOVO</button>
-                    <button onClick={() => updateBed(idx, { mattressStatus: 'Antigo' })} className={getStatusBtnClass(bed.mattressStatus, 'Antigo', 'bg-amber-400 !text-slate-900')}>ANTIGO</button>
-                  </div>
-                  {bed.mattressStatus === 'Antigo' && (
-                    <div className="grid grid-cols-3 gap-1.5 animate-in slide-in-from-top-2">
-                      {['Cinza', 'Bege', 'Rosa'].map(color => (
-                        <button 
-                          key={color} 
-                          onClick={() => updateBed(idx, { mattressColor: color })} 
-                          className={`py-2 rounded-lg text-[8px] font-black border-2 transition-all ${bed.mattressColor === color ? 'bg-slate-800 text-white border-transparent' : 'bg-white text-slate-300 border-slate-50'}`}
-                        >
-                          {color.toUpperCase()}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {/* Saia de Cama */}
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between px-1">
-                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-tighter">Saia de Cama?</span>
-                    <button 
-                      onClick={() => updateBed(idx, { hasSkirt: !bed.hasSkirt })} 
-                      className={`px-5 py-2 rounded-xl text-[9px] font-black transition-all ${bed.hasSkirt ? 'bg-emerald-500 text-white shadow-md' : 'bg-slate-50 text-slate-300 border-2 border-slate-50'}`}
-                    >
-                      {bed.hasSkirt ? 'POSSUI' : 'NÃO TEM'}
-                    </button>
-                  </div>
-                  {bed.hasSkirt && (
-                    <div className="grid grid-cols-2 gap-2 animate-in fade-in">
-                      {['Cinza', 'Verde'].map(color => (
-                        <button 
-                          key={color} 
-                          onClick={() => updateBed(idx, { skirtColor: color })} 
-                          className={`py-3 rounded-2xl text-[9px] font-black border-2 transition-all ${bed.skirtColor === color ? 'bg-slate-800 text-white border-transparent' : 'bg-white text-slate-300 border-slate-50'}`}
-                        >
-                          {color.toUpperCase()}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </section>
-            ))}
-          </div>
-        )}
-
         {/* RELATO DE DEFEITOS */}
         {isFieldVisible('defects') && (
           <section className="bg-white p-6 rounded-[2.5rem] border border-slate-50 shadow-xl space-y-4">
-            <SectionTitle icon={Paperclip} title={getFieldConfig('defects')?.title || "Relato de Defeitos"} color={getFieldConfig('defects')?.color || "text-rose-500"} />
+            <SectionTitle icon={Paperclip} title="Relato de Defeitos" color="text-rose-500" />
             <textarea 
               value={newDefectText} 
               onChange={(e) => setNewDefectText(e.target.value)} 
