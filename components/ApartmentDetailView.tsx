@@ -2,6 +2,7 @@
 import React, { useState, useRef } from 'react';
 import { Apartment, Defect, HotelTheme, BedConfig } from '../types';
 import { DEFAULT_CHECKLIST } from '../defaultChecklist';
+import { getDirectDriveUrl } from '../utils/imageUtils';
 import { 
   ChevronLeft, 
   Save, 
@@ -523,8 +524,22 @@ const ApartmentDetailView: React.FC<ApartmentDetailViewProps> = ({ apartment, th
                   <div className="flex items-start justify-between gap-4">
                      <div className="flex items-start space-x-3 flex-1">
                         {(defect.data || (defect.driveLink && defect.driveLink !== 'pendente')) && (
-                          <div className="relative group cursor-pointer" onClick={() => setSelectedImage(defect.data || defect.driveLink || null)}>
-                            <img src={defect.data || defect.driveLink} className="w-20 h-20 rounded-xl object-cover shadow-sm border group-hover:brightness-75 transition-all" alt="Evidência" />
+                          <div className="relative group cursor-pointer" onClick={() => setSelectedImage(getDirectDriveUrl(defect.data || defect.driveLink))}>
+                            <img 
+                              src={getDirectDriveUrl(defect.data || defect.driveLink)} 
+                              className="w-20 h-20 rounded-xl object-cover shadow-sm border group-hover:brightness-75 transition-all" 
+                              alt="Evidência" 
+                              referrerPolicy="no-referrer"
+                              onError={(e) => {
+                                const target = e.target as HTMLImageElement;
+                                if (!target.src.includes('thumbnail') && (defect.driveLink?.includes('drive.google.com') || defect.driveLink?.includes('docs.google.com'))) {
+                                  const idMatch = defect.driveLink.match(/[-\w]{25,50}/);
+                                  if (idMatch) {
+                                    target.src = `https://drive.google.com/thumbnail?id=${idMatch[0]}&sz=w1000`;
+                                  }
+                                }
+                              }}
+                            />
                             <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                               <Maximize2 size={20} className="text-white" />
                             </div>
@@ -551,6 +566,31 @@ const ApartmentDetailView: React.FC<ApartmentDetailViewProps> = ({ apartment, th
           <span>SALVAR VISTORIA</span>
         </button>
       </div>
+
+      {/* Lightbox Modal */}
+      {selectedImage && (
+        <div className="fixed inset-0 bg-black/95 z-[500] flex items-center justify-center p-4 animate-in fade-in duration-300" onClick={() => setSelectedImage(null)}>
+          <button className="absolute top-6 right-6 p-3 bg-white/10 hover:bg-white/20 text-white rounded-full transition-all">
+            <X size={32} />
+          </button>
+          <img 
+            src={selectedImage} 
+            alt="Visualização" 
+            className="max-w-full max-h-full object-contain rounded-lg shadow-2xl animate-in zoom-in duration-300" 
+            onClick={(e) => e.stopPropagation()} 
+            referrerPolicy="no-referrer"
+            onError={(e) => {
+              const target = e.target as HTMLImageElement;
+              if (!target.src.includes('thumbnail') && (selectedImage?.includes('drive.google.com') || selectedImage?.includes('docs.google.com'))) {
+                const idMatch = selectedImage.match(/[-\w]{25,50}/);
+                if (idMatch) {
+                  target.src = `https://drive.google.com/thumbnail?id=${idMatch[0]}&sz=w1000`;
+                }
+              }
+            }}
+          />
+        </div>
+      )}
     </div>
   );
 };

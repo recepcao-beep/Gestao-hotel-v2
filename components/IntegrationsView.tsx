@@ -591,6 +591,22 @@ const IntegrationsView: React.FC<IntegrationsViewProps> = ({ integrations, theme
         </div>
       </div>
 
+      <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm space-y-4">
+        <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">Manutenção</h3>
+        <p className="text-xs text-slate-500 font-medium">Se o aplicativo não estiver carregando os dados corretamente (especialmente no iPhone), tente limpar o cache local.</p>
+        <button 
+          onClick={() => {
+            if(window.confirm('Isso irá limpar os dados salvos localmente e forçar um novo carregamento. Deseja continuar?')) {
+              localStorage.clear();
+              window.location.reload();
+            }
+          }}
+          className="w-full py-3 bg-red-50 text-red-600 border border-red-100 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-red-100 transition-all"
+        >
+          Limpar Cache Local e Reiniciar
+        </button>
+      </div>
+
       {showScriptModal && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[300] flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-4xl rounded-[3rem] shadow-2xl max-h-[85vh] overflow-hidden flex flex-col animate-in zoom-in duration-300">

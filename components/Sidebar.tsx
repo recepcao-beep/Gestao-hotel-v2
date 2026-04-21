@@ -64,7 +64,6 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange, currentHot
     { id: ViewType.DASHBOARD, label: 'Dashboard', icon: LayoutDashboard, visible: role === 'GESTOR' || user.allowedTabs?.includes(ViewType.DASHBOARD) },
     { id: ViewType.APARTMENTS, label: 'Apartamentos', icon: Hotel, visible: role === 'GESTOR' || user.allowedTabs?.includes(ViewType.APARTMENTS) },
     { id: ViewType.PARKING, label: 'Estacionamento', icon: Car, visible: role === 'GESTOR' || user.allowedTabs?.includes(ViewType.PARKING) },
-    { id: ViewType.REPORTS, label: 'Relatórios', icon: FileBarChart, visible: role === 'GESTOR' || user.allowedTabs?.includes(ViewType.REPORTS) },
     { id: ViewType.BUDGETS, label: 'Orçamentos', icon: ReceiptPoundSterling, visible: role === 'GESTOR' || user.allowedTabs?.includes(ViewType.BUDGETS) },
     { id: ViewType.INVENTORY, label: 'Estoque', icon: Package, visible: role === 'GESTOR' || user.allowedTabs?.includes(ViewType.INVENTORY) },
     { id: ViewType.EMPLOYEES, label: 'Funcionários', icon: Users, visible: role === 'GESTOR' || user.allowedTabs?.includes(ViewType.EMPLOYEES) },

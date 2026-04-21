@@ -138,6 +138,10 @@ function parseValue(val: any, fieldName: string) {
   return val;
 }
 
+// Simple In-Memory Cache to prevent Quota Exceeded errors
+const CACHE_TTL = 30000; // 30 seconds
+const dataCache: Record<string, { data: any, timestamp: number }> = {};
+
 // Helper to get data from a specific sheet/cell
 async function getSheetData(hotel: string) {
   const SPREADSHEET_ID = process.env.GOOGLE_SHEET_ID;
@@ -145,25 +149,36 @@ async function getSheetData(hotel: string) {
     throw new Error('GOOGLE_SHEET_ID environment variable is missing. Please check your Secrets settings.');
   }
 
+  // Check cache first
+  const cached = dataCache[hotel];
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    console.log(`[Cache] Returning cached data for hotel: ${hotel}`);
+    return cached.data;
+  }
+
   const hotelData: any = {};
   
-  // Fetch all sheets in parallel for better performance
-  const fetchPromises = Object.entries(DATA_MAP).map(async ([key, sheetPrefix]) => {
+  // Fetch sheets sequentially to avoid bursting the Sheets API quota
+  // Every call to getSheetsData triggered 12 parallel requests, hitting the 60 requests/min limit very fast.
+  for (const [key, sheetPrefix] of Object.entries(DATA_MAP)) {
     const sheetName = `${sheetPrefix}_${hotel}`;
     const defaultValue = (key === 'apartments' ? {} : []);
     const gridCols = GRID_COLUMNS[key];
 
     try {
+      // Add a tiny delay between requests to spread out the load
+      await new Promise(resolve => setTimeout(resolve, 200));
+
       const response = await sheets.spreadsheets.values.get({
         spreadsheetId: SPREADSHEET_ID,
-        range: `${sheetName}!A:AC`, // Increased range to cover more columns
+        range: `${sheetName}!A:AC`,
       });
       
       const rows = response.data.values;
       
       if (!rows || rows.length === 0) {
         hotelData[key] = defaultValue;
-        return;
+        continue;
       }
 
       // Special handling for Config (key-value pairs)
@@ -186,7 +201,7 @@ async function getSheetData(hotel: string) {
           }
         });
         hotelData[key] = config;
-        return;
+        continue;
       }
 
       // Check if it's a grid or a single JSON in A1
@@ -201,14 +216,11 @@ async function getSheetData(hotel: string) {
           } else {
             hotelData[key] = Array.isArray(parsed) ? parsed : (parsed && typeof parsed === 'object' ? [parsed] : []);
           }
-          return;
-        } catch (e) {
-          // Fall through to grid parsing if JSON parse fails
-        }
+          continue;
+        } catch (e) {}
       }
 
       if (gridCols) {
-        // Skip header if first row has known header names
         let dataRows = rows;
         const firstRow = rows[0].map(c => String(c).toLowerCase());
         if (firstRow.includes('id') || firstRow.includes('apto') || firstRow.includes('nome') || firstRow.includes('ean')) {
@@ -222,8 +234,6 @@ async function getSheetData(hotel: string) {
           });
           return item;
         }).filter(item => item.id || item.roomNumber);
-
-        console.log(`Sheet ${sheetName}: found ${parsedRows.length} valid rows out of ${dataRows.length} data rows.`);
 
         if (key === 'apartments') {
           const aptMap: any = {};
@@ -239,16 +249,23 @@ async function getSheetData(hotel: string) {
         hotelData[key] = defaultValue;
       }
     } catch (error: any) {
-      if (error.message?.includes('Unable to parse range') || error.code === 400) {
+      if (error.message?.includes('Quota exceeded') || error.code === 429) {
+        console.error(`[QUOTA EXCEEDED] Sheet ${sheetName}. Returning partial/cached data.`);
+        // If we hit a quota, we stop fetching more sheets for this hotel request
+        // and return what we have so far, or better, return the previous cache if available.
+        if (cached) return cached.data;
+        hotelData[key] = defaultValue;
+      } else if (error.message?.includes('Unable to parse range') || error.code === 400) {
         hotelData[key] = defaultValue;
       } else {
         console.error(`Error reading sheet ${sheetName}:`, error.message || error);
         hotelData[key] = defaultValue;
       }
     }
-  });
+  }
 
-  await Promise.all(fetchPromises);
+  // Update cache
+  dataCache[hotel] = { data: hotelData, timestamp: Date.now() };
   return hotelData;
 }
 
@@ -384,6 +401,20 @@ app.post('/api/sheets/action', async (req, res) => {
       case 'INVENTORY_OP':
         if (!Array.isArray(currentData.inventoryHistory)) currentData.inventoryHistory = [];
         currentData.inventoryHistory.push(payload);
+        
+        // Atualiza o saldo no estoque (Balance) automaticamente na planilha de Estoque
+        if (Array.isArray(currentData.inventory)) {
+          const item = currentData.inventory.find((i: any) => i.id === payload.itemId);
+          if (item) {
+            const qty = Number(payload.quantity) || 0;
+            if (payload.type === 'Entrada') {
+              item.quantity = (Number(item.quantity) || 0) + qty;
+            } else {
+              item.quantity = (Number(item.quantity) || 0) - qty;
+            }
+            item.lastUpdate = Date.now();
+          }
+        }
         break;
       case 'SUPPLIER':
         if (!Array.isArray(currentData.suppliers)) currentData.suppliers = [];
@@ -407,8 +438,12 @@ app.post('/api/sheets/action', async (req, res) => {
       case 'CHECKOUT_VEHICLE':
         if (!Array.isArray(currentData.vehicles)) currentData.vehicles = [];
         const vIndex = currentData.vehicles.findIndex((v: any) => v.id === payload.id);
-        if (vIndex > -1) currentData.vehicles[vIndex] = payload;
-        else currentData.vehicles.push(payload);
+        if (vIndex > -1) {
+          // Merge para evitar perda de dados em atualizações parciais como CHECKOUT
+          currentData.vehicles[vIndex] = { ...currentData.vehicles[vIndex], ...payload };
+        } else {
+          currentData.vehicles.push(payload);
+        }
         break;
       case 'CONFIG':
         currentData.config = { ...currentData.config, ...payload };
@@ -432,7 +467,16 @@ app.post('/api/sheets/action', async (req, res) => {
     const internalKey = INTERNAL_KEY_MAP[targetDataType];
     if (internalKey) {
       await saveSheetData(hotel, targetDataType, currentData[internalKey]);
+      
+      // Se for uma operação de estoque, precisamos salvar também a planilha de saldo (Estoque)
+      if (dataType === 'INVENTORY_OP') {
+        await saveSheetData(hotel, 'INVENTORY', currentData.inventory);
+      }
     }
+
+    // Limpa o cache após qualquer alteração para garantir que o próximo carregamento seja atualizado
+    delete dataCache[hotel];
+
     res.json({ status: 'success' });
   } catch (error: any) {
     console.error('Error in sheets action:', error);

@@ -1,6 +1,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { Apartment, HotelTheme } from '../types';
+import { getDirectDriveUrl } from '../utils/imageUtils';
 import { 
   FileBarChart, 
   Search, 
@@ -26,7 +27,8 @@ import {
   Layout,
   X,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Maximize2
 } from 'lucide-react';
 
 interface ReportsViewProps {
@@ -160,6 +162,7 @@ const ReportsView: React.FC<ReportsViewProps> = ({ apartments, theme, onSelectAp
   const [activeFilters, setActiveFilters] = useState<Record<string, string[]>>({});
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({ 'status': true });
   const [dateFilter, setDateFilter] = useState<'all' | '7d' | '30d'>('all');
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
 
   const floors = [200, 300, 400, 500, 600, 700];
 
@@ -694,13 +697,40 @@ const ReportsView: React.FC<ReportsViewProps> = ({ apartments, theme, onSelectAp
                       <p className="text-[9px] text-slate-600">Cofre: {apt.temCofre ? 'Sim' : 'Não'}</p>
                     </div>
                   </td>
-                  <td className="px-8 py-5 print:px-2 print:py-3">
-                    <div className="flex flex-wrap gap-1">
+                  <td className="px-8 py-5 print:px-2 print:py-3 text-center">
+                    <div className="flex flex-col gap-1 items-center">
                       {(apt.defects?.length || 0) > 0 ? (
                         apt.defects.map((d, di) => (
-                          <span key={di} className="px-2 py-0.5 bg-rose-50 text-rose-600 text-[8px] font-black rounded uppercase print:bg-transparent print:p-0 print:block">
-                            • {d.description}
-                          </span>
+                          <div key={di} className="flex flex-col items-center gap-1 mb-2 last:mb-0">
+                            <span className="px-2 py-0.5 bg-rose-50 text-rose-600 text-[8px] font-black rounded uppercase print:bg-transparent print:p-0 print:block">
+                              • {d.description}
+                            </span>
+                            {(d.data || (d.driveLink && d.driveLink !== 'pendente')) && (
+                              <div 
+                                className="relative group cursor-pointer no-print mt-1" 
+                                onClick={() => setSelectedImage(getDirectDriveUrl(d.data || d.driveLink))}
+                              >
+                                <img 
+                                  src={getDirectDriveUrl(d.data || d.driveLink)} 
+                                  className="w-12 h-12 rounded-lg object-cover shadow-sm border group-hover:brightness-75 transition-all" 
+                                  alt="Avaria" 
+                                  referrerPolicy="no-referrer"
+                                  onError={(e) => {
+                                    const target = e.target as HTMLImageElement;
+                                    if (!target.src.includes('thumbnail') && (d.driveLink?.includes('drive.google.com') || d.driveLink?.includes('docs.google.com'))) {
+                                      const idMatch = d.driveLink.match(/[-\w]{25,50}/);
+                                      if (idMatch) {
+                                        target.src = `https://drive.google.com/thumbnail?id=${idMatch[0]}&sz=w100`;
+                                      }
+                                    }
+                                  }}
+                                />
+                                <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                  <Maximize2 size={12} className="text-white" />
+                                </div>
+                              </div>
+                            )}
+                          </div>
                         ))
                       ) : (
                         <span className="text-emerald-500 font-black text-[9px] uppercase">✓ Tudo em Dia</span>
@@ -726,6 +756,31 @@ const ReportsView: React.FC<ReportsViewProps> = ({ apartments, theme, onSelectAp
           </table>
         </div>
       </div>
+
+      {/* Lightbox Modal */}
+      {selectedImage && (
+        <div className="fixed inset-0 bg-black/95 z-[500] flex items-center justify-center p-4 animate-in fade-in duration-300 no-print" onClick={() => setSelectedImage(null)}>
+          <button className="absolute top-6 right-6 p-3 bg-white/10 hover:bg-white/20 text-white rounded-full transition-all">
+            <X size={32} />
+          </button>
+          <img 
+            src={selectedImage} 
+            alt="Visualização" 
+            className="max-w-full max-h-full object-contain rounded-lg shadow-2xl animate-in zoom-in duration-300" 
+            onClick={(e) => e.stopPropagation()} 
+            referrerPolicy="no-referrer"
+            onError={(e) => {
+              const target = e.target as HTMLImageElement;
+              if (!target.src.includes('thumbnail') && (selectedImage?.includes('drive.google.com') || selectedImage?.includes('docs.google.com'))) {
+                const idMatch = selectedImage.match(/[-\w]{25,50}/);
+                if (idMatch) {
+                  target.src = `https://drive.google.com/thumbnail?id=${idMatch[0]}&sz=w1000`;
+                }
+              }
+            }}
+          />
+        </div>
+      )}
 
       <style>{`
         @media print {

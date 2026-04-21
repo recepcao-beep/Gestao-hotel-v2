@@ -40,3 +40,22 @@ export const compressImage = (file: File, maxWidth: number = 1024, maxHeight: nu
     reader.onerror = (error) => reject(error);
   });
 };
+
+export const getDirectDriveUrl = (url?: string) => {
+  if (!url || typeof url !== 'string' || url === 'pendente' || url === 'Pendente' || url === '[object Object]') return '';
+  if (url.startsWith('data:')) return url;
+  
+  // Check for common Drive URL patterns
+  if (url.includes('drive.google.com') || url.includes('docs.google.com')) {
+    // Extract ID (it's usually a string of 25-50 characters including letters, numbers, underscores and hyphens)
+    const idMatch = url.match(/[-\w]{25,50}/);
+    if (idMatch) {
+      // The 'uc' endpoint is the traditional direct link endpoint
+      // Added sz=w1000 to encourage high-res thumbnail if available, though uc doesn't support it directly, 
+      // sometimes it helps bypassing certain redirect blocks.
+      return `https://drive.google.com/uc?id=${idMatch[0]}`;
+    }
+  }
+  
+  return url;
+};

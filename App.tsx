@@ -52,13 +52,34 @@ const safeJSONParse = (value: any, defaultValue: any) => {
   return value || defaultValue;
 };
 
+const safeGetTime = (val: any) => {
+  if (!val) return Date.now();
+  if (typeof val === 'number') return val;
+  if (val instanceof Date) return isNaN(val.getTime()) ? Date.now() : val.getTime();
+  
+  // Try standard parsing
+  const d = new Date(val);
+  if (!isNaN(d.getTime())) return d.getTime();
+  
+  // Try parsing dd/mm/yyyy
+  if (typeof val === 'string') {
+    const parts = val.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+    if (parts) {
+      const parsedDate = new Date(Number(parts[3]), Number(parts[2]) - 1, Number(parts[1]));
+      if (!isNaN(parsedDate.getTime())) return parsedDate.getTime();
+    }
+  }
+  
+  return Date.now();
+};
+
 const App: React.FC = () => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const initialSyncRef = useRef(false);
   
   const [state, setState] = useState<AppState>(() => {
-    // Incrementado para V44 para garantir limpeza de cache com a nova URL do script
-    const saved = localStorage.getItem('hotel_village_state_v44');
+    // Incrementado para V45 para garantir limpeza de cache e compatibilidade
+    const saved = localStorage.getItem('hotel_village_state_v45');
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
@@ -111,6 +132,10 @@ const App: React.FC = () => {
       
       const response = await fetch(fetchUrl, {
         method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+          'Cache-Control': 'no-cache'
+        }
       });
       
       console.log("Fetch response status:", response.status);
@@ -190,7 +215,7 @@ const App: React.FC = () => {
           })),
           quotes: safeJSONParse(b.quotes, []),
           files: safeJSONParse(b.files, []), // Normalized files
-          createdAt: typeof b.createdAt === 'string' ? new Date(b.createdAt).getTime() : (b.createdAt || Date.now())
+          createdAt: safeGetTime(b.createdAt)
         }));
 
         // NORMALIZAÇÃO DE ESTOQUE
@@ -200,7 +225,7 @@ const App: React.FC = () => {
             id: inv.id?.toString(),
             quantity: parseFloat(inv.quantity) || 0,
             price: parseFloat(inv.price) || 0,
-            lastUpdate: inv.lastUpdate ? new Date(inv.lastUpdate).getTime() : Date.now(),
+            lastUpdate: safeGetTime(inv.lastUpdate),
             sectorId: inv.sectorId?.toString() || '' // Parse sectorId
         }));
 
@@ -209,7 +234,7 @@ const App: React.FC = () => {
             ...op,
             id: op.id?.toString(),
             quantity: parseFloat(op.quantity) || 0,
-            timestamp: op.timestamp ? new Date(op.timestamp).getTime() : Date.now(),
+            timestamp: safeGetTime(op.timestamp),
             recipientName: op.recipientName || ''
         }));
 
@@ -304,8 +329,11 @@ const App: React.FC = () => {
         // Return the data so Login can use it immediately
         return normalizedData;
       }
-    } catch (error) { 
+    } catch (error: any) { 
       console.error(`Erro ao carregar ${targetHotel}:`, error);
+      if (error.message?.includes('Quota exceeded') || error.message?.includes('429')) {
+        alert("Limite de requisições ao Google Sheets atingido. Por favor, aguarde um minuto e tente novamente.");
+      }
     } finally { 
       setIsRefreshing(false); 
     }
@@ -315,19 +343,17 @@ const App: React.FC = () => {
   useEffect(() => {
     if (initialSyncRef.current) return;
     initialSyncRef.current = true;
-    const runSync = async () => {
-      await loadDataFromSheet(state.currentHotel);
-      const others = (['VILLAGE', 'GOLDEN_PARK', 'THERMAL_RESORT'] as HotelType[]).filter(h => h !== state.currentHotel);
-      for (const h of others) {
-        await delay(4500);
-        await loadDataFromSheet(h);
-      }
-    };
-    runSync();
+    
+    // Carrega apenas o hotel atual no início para evitar estourar quota da API
+    loadDataFromSheet(state.currentHotel);
   }, [loadDataFromSheet, state.currentHotel]);
 
   useEffect(() => { 
-    localStorage.setItem('hotel_village_state_v44', JSON.stringify(state)); 
+    try {
+      localStorage.setItem('hotel_village_state_v45', JSON.stringify(state)); 
+    } catch (e) {
+      console.warn("Falha ao salvar no localStorage (provavelmente limite excedido):", e);
+    }
   }, [state]);
 
   const syncToSheet = async (dataType: 'APARTMENT' | 'BUDGET' | 'EMPLOYEE' | 'EXTRA' | 'SECTOR' | 'INVENTORY' | 'INVENTORY_OP' | 'SUPPLIER' | 'CONFIG' | 'DELETE' | 'USER' | 'PARKING_LOCATION' | 'VEHICLE' | 'CHECKOUT_VEHICLE', data: any, newFiles?: any[], hotelOverride?: HotelType) => {
@@ -599,7 +625,8 @@ const App: React.FC = () => {
   const handleUpdateConfig = (config: any) => {
     setState(prev => {
       const newConfig = { ...prev.hotels[prev.currentHotel].config, ...config };
-      syncToSheet('CONFIG', { config: JSON.stringify(newConfig) });
+      // Sincroniza o objeto de config inteiro para que reflita corretamente na planilha
+      syncToSheet('CONFIG', newConfig);
       return {
         ...prev,
         hotels: {
@@ -820,7 +847,15 @@ const App: React.FC = () => {
           />
         );
       case ViewType.APARTMENTS:
-        return <ApartmentsView onSelectFloor={(floor) => setState(prev => ({ ...prev, selectedFloor: floor }))} theme={theme} hotelName={state.currentHotel} />;
+        return (
+          <ApartmentsView 
+            onSelectFloor={(floor) => setState(prev => ({ ...prev, selectedFloor: floor }))} 
+            theme={theme} 
+            hotelName={state.currentHotel}
+            apartments={currentHotelData.apartments}
+            onSelectApartment={(id) => setState(prev => ({ ...prev, selectedApartmentId: id }))}
+          />
+        );
       case ViewType.BUDGETS:
         return <BudgetsView budgets={currentHotelData.budgets} theme={theme} onSave={handleSaveBudget} onDelete={handleDeleteBudget} />;
       case ViewType.EMPLOYEES:
