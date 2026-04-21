@@ -14,6 +14,20 @@ const __dirname = path.dirname(__filename);
 const app = express();
 app.use(express.json({ limit: '50mb' }));
 app.use(cookieParser());
+
+// Health check
+app.get('/api/health', (req, res) => {
+  res.json({ 
+    status: 'ok', 
+    timestamp: new Date().toISOString(),
+    env: {
+      hasSheetId: !!process.env.GOOGLE_SHEET_ID,
+      hasServiceAccount: !!process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
+      hasPrivateKey: !!process.env.GOOGLE_PRIVATE_KEY
+    }
+  });
+});
+
 app.use(session({
   secret: process.env.SESSION_SECRET || 'secret-key-gestao-hotel',
   resave: false,
@@ -349,8 +363,11 @@ app.get('/api/sheets/load', async (req, res) => {
     const data = await getSheetData(hotel as string);
     res.json({ status: 'success', data: data || {} });
   } catch (error: any) {
-    console.error('Error loading sheets:', error);
-    res.status(500).json({ status: 'error', message: error.message });
+    console.error(`[Load Error] Hotel: ${hotel} -`, error);
+    res.status(500).json({ 
+      status: 'error', 
+      message: `Erro ao carregar dados: ${error.message || 'Erro desconhecido'}` 
+    });
   }
 });
 

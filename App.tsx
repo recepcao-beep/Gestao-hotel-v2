@@ -138,11 +138,12 @@ const App: React.FC = () => {
         }
       });
       
-      console.log("Fetch response status:", response.status);
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || `HTTP ${response.status}`);
+      }
       
       const result = await response.json();
-      console.log("Fetch result:", result);
       
       if (result && result.status === 'success') {
         const incomingData = result.data;
@@ -331,9 +332,13 @@ const App: React.FC = () => {
       }
     } catch (error: any) { 
       console.error(`Erro ao carregar ${targetHotel}:`, error);
-      if (error.message?.includes('Quota exceeded') || error.message?.includes('429')) {
+      const msg = error.message || 'Erro desconhecido';
+      
+      if (msg.includes('Quota exceeded') || msg.includes('429')) {
         alert("Limite de requisições ao Google Sheets atingido. Por favor, aguarde um minuto e tente novamente.");
       }
+      
+      throw error;
     } finally { 
       setIsRefreshing(false); 
     }
@@ -940,8 +945,7 @@ const App: React.FC = () => {
   const handleGoogleLogin = async (email: string, name: string, hotel: HotelType) => {
     try {
       const hotelData = await loadDataFromSheet(hotel);
-      if (!hotelData) return { success: false, message: 'Erro ao conectar com o servidor' };
-
+      
       const user = hotelData.users?.find((u: any) => u.email === email);
       if (user) {
         if (user.status === 'PENDING') {
@@ -964,9 +968,9 @@ const App: React.FC = () => {
         handleSaveUser(newUser);
         return { success: false, message: 'Solicitação de acesso enviada! Aguarde a aprovação do Gestor.' };
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Google Login Error:", error);
-      return { success: false, message: 'Erro ao processar login com o Google' };
+      return { success: false, message: error.message || 'Erro ao conectar com o servidor' };
     }
   };
 
