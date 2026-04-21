@@ -15,6 +15,7 @@ import {
   FileBarChart,
   Car
 } from 'lucide-react';
+import Logo from './Logo';
 
 interface SidebarProps {
   currentView: ViewType;
@@ -170,6 +171,10 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange, currentHot
           <LogOut size={18} />
           <span className="text-sm font-bold">Encerrar Sessão</span>
         </button>
+
+        <div className="pt-6 flex justify-center opacity-40 hover:opacity-100 transition-opacity">
+          <Logo className="h-6" themeColor={theme.primary} showText={true} />
+        </div>
       </div>
     </aside>
   );

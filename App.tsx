@@ -14,6 +14,7 @@ import ReportsView from './components/ReportsView';
 import SettingsView from './components/SettingsView';
 import ParkingView from './components/ParkingView';
 import Login from './components/Login';
+import Logo from './components/Logo';
 
 const GLOBAL_API_URL = "/api/sheets";
 
@@ -992,7 +993,7 @@ const App: React.FC = () => {
       
       <main className="flex-1 p-4 md:p-8 md:ml-64 mb-20 md:mb-0 transition-all duration-300">
         <header className="flex justify-between items-center mb-8 md:hidden">
-          <h1 className="text-2xl font-black text-slate-800 tracking-tighter">Nacional Inn</h1>
+          <Logo className="h-10" themeColor={theme.primary} />
           <div className="px-3 py-1 bg-white rounded-full border text-[10px] font-bold text-slate-400 uppercase tracking-widest">{state.currentHotel}</div>
         </header>
         {renderContent()}

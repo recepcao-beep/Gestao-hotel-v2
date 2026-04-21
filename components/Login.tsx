@@ -2,6 +2,7 @@
 import React, { useState } from 'react';
 import { UserRole, HotelType, User } from '../types';
 import { Building2, Lock, ChevronRight, AlertCircle, Users, CheckCircle2, User as UserIcon } from 'lucide-react';
+import Logo from './Logo';
 import { GoogleLogin } from '@react-oauth/google';
 import { jwtDecode } from "jwt-decode";
 
@@ -81,9 +82,9 @@ const Login: React.FC<LoginProps> = ({ onLogin, onFetchHotelData, onGoogleLogin 
     <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4 font-sans text-slate-900">
       <div className="bg-white w-full max-w-md rounded-[3rem] shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-500">
         <div className="p-10 space-y-8">
-          <div className="text-center space-y-2">
-            <h1 className="text-4xl font-black text-slate-800 tracking-tighter">Nacional Inn</h1>
-            <p className="text-slate-400 font-bold uppercase text-[10px] tracking-[0.3em]">Gestão Hotel Village</p>
+          <div className="flex flex-col items-center space-y-2">
+            <Logo className="h-16" />
+            <p className="text-slate-400 font-bold uppercase text-[10px] tracking-[0.3em]">Ambiente de Gestão Unificado</p>
           </div>
 
           {!accessType ? (

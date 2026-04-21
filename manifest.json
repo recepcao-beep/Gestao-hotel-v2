@@ -1,0 +1,17 @@
+{
+  "name": "Gestão Nacional Inn",
+  "short_name": "Nacional Inn",
+  "description": "Sistema de Gestão Unificado Hotel Nacional Inn",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#26A6A6",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

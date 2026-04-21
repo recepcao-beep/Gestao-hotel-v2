@@ -160,7 +160,8 @@ const dataCache: Record<string, { data: any, timestamp: number }> = {};
 async function getSheetData(hotel: string) {
   const SPREADSHEET_ID = process.env.GOOGLE_SHEET_ID;
   if (!SPREADSHEET_ID) {
-    throw new Error('GOOGLE_SHEET_ID environment variable is missing. Please check your Secrets settings.');
+    const context = process.env.VERCEL ? 'no Dashboard da Vercel (Environment Variables)' : 'no menu Settings > Secrets do AI Studio';
+    throw new Error(`A variável de ambiente GOOGLE_SHEET_ID não foi encontrada. Por favor, configure-a ${context}.`);
   }
 
   // Check cache first
@@ -287,7 +288,8 @@ async function getSheetData(hotel: string) {
 async function saveSheetData(hotel: string, dataType: string, data: any) {
   const SPREADSHEET_ID = process.env.GOOGLE_SHEET_ID;
   if (!SPREADSHEET_ID) {
-    throw new Error('GOOGLE_SHEET_ID environment variable is missing. Please check your Secrets settings.');
+    const context = process.env.VERCEL ? 'no Dashboard da Vercel (Environment Variables)' : 'no menu Settings > Secrets do AI Studio';
+    throw new Error(`A variável de ambiente GOOGLE_SHEET_ID não foi encontrada. Por favor, configure-a ${context}.`);
   }
 
   const key = INTERNAL_KEY_MAP[dataType];
