@@ -175,6 +175,7 @@ export interface InventoryOperation {
   reason?: string;
   recipientId?: string;
   recipientName?: string;
+  withdrawalLocation?: string;
 }
 
 export interface Integration {

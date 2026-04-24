@@ -132,10 +132,25 @@ const ApartmentDetailView: React.FC<ApartmentDetailViewProps> = ({ apartment, th
       {/* Lightbox Modal */}
       {selectedImage && (
         <div className="fixed inset-0 bg-black/95 z-[500] flex items-center justify-center p-4 animate-in fade-in duration-300" onClick={() => setSelectedImage(null)}>
-          <button className="absolute top-6 right-6 p-3 bg-white/10 hover:bg-white/20 text-white rounded-full transition-all">
+          <button className="absolute top-6 right-6 p-3 bg-white/10 hover:bg-white/20 text-white rounded-full transition-all z-[510]">
             <X size={32} />
           </button>
-          <img src={selectedImage} alt="Visualização" className="max-w-full max-h-full object-contain rounded-lg shadow-2xl animate-in zoom-in duration-300" onClick={(e) => e.stopPropagation()} />
+          <img 
+            src={selectedImage} 
+            alt="Visualização" 
+            className="max-w-full max-h-[90dvh] object-contain rounded-lg shadow-2xl animate-in zoom-in duration-300" 
+            onClick={(e) => e.stopPropagation()} 
+            referrerPolicy="no-referrer"
+            onError={(e) => {
+              const target = e.target as HTMLImageElement;
+              if (!target.src.includes('thumbnail') && (selectedImage?.includes('drive.google.com') || selectedImage?.includes('docs.google.com'))) {
+                const idMatch = selectedImage.match(/[-\w]{25,50}/);
+                if (idMatch) {
+                  target.src = `https://drive.google.com/thumbnail?id=${idMatch[0]}&sz=w1000`;
+                }
+              }
+            }}
+          />
         </div>
       )}
 
@@ -565,31 +580,6 @@ const ApartmentDetailView: React.FC<ApartmentDetailViewProps> = ({ apartment, th
           <span>SALVAR VISTORIA</span>
         </button>
       </div>
-
-      {/* Lightbox Modal */}
-      {selectedImage && (
-        <div className="fixed inset-0 bg-black/95 z-[500] flex items-center justify-center p-4 animate-in fade-in duration-300" onClick={() => setSelectedImage(null)}>
-          <button className="absolute top-6 right-6 p-3 bg-white/10 hover:bg-white/20 text-white rounded-full transition-all">
-            <X size={32} />
-          </button>
-          <img 
-            src={selectedImage} 
-            alt="Visualização" 
-            className="max-w-full max-h-full object-contain rounded-lg shadow-2xl animate-in zoom-in duration-300" 
-            onClick={(e) => e.stopPropagation()} 
-            referrerPolicy="no-referrer"
-            onError={(e) => {
-              const target = e.target as HTMLImageElement;
-              if (!target.src.includes('thumbnail') && (selectedImage?.includes('drive.google.com') || selectedImage?.includes('docs.google.com'))) {
-                const idMatch = selectedImage.match(/[-\w]{25,50}/);
-                if (idMatch) {
-                  target.src = `https://drive.google.com/thumbnail?id=${idMatch[0]}&sz=w1000`;
-                }
-              }
-            }}
-          />
-        </div>
-      )}
     </div>
   );
 };

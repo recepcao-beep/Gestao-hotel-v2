@@ -9,7 +9,8 @@ import {
   Package,
   FileBarChart,
   CalendarDays,
-  Car
+  Car,
+  Settings
 } from 'lucide-react';
 
 interface BottomNavProps {
@@ -25,13 +26,14 @@ const BottomNav: React.FC<BottomNavProps> = ({ currentView, onViewChange, theme,
     { id: ViewType.DASHBOARD, label: 'Início', icon: LayoutDashboard, visible: role === 'GESTOR' || user.allowedTabs?.includes(ViewType.DASHBOARD) },
     { id: ViewType.APARTMENTS, label: 'Aptos', icon: Hotel, visible: role === 'GESTOR' || user.allowedTabs?.includes(ViewType.APARTMENTS) },
     { id: ViewType.PARKING, label: 'Vagas', icon: Car, visible: role === 'GESTOR' || user.allowedTabs?.includes(ViewType.PARKING) },
-    { id: ViewType.BUDGETS, label: 'Orcas', icon: ReceiptPoundSterling, visible: role === 'GESTOR' || user.allowedTabs?.includes(ViewType.BUDGETS) },
-    { id: ViewType.INVENTORY, label: 'Estoque', icon: Package, visible: role === 'GESTOR' || user.allowedTabs?.includes(ViewType.INVENTORY) },
+    { id: ViewType.BUDGETS, label: 'Orças', icon: ReceiptPoundSterling, visible: role === 'GESTOR' || user.allowedTabs?.includes(ViewType.BUDGETS) },
+    { id: ViewType.INVENTORY, label: 'Itens', icon: Package, visible: role === 'GESTOR' || user.allowedTabs?.includes(ViewType.INVENTORY) },
     { id: ViewType.EMPLOYEES, label: 'Equipe', icon: Users, visible: role === 'GESTOR' || user.allowedTabs?.includes(ViewType.EMPLOYEES) },
+    { id: ViewType.SETTINGS, label: 'Ajuste', icon: Settings, visible: role === 'GESTOR' || user.allowedTabs?.includes(ViewType.SETTINGS) },
   ];
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-100 z-[100] md:hidden px-2 pb-safe">
+    <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-100 z-[100] md:hidden px-1 pb-safe">
       <div className="flex justify-around items-center h-16">
         {menuItems.filter(i => i.visible).map((item) => {
           const Icon = item.icon;
@@ -43,10 +45,10 @@ const BottomNav: React.FC<BottomNavProps> = ({ currentView, onViewChange, theme,
               className="flex flex-col items-center justify-center w-full h-full relative group transition-all"
             >
               <div 
-                className={`p-2 rounded-xl transition-all ${isActive ? 'bg-slate-50' : 'text-slate-400'}`}
+                className={`p-1.5 rounded-xl transition-all ${isActive ? 'bg-slate-50' : 'text-slate-400'}`}
                 style={{ color: isActive ? theme.primary : undefined }}
               >
-                <Icon size={22} strokeWidth={isActive ? 2.5 : 2} />
+                <Icon size={20} strokeWidth={isActive ? 2.5 : 2} />
               </div>
               <span 
                 className={`text-[9px] font-black uppercase tracking-tighter mt-0.5 ${isActive ? 'opacity-100' : 'opacity-40'}`}

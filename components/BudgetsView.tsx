@@ -266,13 +266,13 @@ const BudgetsView: React.FC<BudgetsViewProps> = ({ budgets, theme, onSave, onDel
 
       {isAdding && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-6xl rounded-[2.5rem] shadow-2xl max-h-[95vh] overflow-y-auto p-8 animate-in zoom-in duration-200">
-            <div className="flex justify-between items-center mb-8 border-b border-slate-50 pb-6">
+          <div className="bg-white w-[95%] md:w-full md:max-w-6xl rounded-[2.5rem] shadow-2xl max-h-[90dvh] overflow-hidden flex flex-col animate-in zoom-in duration-200">
+            <div className="flex justify-between items-center p-6 md:p-8 border-b border-slate-50 shrink-0">
               <h2 className="text-2xl font-black text-slate-800">{editingBudget ? 'Editar Orçamento' : 'Novo Orçamento'}</h2>
               <button onClick={resetForm} className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400"><X size={24} /></button>
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-8">
+            <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 md:p-8 space-y-8">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-slate-50 p-6 rounded-[2rem]">
                 <div className="col-span-2">
                   <label className="block text-[10px] font-black text-slate-500 uppercase mb-2 ml-1">Título do Projeto</label>
@@ -416,7 +416,7 @@ const BudgetsView: React.FC<BudgetsViewProps> = ({ budgets, theme, onSave, onDel
                        <h4 className="text-4xl font-black text-blue-400">{formTotals.totalDays} dias</h4>
                     </div>
                  </div>
-                 <button type="submit" className="flex-1 md:flex-none px-12 py-5 rounded-2xl font-black text-xs uppercase tracking-widest bg-emerald-500 hover:bg-emerald-400 shadow-xl transition-all active:scale-95">Salvar Projeto Completo</button>
+                 <button type="submit" className="flex-1 md:flex-none px-12 py-6 rounded-2xl font-black text-sm uppercase tracking-widest bg-emerald-500 hover:bg-emerald-400 shadow-xl transition-all active:scale-95">Salvar Projeto Completo</button>
               </div>
             </form>
           </div>

@@ -693,12 +693,12 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
 
         {isSectorModalOpen && (
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[400] flex items-center justify-center p-4">
-             <div className="bg-white w-full max-w-lg rounded-[2.5rem] shadow-2xl overflow-hidden animate-in zoom-in duration-200">
-                <div className="p-6 border-b flex justify-between items-center bg-slate-50/50">
-                   <h3 className="font-black text-slate-800">{editingSector ? 'Editar Setor' : 'Novo Setor'}</h3>
-                   <button onClick={resetSectorForm}><X size={24} className="text-slate-300"/></button>
+             <div className="bg-white w-[95%] md:w-full md:max-w-lg rounded-2xl md:rounded-[2.5rem] shadow-2xl overflow-hidden animate-in zoom-in duration-200 flex flex-col max-h-[90dvh]">
+                <div className="p-6 md:p-8 border-b flex justify-between items-center bg-slate-50/50 shrink-0">
+                   <h3 className="font-black text-slate-800 uppercase text-sm tracking-widest">{editingSector ? 'Editar Setor' : 'Novo Setor'}</h3>
+                   <button onClick={resetSectorForm} className="text-slate-300 hover:text-slate-500 transition-colors"><X size={24}/></button>
                 </div>
-                <form onSubmit={handleSaveSectorSubmit} className="p-6 space-y-6">
+                <form onSubmit={handleSaveSectorSubmit} className="p-6 md:p-8 space-y-6 overflow-y-auto">
                    <div>
                       <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1">Nome do Setor</label>
                       <input 
@@ -782,7 +782,7 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
                       </div>
                    </div>
 
-                   <button type="submit" className="w-full py-4 bg-slate-900 text-white rounded-xl font-black text-xs uppercase shadow-lg">Salvar Setor</button>
+                   <button type="submit" className="w-full py-5 bg-slate-900 text-white rounded-2xl font-black text-sm uppercase shadow-xl hover:brightness-110 active:scale-95 transition-all">Salvar Setor</button>
                 </form>
              </div>
           </div>
@@ -790,8 +790,8 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
 
         {sectorToDelete && (
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[500] flex items-center justify-center p-4">
-            <div className="bg-white w-full max-w-sm rounded-[2rem] shadow-2xl overflow-hidden animate-in zoom-in duration-200">
-              <div className="p-6 text-center">
+            <div className="bg-white w-[95%] md:w-full md:max-w-sm rounded-[2rem] shadow-2xl overflow-hidden animate-in zoom-in duration-200">
+              <div className="p-6 md:p-8 text-center">
                 <div className="w-16 h-16 bg-rose-100 text-rose-500 rounded-full flex items-center justify-center mx-auto mb-4">
                   <AlertCircle size={32} />
                 </div>
@@ -1235,22 +1235,22 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
       {/* Modal Cadastro/Edição de Funcionário CLT */}
       {isAddingEmployee && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[400] flex items-center justify-center p-4 print:hidden">
-           <div className="bg-white w-full max-w-3xl rounded-[3rem] shadow-2xl max-h-[90vh] overflow-hidden flex flex-col animate-in zoom-in duration-300">
-              <div className="p-8 border-b flex justify-between items-center bg-slate-50/50">
+           <div className="bg-white w-[98%] md:w-full md:max-w-3xl rounded-2xl md:rounded-[3rem] shadow-2xl max-h-[92dvh] md:max-h-[90vh] overflow-hidden flex flex-col animate-in zoom-in duration-300">
+              <div className="p-6 md:p-8 border-b flex justify-between items-center bg-slate-50/50 shrink-0">
                  <div>
-                    <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tighter">{editingEmployee ? 'Editar' : 'Novo'} Colaborador</h2>
+                    <h2 className="text-xl md:text-2xl font-black text-slate-800 uppercase tracking-tighter">{editingEmployee ? 'Editar' : 'Novo'} Colaborador</h2>
                     <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">{currentSector?.name}</p>
                  </div>
-                 <button onClick={resetEmployeeForm} className="p-2 text-slate-300 hover:text-slate-900 transition-all"><X size={32}/></button>
+                 <button onClick={resetEmployeeForm} className="p-2 text-slate-300 hover:text-slate-900 transition-all"><X size={28}/></button>
               </div>
 
-              <div className="flex bg-slate-100 p-1.5 mx-8 mt-6 rounded-2xl border overflow-x-auto">
+              <div className="flex bg-slate-100 p-1.5 mx-4 md:mx-8 mt-6 rounded-2xl border overflow-x-auto shrink-0">
                  <button onClick={() => setActiveFormTab('DADOS')} className={`flex-1 py-3 px-4 rounded-xl text-[10px] font-black uppercase transition-all whitespace-nowrap ${activeFormTab === 'DADOS' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-400'}`}>Dados Pessoais</button>
                  <button onClick={() => setActiveFormTab('ESCALA')} className={`flex-1 py-3 px-4 rounded-xl text-[10px] font-black uppercase transition-all whitespace-nowrap ${activeFormTab === 'ESCALA' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-400'}`}>Escala & Folgas</button>
                  <button onClick={() => setActiveFormTab('UNIFORMES')} className={`flex-1 py-3 px-4 rounded-xl text-[10px] font-black uppercase transition-all whitespace-nowrap ${activeFormTab === 'UNIFORMES' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-400'}`}>Uniformes</button>
               </div>
 
-              <form onSubmit={handleSaveEmployeeSubmit} className="p-8 flex-1 overflow-y-auto space-y-8">
+              <form onSubmit={handleSaveEmployeeSubmit} className="p-6 md:p-8 flex-1 overflow-y-auto space-y-8">
                  {activeFormTab === 'DADOS' && (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-in slide-in-from-left-4">
                        <div className="col-span-2 flex flex-col items-center mb-4">
@@ -1488,9 +1488,9 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
                     </div>
                  )}
                  
-                 <div className="flex gap-4 pt-6 mt-6 border-t">
-                    <button type="button" onClick={resetEmployeeForm} className="flex-1 py-4 font-black uppercase text-xs text-slate-400">Cancelar</button>
-                    <button type="submit" className="flex-1 py-4 rounded-[1.5rem] font-black uppercase text-xs text-white shadow-xl active:scale-95 transition-all" style={{ backgroundColor: theme.primary }}>Salvar Colaborador</button>
+                 <div className="flex gap-4 pt-6 mt-6 border-t shrink-0">
+                    <button type="button" onClick={resetEmployeeForm} className="flex-1 py-5 font-black uppercase text-[11px] text-slate-400">Cancelar</button>
+                    <button type="submit" className="flex-1 py-5 rounded-[1.5rem] font-black uppercase text-sm text-white shadow-xl active:scale-95 transition-all" style={{ backgroundColor: theme.primary }}>Salvar</button>
                  </div>
               </form>
            </div>
@@ -1500,14 +1500,14 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
       {/* Modal EXTRA LABOR */}
       {isAddingExtra && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[400] flex items-center justify-center p-4 print:hidden">
-           <div className="bg-white w-full max-w-lg rounded-[2.5rem] shadow-2xl overflow-hidden animate-in zoom-in duration-200">
-              <div className="p-8 border-b flex justify-between items-center bg-slate-50/50">
+           <div className="bg-white w-[95%] md:w-full md:max-w-lg rounded-2xl md:rounded-[2.5rem] shadow-2xl overflow-hidden animate-in zoom-in duration-200 flex flex-col max-h-[90dvh]">
+              <div className="p-6 md:p-8 border-b flex justify-between items-center bg-slate-50/50 shrink-0">
                  <h2 className="text-xl font-black text-slate-800">{editingExtra ? 'Editar Profissional' : 'Novo Extra'}</h2>
-                 <button onClick={resetExtraForm} className="text-slate-300 hover:text-slate-500"><X size={24}/></button>
+                 <button onClick={resetExtraForm} className="text-slate-300 hover:text-slate-500 transition-colors"><X size={24}/></button>
               </div>
-              <form onSubmit={handleSaveExtraSubmit} className="p-8 space-y-4">
-                 <input type="text" value={extraName} onChange={e => setExtraName(e.target.value)} className="w-full px-4 py-3 rounded-xl border-2 border-slate-50 outline-none font-bold" placeholder="Nome Completo" required />
-                 <input type="text" value={extraPhone} onChange={e => setExtraPhone(e.target.value)} className="w-full px-4 py-3 rounded-xl border-2 border-slate-50 outline-none font-bold" placeholder="Telefone" />
+              <form onSubmit={handleSaveExtraSubmit} className="p-6 md:p-8 space-y-4 overflow-y-auto">
+                 <input type="text" value={extraName} onChange={e => setExtraName(e.target.value)} className="w-full px-4 py-3 rounded-xl border-2 border-slate-50 outline-none font-bold bg-white text-slate-800 placeholder:text-slate-400" placeholder="Nome Completo" required />
+                 <input type="text" value={extraPhone} onChange={e => setExtraPhone(e.target.value)} className="w-full px-4 py-3 rounded-xl border-2 border-slate-50 outline-none font-bold bg-white text-slate-800 placeholder:text-slate-400" placeholder="Telefone" />
                  
                  <div>
                     <label className="block text-[9px] font-black text-slate-400 uppercase mb-2 ml-1">Dias de Disponibilidade</label>
@@ -1537,9 +1537,9 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
                     </div>
                  </div>
 
-                 <textarea value={extraObservation} onChange={e => setExtraObservation(e.target.value)} className="w-full px-4 py-3 rounded-xl border-2 border-slate-50 outline-none font-bold h-24" placeholder="Observações..." />
+                 <textarea value={extraObservation} onChange={e => setExtraObservation(e.target.value)} className="w-full px-4 py-3 rounded-xl border-2 border-slate-50 outline-none font-bold h-24 bg-white text-slate-800 placeholder:text-slate-400" placeholder="Observações..." />
                  
-                 <button type="submit" className="w-full py-4 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl transition-all active:scale-95 hover:brightness-110" style={{ backgroundColor: theme.primary }}>Salvar Profissional</button>
+                 <button type="submit" className="w-full py-5 text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-xl transition-all active:scale-95 hover:brightness-110 shrink-0" style={{ backgroundColor: theme.primary }}>Salvar Profissional</button>
               </form>
            </div>
         </div>
@@ -1548,50 +1548,52 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
       {/* MODAL CRACHÁ DIGITAL (BADGE) - MINIMALIST */}
       {selectedBadge && (
         <div className="fixed inset-0 bg-black/80 z-[500] flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-300">
-           <div className="bg-white w-full max-w-[300px] rounded-[1.5rem] shadow-2xl overflow-hidden animate-in zoom-in duration-300 relative print:shadow-none print:w-[300px] print:h-auto print:m-0 print:border-0">
+           <div className="bg-white w-[95%] md:w-full md:max-w-[300px] rounded-[1.5rem] shadow-2xl overflow-hidden animate-in zoom-in duration-300 relative flex flex-col max-h-[90dvh] print:shadow-none print:w-[300px] print:h-auto print:m-0 print:border-0">
               <button onClick={() => setSelectedBadge(null)} className="absolute top-3 right-3 p-1.5 bg-black/10 hover:bg-black/20 backdrop-blur rounded-full text-white transition-all print:hidden z-20"><X size={16}/></button>
               
-              {/* Minimalist Header with Hotel Color */}
-              <div className="h-28 w-full relative flex items-center justify-center" style={{ backgroundColor: theme.primary }}>
-                 <div className="text-center text-white opacity-90">
-                    <Briefcase size={24} className="mx-auto mb-1 opacity-50"/>
-                    <p className="font-black tracking-[0.2em] text-[10px] uppercase">Crachá Digital</p>
-                 </div>
-              </div>
+              <div className="overflow-y-auto flex-1">
+                {/* Minimalist Header with Hotel Color */}
+                <div className="h-28 w-full relative flex items-center justify-center shrink-0" style={{ backgroundColor: theme.primary }}>
+                   <div className="text-center text-white opacity-90">
+                      <Briefcase size={24} className="mx-auto mb-1 opacity-50"/>
+                      <p className="font-black tracking-[0.2em] text-[10px] uppercase">Crachá Digital</p>
+                   </div>
+                </div>
 
-              {/* Content */}
-              <div className="flex flex-col items-center -mt-14 px-6 pb-8 relative z-10">
-                 {/* Photo */}
-                 <div className="w-28 h-28 rounded-full border-[6px] border-white shadow-xl overflow-hidden bg-slate-100 mb-4 object-cover">
-                    {selectedBadge.photo ? (
-                       <img src={selectedBadge.photo} alt={selectedBadge.name} className="w-full h-full object-cover"/>
-                    ) : (
-                       <div className="w-full h-full flex items-center justify-center bg-slate-200 text-slate-400">
-                          <UserIcon size={48}/>
-                       </div>
-                    )}
-                 </div>
-                 
-                 {/* Info */}
-                 <div className="text-center w-full mb-6 space-y-1">
-                    <h3 className="text-xl font-black text-slate-900 leading-tight">{selectedBadge.name}</h3>
-                    <div className="inline-block px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest" style={{ backgroundColor: theme.primary + '20', color: theme.primary }}>
-                       {selectedBadge.role}
-                    </div>
-                 </div>
+                {/* Content */}
+                <div className="flex flex-col items-center -mt-14 px-6 pb-8 relative z-10">
+                   {/* Photo */}
+                   <div className="w-28 h-28 rounded-full border-[6px] border-white shadow-xl overflow-hidden bg-slate-100 mb-4 bg-cover">
+                      {selectedBadge.photo ? (
+                         <img src={selectedBadge.photo} alt={selectedBadge.name} className="w-full h-full object-cover"/>
+                      ) : (
+                         <div className="w-full h-full flex items-center justify-center bg-slate-200 text-slate-400">
+                            <UserIcon size={48}/>
+                         </div>
+                      )}
+                   </div>
+                   
+                   {/* Info */}
+                   <div className="text-center w-full mb-6 space-y-1">
+                      <h3 className="text-xl font-black text-slate-900 leading-tight">{selectedBadge.name}</h3>
+                      <div className="inline-block px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest" style={{ backgroundColor: theme.primary + '20', color: theme.primary }}>
+                         {selectedBadge.role}
+                      </div>
+                   </div>
 
-                 {/* QR Code */}
-                 <div className="p-3 bg-white rounded-xl border-2 border-dashed border-slate-200">
-                    <img 
-                       src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${selectedBadge.id}`} 
-                       alt="QR Code" 
-                       className="w-24 h-24 mix-blend-multiply opacity-90"
-                    />
-                 </div>
+                   {/* QR Code */}
+                   <div className="p-3 bg-white rounded-xl border-2 border-dashed border-slate-200">
+                      <img 
+                         src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${selectedBadge.id}`} 
+                         alt="QR Code" 
+                         className="w-24 h-24 mix-blend-multiply opacity-90"
+                      />
+                   </div>
+                </div>
               </div>
               
               {/* Print Button */}
-              <div className="p-4 bg-slate-50 border-t border-slate-100 print:hidden">
+              <div className="p-4 bg-slate-50 border-t border-slate-100 print:hidden shrink-0">
                  <button onClick={() => window.print()} className="w-full py-3 rounded-xl font-black text-xs uppercase flex items-center justify-center space-x-2 shadow-lg text-white transition-transform active:scale-95" style={{ backgroundColor: theme.primary }}>
                     <Printer size={16}/> <span>Imprimir</span>
                  </button>
@@ -1603,19 +1605,19 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
       {/* MODAL HISTÓRICO DO FUNCIONÁRIO */}
       {viewingHistoryEmployee && (
          <div className="fixed inset-0 bg-slate-900/60 z-[500] flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
-            <div className="bg-white w-full max-w-2xl rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col max-h-[85vh] animate-in slide-in-from-bottom-8">
-               <div className="p-6 border-b flex justify-between items-center bg-slate-50">
+            <div className="bg-white w-[95%] md:w-full md:max-w-2xl rounded-2xl md:rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col max-h-[90dvh] animate-in slide-in-from-bottom-8">
+               <div className="p-6 md:p-8 border-b flex justify-between items-center bg-slate-50 shrink-0">
                   <div className="flex items-center space-x-4">
                      <div className="p-3 bg-white rounded-2xl shadow-sm text-blue-500"><History size={24}/></div>
                      <div>
-                        <h3 className="text-lg font-black text-slate-800">Histórico de Retiradas</h3>
-                        <p className="text-xs font-bold text-slate-400">{viewingHistoryEmployee.name}</p>
+                        <h3 className="text-base md:text-lg font-black text-slate-800">Histórico de Retiradas</h3>
+                        <p className="text-[10px] md:text-xs font-bold text-slate-400">{viewingHistoryEmployee.name}</p>
                      </div>
                   </div>
                   <button onClick={() => setViewingHistoryEmployee(null)} className="p-2 hover:bg-slate-200 rounded-full text-slate-400 transition-colors"><X size={24}/></button>
                </div>
                
-               <div className="flex-1 overflow-y-auto p-6 space-y-4">
+               <div className="flex-1 overflow-y-auto p-6 md:p-8 space-y-4">
                   {inventoryHistory.filter(h => h.recipientName === viewingHistoryEmployee.name || h.recipientId === viewingHistoryEmployee.id).length === 0 ? (
                      <div className="py-20 text-center">
                         <p className="text-slate-300 font-bold italic">Nenhum item retirado por este colaborador.</p>
@@ -1630,13 +1632,13 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
                                     {op.type === 'Entrada' ? <ArrowUpRight size={20}/> : <ArrowDownRight size={20}/>}
                                  </div>
                                  <div>
-                                    <p className="font-black text-slate-800 text-sm">{op.itemName}</p>
+                                    <p className="font-black text-slate-800 text-sm leading-tight">{op.itemName}</p>
                                     <p className="text-[10px] font-bold text-slate-400 uppercase">{new Date(op.timestamp).toLocaleString()}</p>
                                  </div>
                               </div>
                               <div className="text-right">
-                                 <span className="text-lg font-black text-slate-800">{op.quantity}</span>
-                                 <span className="text-[10px] font-bold text-slate-400 uppercase block">Unidades</span>
+                                 <span className="text-lg font-black text-slate-800 leading-none block">{op.quantity}</span>
+                                 <span className="text-[10px] font-bold text-slate-400 uppercase block">Und.</span>
                               </div>
                            </div>
                         ))

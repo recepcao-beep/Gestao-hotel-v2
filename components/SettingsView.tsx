@@ -215,25 +215,29 @@ const SettingsView: React.FC<SettingsViewProps> = ({
   return (
     <div className="space-y-4 md:space-y-8 animate-in fade-in duration-500">
       <div className="flex flex-col md:flex-row gap-4 md:gap-8">
-        <aside className="w-full md:w-64 flex md:flex-col overflow-x-auto md:overflow-x-visible no-scrollbar pb-2 md:pb-0 space-x-2 md:space-x-0 md:space-y-2 sticky top-0 z-[40] md:relative bg-slate-50 md:bg-transparent -mx-4 px-4 md:mx-0 md:px-0">
-          {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id as any)}
-              className={`flex-shrink-0 flex items-center space-x-3 px-4 md:px-6 py-3 md:py-4 rounded-xl md:rounded-2xl transition-all font-bold text-xs md:text-sm whitespace-nowrap ${
-                activeTab === tab.id 
-                ? 'bg-white text-slate-900 shadow-md border-2 border-slate-50' 
-                : 'text-slate-400 hover:bg-white/50 hover:text-slate-600'
-              }`}
-              style={{ 
-                borderColor: activeTab === tab.id ? theme.primary + '30' : undefined,
-                color: activeTab === tab.id ? theme.primary : undefined
-              }}
-            >
-              <tab.icon size={16} className="md:w-[18px] md:h-[18px]" />
-              <span>{tab.label}</span>
-            </button>
-          ))}
+        <aside className="w-full md:w-64 relative">
+          <div className="flex md:flex-col overflow-x-auto md:overflow-x-visible pb-4 md:pb-0 space-x-2 md:space-x-0 md:space-y-2 sticky top-0 md:top-auto z-[40] md:relative bg-slate-50/90 backdrop-blur-md md:bg-transparent -mx-4 px-4 md:mx-0 md:px-0 py-3 md:py-0 border-b md:border-b-0 border-slate-200 md:border-transparent no-scrollbar touch-pan-x">
+            {tabs.map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id as any)}
+                className={`flex-shrink-0 flex items-center space-x-3 px-4 md:px-6 py-2.5 md:py-4 rounded-xl md:rounded-2xl transition-all font-bold text-[11px] md:text-sm whitespace-nowrap ${
+                  activeTab === tab.id 
+                  ? 'bg-white text-slate-900 shadow-sm border border-slate-100' 
+                  : 'text-slate-500 hover:bg-white/50 hover:text-slate-600 active:bg-slate-100'
+                }`}
+                style={{ 
+                  borderColor: activeTab === tab.id ? theme.primary + '30' : undefined,
+                  color: activeTab === tab.id ? theme.primary : undefined
+                }}
+              >
+                <tab.icon size={14} className="md:w-[18px] md:h-[18px]" />
+                <span>{tab.label}</span>
+              </button>
+            ))}
+          </div>
+          {/* Mobile Scroll Indicator Fade */}
+          <div className="absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-slate-50 to-transparent z-[45] pointer-events-none md:hidden h-[54px]" />
         </aside>
 
         <div className="flex-1 min-w-0">
@@ -512,12 +516,12 @@ const SettingsView: React.FC<SettingsViewProps> = ({
       {/* Supplier Modal for Settings */}
       {isAddingSupplier && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[300] flex items-center justify-center p-4">
-           <div className="bg-white w-full max-w-lg rounded-[2.5rem] shadow-2xl animate-in zoom-in duration-200 overflow-hidden">
-              <div className="p-8 border-b border-slate-50 flex justify-between items-center">
+           <div className="bg-white w-[95%] md:w-full md:max-w-lg rounded-2xl md:rounded-[2.5rem] shadow-2xl animate-in zoom-in duration-200 overflow-hidden flex flex-col max-h-[90dvh]">
+              <div className="p-6 md:p-8 border-b border-slate-50 flex justify-between items-center shrink-0">
                  <h2 className="text-xl font-black text-slate-800">{editingSupplier ? 'Editar Fornecedor' : 'Cadastrar Fornecedor'}</h2>
-                 <button onClick={() => { setIsAddingSupplier(false); setEditingSupplier(null); setSupName(''); setSupContact(''); setSupCategory(''); }} className="text-slate-300 hover:text-slate-500"><X size={24}/></button>
+                 <button onClick={() => { setIsAddingSupplier(false); setEditingSupplier(null); setSupName(''); setSupContact(''); setSupCategory(''); }} className="text-slate-300 hover:text-slate-500 transition-colors"><X size={24}/></button>
               </div>
-              <form onSubmit={handleSaveSupplierSubmit} className="p-8 space-y-4">
+              <form onSubmit={handleSaveSupplierSubmit} className="p-6 md:p-8 space-y-4 overflow-y-auto">
                  <div className="space-y-4">
                     <div>
                        <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1">Nome da Empresa</label>
@@ -532,7 +536,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({
                        <input type="text" value={supCategory} onChange={e => setSupCategory(e.target.value)} className="w-full px-4 py-3 rounded-xl border-2 border-slate-50 outline-none font-bold bg-white text-slate-800" placeholder="Ex: Limpeza, Lavanderia, Elétrica..." />
                     </div>
                  </div>
-                 <button type="submit" className="w-full py-4 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl transition-all active:scale-95" style={{ backgroundColor: theme.primary }}>
+                 <button type="submit" className="w-full py-4 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl transition-all active:scale-95 shrink-0" style={{ backgroundColor: theme.primary }}>
                    {editingSupplier ? 'Atualizar Fornecedor' : 'Cadastrar Fornecedor'}
                  </button>
               </form>
@@ -542,12 +546,12 @@ const SettingsView: React.FC<SettingsViewProps> = ({
       {/* Checklist Field Modal */}
       {isAddingField && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[300] flex items-center justify-center p-4">
-           <div className="bg-white w-full max-w-lg rounded-[2.5rem] shadow-2xl animate-in zoom-in duration-200 overflow-hidden">
-              <div className="p-8 border-b border-slate-50 flex justify-between items-center">
+           <div className="bg-white w-[95%] md:w-full md:max-w-lg rounded-2xl md:rounded-[2.5rem] shadow-2xl animate-in zoom-in duration-200 overflow-hidden flex flex-col max-h-[90dvh]">
+              <div className="p-6 md:p-8 border-b border-slate-50 flex justify-between items-center shrink-0">
                  <h2 className="text-xl font-black text-slate-800">{editingField ? 'Editar Item' : 'Novo Item de Vistoria'}</h2>
-                 <button onClick={() => { setIsAddingField(false); setEditingField(null); setFieldTitle(''); setFieldOptions(''); }} className="text-slate-300 hover:text-slate-500"><X size={24}/></button>
+                 <button onClick={() => { setIsAddingField(false); setEditingField(null); setFieldTitle(''); setFieldOptions(''); }} className="text-slate-300 hover:text-slate-500 transition-colors"><X size={24}/></button>
               </div>
-              <form onSubmit={handleSaveFieldSubmit} className="p-8 space-y-4">
+              <form onSubmit={handleSaveFieldSubmit} className="p-6 md:p-8 space-y-4 overflow-y-auto">
                  <div className="space-y-4">
                     <div>
                        <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1">Título do Item</label>
@@ -585,7 +589,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({
                        </div>
                     </div>
                  </div>
-                 <button type="submit" className="w-full py-4 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl transition-all active:scale-95 mt-4" style={{ backgroundColor: theme.primary }}>
+                 <button type="submit" className="w-full py-4 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl transition-all active:scale-95 mt-4 shrink-0" style={{ backgroundColor: theme.primary }}>
                    {editingField ? 'Atualizar Item' : 'Adicionar Item'}
                  </button>
               </form>
@@ -596,12 +600,12 @@ const SettingsView: React.FC<SettingsViewProps> = ({
       {/* User Modal */}
       {isAddingUser && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[300] flex items-center justify-center p-4">
-           <div className="bg-white w-full max-w-lg rounded-[2.5rem] shadow-2xl animate-in zoom-in duration-200 overflow-hidden">
-              <div className="p-8 border-b border-slate-50 flex justify-between items-center">
+           <div className="bg-white w-[95%] md:w-full md:max-w-lg rounded-2xl md:rounded-[2.5rem] shadow-2xl animate-in zoom-in duration-200 overflow-hidden flex flex-col max-h-[90dvh]">
+              <div className="p-6 md:p-8 border-b border-slate-50 flex justify-between items-center shrink-0">
                  <h2 className="text-xl font-black text-slate-800">{editingUser ? 'Editar Usuário' : 'Novo Usuário'}</h2>
-                 <button onClick={() => { setIsAddingUser(false); setEditingUser(null); setUserName(''); setUserPassword(''); setUserRole('FUNCIONARIO'); setUserTabs([]); }} className="text-slate-300 hover:text-slate-500"><X size={24}/></button>
+                 <button onClick={() => { setIsAddingUser(false); setEditingUser(null); setUserName(''); setUserPassword(''); setUserRole('FUNCIONARIO'); setUserTabs([]); }} className="text-slate-300 hover:text-slate-500 transition-colors"><X size={24}/></button>
               </div>
-              <form onSubmit={handleSaveUserSubmit} className="p-8 space-y-4">
+              <form onSubmit={handleSaveUserSubmit} className="p-6 md:p-8 space-y-4 overflow-y-auto">
                  <div className="space-y-4">
                     <div>
                        <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1">Unidade</label>
@@ -630,27 +634,41 @@ const SettingsView: React.FC<SettingsViewProps> = ({
                     <div>
                        <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1">Abas de Acesso</label>
                        <div className="grid grid-cols-2 gap-2">
-                         {Object.values(ViewType).map(tab => (
-                           <label key={tab} className="flex items-center space-x-2 p-2 bg-slate-50 rounded-lg border border-slate-100 cursor-pointer hover:bg-slate-100 transition-colors">
-                             <input 
-                               type="checkbox" 
-                               checked={userTabs.includes(tab)}
-                               onChange={(e) => {
-                                 if (e.target.checked) {
-                                   setUserTabs([...userTabs, tab]);
-                                 } else {
-                                   setUserTabs(userTabs.filter(t => t !== tab));
-                                 }
-                               }}
-                               className="rounded text-sky-500 focus:ring-sky-500"
-                             />
-                             <span className="text-xs font-bold text-slate-700">{tab}</span>
-                           </label>
-                         ))}
+                         {Object.values(ViewType).map(tab => {
+                           const tabLabels: Record<string, string> = {
+                             DASHBOARD: 'Dashboard',
+                             APARTMENTS: 'Apartamentos',
+                             BUDGETS: 'Orçamentos',
+                             SETTINGS: 'Configurações',
+                             EMPLOYEES: 'Colaboradores',
+                             INVENTORY: 'Estoque',
+                             REPORTS: 'Relatórios',
+                             TODAY_SCHEDULE: 'Agenda do Dia',
+                             PARKING: 'Estacionamento'
+                           };
+                           
+                           return (
+                             <label key={tab} className="flex items-center space-x-2 p-2 bg-slate-50 rounded-lg border border-slate-100 cursor-pointer hover:bg-slate-100 transition-colors">
+                               <input 
+                                 type="checkbox" 
+                                 checked={userTabs.includes(tab)}
+                                 onChange={(e) => {
+                                   if (e.target.checked) {
+                                     setUserTabs([...userTabs, tab]);
+                                   } else {
+                                     setUserTabs(userTabs.filter(t => t !== tab));
+                                   }
+                                 }}
+                                 className="rounded text-sky-500 focus:ring-sky-500"
+                               />
+                               <span className="text-xs font-bold text-slate-700">{tabLabels[tab] || tab}</span>
+                             </label>
+                           );
+                         })}
                        </div>
                     </div>
                  </div>
-                 <button type="submit" className="w-full py-4 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl transition-all active:scale-95 mt-4" style={{ backgroundColor: theme.primary }}>
+                 <button type="submit" className="w-full py-4 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl transition-all active:scale-95 mt-4 shrink-0" style={{ backgroundColor: theme.primary }}>
                    {editingUser ? 'Atualizar Usuário' : 'Cadastrar Usuário'}
                  </button>
               </form>
@@ -661,12 +679,12 @@ const SettingsView: React.FC<SettingsViewProps> = ({
       {/* Parking Location Modal */}
       {isAddingParkingLocation && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[300] flex items-center justify-center p-4">
-           <div className="bg-white w-full max-w-lg rounded-[2.5rem] shadow-2xl animate-in zoom-in duration-200 overflow-hidden">
-              <div className="p-8 border-b border-slate-50 flex justify-between items-center">
+           <div className="bg-white w-[95%] md:w-full md:max-w-lg rounded-2xl md:rounded-[2.5rem] shadow-2xl animate-in zoom-in duration-200 overflow-hidden flex flex-col max-h-[90dvh]">
+              <div className="p-6 md:p-8 border-b border-slate-50 flex justify-between items-center shrink-0">
                  <h2 className="text-xl font-black text-slate-800">{editingParkingLocation ? 'Editar Local' : 'Novo Local de Vagas'}</h2>
-                 <button onClick={() => { setIsAddingParkingLocation(false); setEditingParkingLocation(null); setParkingName(''); setParkingSpots(''); }} className="text-slate-300 hover:text-slate-500"><X size={24}/></button>
+                 <button onClick={() => { setIsAddingParkingLocation(false); setEditingParkingLocation(null); setParkingName(''); setParkingSpots(''); }} className="text-slate-300 hover:text-slate-500 transition-colors"><X size={24}/></button>
               </div>
-              <form onSubmit={handleSaveParkingLocationSubmit} className="p-8 space-y-4">
+              <form onSubmit={handleSaveParkingLocationSubmit} className="p-6 md:p-8 space-y-4 overflow-y-auto">
                  <div className="space-y-4">
                     <div>
                        <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1">Nome do Local</label>
@@ -677,7 +695,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({
                        <input type="number" value={parkingSpots} onChange={e => setParkingSpots(e.target.value)} className="w-full px-4 py-3 rounded-xl border-2 border-slate-50 outline-none font-bold bg-white text-slate-800" placeholder="Ex: 10" min="1" required />
                     </div>
                  </div>
-                 <button type="submit" className="w-full py-4 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl transition-all active:scale-95 mt-4" style={{ backgroundColor: theme.primary }}>
+                 <button type="submit" className="w-full py-4 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl transition-all active:scale-95 mt-4 shrink-0" style={{ backgroundColor: theme.primary }}>
                    {editingParkingLocation ? 'Atualizar Local' : 'Cadastrar Local'}
                  </button>
               </form>

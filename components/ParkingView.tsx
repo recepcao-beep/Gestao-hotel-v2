@@ -631,8 +631,8 @@ const ParkingView: React.FC<ParkingViewProps> = ({ theme, parkingLocations = [],
       {/* Return Modal */}
       {returningVehicleId && returningVehicle && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[300] flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-md rounded-[2rem] shadow-2xl animate-in zoom-in duration-200 overflow-hidden flex flex-col">
-            <div className="p-6 pb-4 flex justify-between items-start">
+          <div className="bg-white w-[95%] md:w-full md:max-w-md rounded-[2rem] shadow-2xl animate-in zoom-in duration-200 overflow-hidden flex flex-col max-h-[90dvh]">
+            <div className="p-6 pb-4 flex justify-between items-start shrink-0">
               <div>
                 <h2 className="text-2xl font-black text-slate-800">Retorno de Passeio</h2>
                 <p className="text-sm text-slate-500 mt-1">
@@ -644,7 +644,7 @@ const ParkingView: React.FC<ParkingViewProps> = ({ theme, parkingLocations = [],
               </button>
             </div>
             
-            <div className="p-6 pt-2">
+            <div className="p-6 pt-2 overflow-y-auto">
               <p className="text-center font-bold text-slate-700 mb-6">Quem estacionou o veículo?</p>
               
               <div className="space-y-4">
@@ -684,12 +684,12 @@ const ParkingView: React.FC<ParkingViewProps> = ({ theme, parkingLocations = [],
               </div>
             </div>
 
-            <div className="p-6 pt-4 flex gap-4">
+            <div className="p-6 pt-4 flex gap-4 shrink-0">
               <button 
                 onClick={() => setReturningVehicleId(null)}
                 className="flex-1 py-3.5 rounded-xl font-bold text-slate-700 bg-white border-2 border-slate-100 hover:bg-slate-50 transition-colors"
               >
-                Cancelar
+                Voltar
               </button>
               <button 
                 onClick={handleConfirmReturn}
@@ -710,10 +710,10 @@ const ParkingView: React.FC<ParkingViewProps> = ({ theme, parkingLocations = [],
       {/* Vehicle History Modal */}
       {viewingHistoryId && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[300] flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-lg rounded-[2.5rem] shadow-2xl animate-in zoom-in duration-200 overflow-hidden flex flex-col max-h-[90vh]">
+          <div className="bg-white w-[95%] md:w-full md:max-w-lg rounded-[2.5rem] shadow-2xl animate-in zoom-in duration-200 overflow-hidden flex flex-col max-h-[90dvh]">
             <div className="p-6 border-b border-slate-50 flex justify-between items-center shrink-0">
               <h2 className="text-xl font-black text-slate-800">Histórico do Veículo</h2>
-              <button onClick={() => setViewingHistoryId(null)} className="text-slate-300 hover:text-slate-500"><X size={24}/></button>
+              <button onClick={() => setViewingHistoryId(null)} className="text-slate-300 hover:text-slate-500 transition-colors"><X size={24}/></button>
             </div>
             <div className="p-6 overflow-y-auto scrollbar-hide space-y-4">
               {historyLogs.filter(log => log.vehicleId === viewingHistoryId).map(log => (
@@ -740,11 +740,11 @@ const ParkingView: React.FC<ParkingViewProps> = ({ theme, parkingLocations = [],
       {/* Photos Modal */}
       {viewingPhotos && (
         <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-sm z-[400] flex items-center justify-center p-4">
-          <div className="w-full max-w-4xl flex flex-col">
-            <div className="flex justify-end mb-4">
+          <div className="w-full max-w-4xl flex flex-col max-h-[90dvh]">
+            <div className="flex justify-end mb-4 shrink-0">
               <button onClick={() => setViewingPhotos(null)} className="text-white hover:text-slate-300 bg-white/10 p-2 rounded-full transition-colors"><X size={24}/></button>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 overflow-y-auto max-h-[80vh] p-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 overflow-y-auto items-center">
               {viewingPhotos.map((photo, index) => (
                 <img key={index} src={photo} alt={`Avaria ${index + 1}`} className="w-full h-auto rounded-xl object-contain bg-black/50" />
               ))}
@@ -756,12 +756,12 @@ const ParkingView: React.FC<ParkingViewProps> = ({ theme, parkingLocations = [],
       {/* Add/Edit Vehicle Modal */}
       {isAddingVehicle && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[300] flex items-center justify-center p-4">
-           <div className="bg-white w-full max-w-lg rounded-[2.5rem] shadow-2xl animate-in zoom-in duration-200 overflow-hidden flex flex-col max-h-[90vh]">
+           <div className="bg-white w-[95%] md:w-full md:max-w-lg rounded-[2.5rem] shadow-2xl animate-in zoom-in duration-200 overflow-hidden flex flex-col max-h-[90dvh]">
               <div className="p-6 border-b border-slate-50 flex justify-between items-center shrink-0">
                  <h2 className="text-xl font-black text-slate-800">{editingVehicleId ? 'Editar Veículo' : 'Registrar Veículo'}</h2>
-                 <button onClick={() => { setIsAddingVehicle(false); setEditingVehicleId(null); }} className="text-slate-300 hover:text-slate-500"><X size={24}/></button>
+                 <button onClick={() => { setIsAddingVehicle(false); setEditingVehicleId(null); }} className="text-slate-300 hover:text-slate-500 transition-colors"><X size={24}/></button>
               </div>
-              <div className="p-6 overflow-y-auto scrollbar-hide">
+              <div className="p-6 overflow-y-auto scrollbar-hide flex-1">
                 <form id="vehicle-form" onSubmit={handleSaveVehicle} className="space-y-4">
                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div className="md:col-span-2">
@@ -845,7 +845,7 @@ const ParkingView: React.FC<ParkingViewProps> = ({ theme, parkingLocations = [],
                 </form>
               </div>
               <div className="p-6 border-t border-slate-50 shrink-0">
-                <button type="submit" form="vehicle-form" className="w-full py-4 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl transition-all active:scale-95" style={{ backgroundColor: theme.primary }}>
+                <button type="submit" form="vehicle-form" className="w-full py-5 text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-xl transition-all active:scale-95" style={{ backgroundColor: theme.primary }}>
                   {editingVehicleId ? 'Salvar Alterações' : 'Salvar Veículo'}
                 </button>
               </div>
@@ -856,15 +856,17 @@ const ParkingView: React.FC<ParkingViewProps> = ({ theme, parkingLocations = [],
       {/* Checkout Confirmation Modal */}
       {vehicleToCheckout && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[500] flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-md rounded-[2rem] shadow-2xl animate-in zoom-in duration-200 overflow-hidden flex flex-col p-6 text-center">
-            <div className="w-16 h-16 bg-rose-100 text-rose-500 rounded-full flex items-center justify-center mx-auto mb-4">
+          <div className="bg-white w-[95%] md:w-full md:max-w-md rounded-[2rem] shadow-2xl animate-in zoom-in duration-200 overflow-hidden flex flex-col p-6 text-center max-h-[90dvh]">
+            <div className="w-16 h-16 bg-rose-100 text-rose-500 rounded-full flex items-center justify-center mx-auto mb-4 shrink-0">
               <LogOut size={32} />
             </div>
-            <h2 className="text-2xl font-black text-slate-800 mb-2">Confirmar Check Out</h2>
-            <p className="text-slate-500 mb-6 font-medium">
-              Deseja realmente fazer checkout do veículo <span className="font-bold text-slate-700">{vehicleToCheckout.plate}</span>? Ele sairá da tela.
-            </p>
-            <div className="flex gap-4">
+            <div className="overflow-y-auto">
+              <h2 className="text-2xl font-black text-slate-800 mb-2">Confirmar Check Out</h2>
+              <p className="text-slate-500 mb-6 font-medium">
+                Deseja realmente fazer checkout do veículo <span className="font-bold text-slate-700">{vehicleToCheckout.plate}</span>? Ele sairá da tela.
+              </p>
+            </div>
+            <div className="flex gap-4 shrink-0">
               <button 
                 onClick={() => setVehicleToCheckout(null)}
                 className="flex-1 py-3.5 rounded-xl font-bold text-slate-700 bg-white border-2 border-slate-100 hover:bg-slate-50 transition-colors"
@@ -885,15 +887,17 @@ const ParkingView: React.FC<ParkingViewProps> = ({ theme, parkingLocations = [],
       {/* Delete Confirmation Modal */}
       {vehicleToDelete && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[500] flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-md rounded-[2rem] shadow-2xl animate-in zoom-in duration-200 overflow-hidden flex flex-col p-6 text-center">
-            <div className="w-16 h-16 bg-red-100 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4">
+          <div className="bg-white w-[95%] md:w-full md:max-w-md rounded-[2rem] shadow-2xl animate-in zoom-in duration-200 overflow-hidden flex flex-col p-6 text-center max-h-[90dvh]">
+            <div className="w-16 h-16 bg-red-100 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4 shrink-0">
               <Trash2 size={32} />
             </div>
-            <h2 className="text-2xl font-black text-slate-800 mb-2">Excluir Veículo</h2>
-            <p className="text-slate-500 mb-6 font-medium">
-              Deseja realmente excluir o veículo <span className="font-bold text-slate-700">{vehicleToDelete.plate}</span>? Esta ação não pode ser desfeita.
-            </p>
-            <div className="flex gap-4">
+            <div className="overflow-y-auto">
+              <h2 className="text-2xl font-black text-slate-800 mb-2">Excluir Veículo</h2>
+              <p className="text-slate-500 mb-6 font-medium">
+                Deseja realmente excluir o veículo <span className="font-bold text-slate-700">{vehicleToDelete.plate}</span>? Esta ação não pode ser desfeita.
+              </p>
+            </div>
+            <div className="flex gap-4 shrink-0">
               <button 
                 onClick={() => setVehicleToDelete(null)}
                 className="flex-1 py-3.5 rounded-xl font-bold text-slate-700 bg-white border-2 border-slate-100 hover:bg-slate-50 transition-colors"

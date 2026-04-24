@@ -1,6 +1,7 @@
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { InventoryItem, InventoryOperation, HotelTheme, UserRole, Supplier, Employee, Sector } from '../types';
+import { motion } from 'motion/react';
+import { InventoryItem, InventoryOperation, HotelTheme, UserRole, Supplier, Employee, Sector, ExtraLabor } from '../types';
 import { 
   Package, 
   Search, 
@@ -28,14 +29,32 @@ import {
   ChevronDown,
   ChevronRight,
   Layers,
-  Printer
+  Printer,
+  Sparkles,
+  MapPin,
+  BarChart as BarChartIcon,
+  Activity
 } from 'lucide-react';
+import { 
+  BarChart, 
+  Bar, 
+  XAxis, 
+  YAxis, 
+  CartesianGrid, 
+  Tooltip, 
+  ResponsiveContainer, 
+  PieChart, 
+  Pie, 
+  Cell,
+  Legend
+} from 'recharts';
 
 interface InventoryViewProps {
   inventory: InventoryItem[];
   history: InventoryOperation[];
   suppliers: Supplier[];
   employees?: Employee[];
+  extras?: ExtraLabor[];
   sectors?: Sector[];
   showSuppliersTab?: boolean;
   theme: HotelTheme;
@@ -46,6 +65,7 @@ interface InventoryViewProps {
   onDeleteSupplier: (id: string) => void;
   onSaveSector?: (sector: Sector) => void;
   onDeleteSector?: (id: string) => void;
+  onSaveExtra?: (extra: ExtraLabor) => void;
   role?: UserRole;
   currentUser?: string;
 }
@@ -55,6 +75,7 @@ const InventoryView: React.FC<InventoryViewProps> = ({
   history, 
   suppliers,
   employees = [],
+  extras = [],
   sectors = [],
   showSuppliersTab = true,
   theme, 
@@ -65,14 +86,16 @@ const InventoryView: React.FC<InventoryViewProps> = ({
   onDeleteSupplier,
   onSaveSector,
   onDeleteSector,
+  onSaveExtra,
   role,
   currentUser 
 }) => {
   const [selectedSectorId, setSelectedSectorId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'ESTOQUE' | 'OPERACAO' | 'SUGESTAO' | 'FORNECEDORES'>('ESTOQUE');
+  const [activeTab, setActiveTab] = useState<'ESTOQUE' | 'OPERACAO' | 'SUGESTAO' | 'FORNECEDORES' | 'RELATORIOS'>('ESTOQUE');
   
   // Modals state
   const [isAddingItem, setIsAddingItem] = useState(false);
+  const [selectedReportEmployee, setSelectedReportEmployee] = useState<string | null>(null);
   const [isAddingOp, setIsAddingOp] = useState(false);
   const [isAddingSupplier, setIsAddingSupplier] = useState(false);
   const [isAddingSector, setIsAddingSector] = useState(false);
@@ -83,6 +106,8 @@ const InventoryView: React.FC<InventoryViewProps> = ({
   const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('Todos');
+  const [withdrawalMode, setWithdrawalMode] = useState<'PERSON' | 'LOCATION'>('PERSON');
+  const [opWithdrawalLocation, setOpWithdrawalLocation] = useState('');
 
   // Form Item
   const [name, setName] = useState('');
@@ -101,6 +126,7 @@ const InventoryView: React.FC<InventoryViewProps> = ({
   const [opReason, setOpReason] = useState('');
   const [opRecipientId, setOpRecipientId] = useState('');
   const [opRecipientName, setOpRecipientName] = useState('');
+  const [opIsExtra, setOpIsExtra] = useState(false);
   
   // Form Sector
   const [sectorName, setSectorName] = useState('');
@@ -181,6 +207,58 @@ const InventoryView: React.FC<InventoryViewProps> = ({
 
   const globalTotalValue = useMemo(() => enrichedInventory.reduce((acc, curr) => acc + curr.totalValue, 0), [enrichedInventory]);
 
+  const statsEmployees = useMemo(() => {
+    const counts: Record<string, number> = {};
+    history.filter(h => h.type === 'Saída' && h.recipientName).forEach(h => {
+       counts[h.recipientName || ''] = (counts[h.recipientName || ''] || 0) + 1;
+    });
+    return Object.entries(counts)
+       .map(([name, count]) => ({ name, count }))
+       .sort((a, b) => b.count - a.count)
+       .slice(0, 5);
+  }, [history]);
+
+  const statsProducts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    history.filter(h => h.type === 'Saída').forEach(h => {
+       counts[h.itemName] = (counts[h.itemName] || 0) + h.quantity;
+    });
+    return Object.entries(counts)
+       .map(([name, qty]) => ({ name, qty }))
+       .sort((a, b) => b.qty - a.qty)
+       .slice(0, 5);
+  }, [history]);
+
+  const statsSuppliers = useMemo(() => {
+    const spend: Record<string, number> = {};
+    inventory.forEach(i => {
+       const supplier = suppliers.find(s => s.id === i.supplierId);
+       const supName = supplier?.name || 'Vários/Desconhecido';
+       spend[supName] = (spend[supName] || 0) + (i.quantity * (i.price || 0));
+    });
+    return Object.entries(spend)
+       .map(([name, value]) => ({ name, value }))
+       .sort((a, b) => b.value - a.value)
+       .slice(0, 5);
+  }, [inventory, suppliers]);
+
+  const statsTrends = useMemo(() => {
+    const days = Array.from({ length: 7 }, (_, i) => {
+       const d = new Date();
+       d.setDate(d.getDate() - i);
+       return d.toISOString().split('T')[0];
+    }).reverse();
+
+    return days.map(day => {
+       const ops = history.filter(h => new Date(h.timestamp).toISOString().split('T')[0] === day);
+       return {
+           day: day.split('-').reverse().slice(0, 2).join('/'),
+           entradas: ops.filter(o => o.type === 'Entrada').reduce((a, b) => a + b.quantity, 0),
+           saidas: ops.filter(o => o.type === 'Saída').reduce((a, b) => a + b.quantity, 0),
+       };
+    });
+  }, [history]);
+
   const resetItemForm = () => {
     setName(''); setEan(''); setCategory('Limpeza'); setInitialQuantity(0); setUnit('Unidade'); setPrice(0); setSupplierId('');
     setEditingItem(null); setIsAddingItem(false);
@@ -188,7 +266,8 @@ const InventoryView: React.FC<InventoryViewProps> = ({
 
   const resetOpForm = () => {
     setIsAddingOp(false); setOpItemId(''); setOpSearchQuery(''); setOpQuantity(0); 
-    setOpReason(''); setOpRecipientId(''); setOpRecipientName('');
+    setOpReason(''); setOpRecipientId(''); setOpRecipientName(''); setOpIsExtra(false);
+    setWithdrawalMode('PERSON'); setOpWithdrawalLocation('');
   };
 
   const handleSaveItemSubmit = (e: React.FormEvent) => {
@@ -242,8 +321,11 @@ const InventoryView: React.FC<InventoryViewProps> = ({
 
   const employeePredictive = useMemo(() => {
     if (!opRecipientName || opRecipientName.length < 2) return [];
+    if (opIsExtra) {
+      return extras.filter(e => e.name.toLowerCase().includes(opRecipientName.toLowerCase())).slice(0, 5);
+    }
     return employees.filter(e => e.name.toLowerCase().includes(opRecipientName.toLowerCase())).slice(0, 5);
-  }, [employees, opRecipientName]);
+  }, [employees, extras, opRecipientName, opIsExtra]);
 
   const handleSelectPredictiveItem = (item: InventoryItem) => {
     setOpItemId(item.id);
@@ -255,12 +337,22 @@ const InventoryView: React.FC<InventoryViewProps> = ({
       const val = e.target.value;
       setOpRecipientName(val);
       
-      const exactMatch = employees.find(emp => emp.id === val || emp.name.toLowerCase() === val.toLowerCase());
-      if(exactMatch) {
-          setOpRecipientId(exactMatch.id);
-          setOpRecipientName(exactMatch.name);
+      if (opIsExtra) {
+        const exactMatch = extras.find(ex => ex.name.toLowerCase() === val.toLowerCase());
+        if (exactMatch) {
+            setOpRecipientId(exactMatch.id);
+            setOpRecipientName(exactMatch.name);
+        } else {
+            setOpRecipientId('');
+        }
       } else {
-          setOpRecipientId('');
+        const exactMatch = employees.find(emp => emp.id === val || emp.name.toLowerCase() === val.toLowerCase());
+        if(exactMatch) {
+            setOpRecipientId(exactMatch.id);
+            setOpRecipientName(exactMatch.name);
+        } else {
+            setOpRecipientId('');
+        }
       }
   };
 
@@ -366,21 +458,24 @@ const InventoryView: React.FC<InventoryViewProps> = ({
         {/* Modals for Adding Sector/Confirm Delete (same as before) */}
         {isAddingSector && (
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[400] flex items-center justify-center p-4">
-             <div className="bg-white w-full max-w-sm rounded-[2.5rem] shadow-2xl overflow-hidden animate-in zoom-in duration-200">
-                <div className="p-6 border-b flex justify-between items-center bg-slate-50/50">
+             <div className="bg-white w-[95%] md:w-full md:max-w-sm rounded-[2.5rem] shadow-2xl animate-in zoom-in duration-200 overflow-hidden flex flex-col max-h-[90dvh]">
+                <div className="p-6 md:p-8 border-b border-slate-50 flex justify-between items-center bg-slate-50/50 shrink-0">
                    <h3 className="font-black text-slate-800">Novo Setor de Estoque</h3>
-                   <button onClick={() => setIsAddingSector(false)}><X size={24} className="text-slate-300"/></button>
+                   <button onClick={() => setIsAddingSector(false)} className="text-slate-300 hover:text-slate-500 transition-colors"><X size={24}/></button>
                 </div>
-                <form onSubmit={handleSaveSectorSubmit} className="p-6 space-y-4">
-                   <input 
-                     type="text" 
-                     value={sectorName} 
-                     onChange={e => setSectorName(e.target.value)} 
-                     placeholder="Nome do Setor (Ex: Manutenção)" 
-                     className="w-full px-4 py-3 rounded-xl border-2 font-bold text-slate-800 outline-none focus:border-blue-400" 
-                     required 
-                   />
-                   <button type="submit" className="w-full py-4 bg-slate-900 text-white rounded-xl font-black text-xs uppercase shadow-lg">Criar Setor</button>
+                <form onSubmit={handleSaveSectorSubmit} className="p-6 md:p-8 space-y-6 overflow-y-auto">
+                   <div>
+                     <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1">Nome do Setor</label>
+                     <input 
+                       type="text" 
+                       value={sectorName} 
+                       onChange={e => setSectorName(e.target.value)} 
+                       placeholder="Ex: Manutenção" 
+                       className="w-full px-5 py-4 rounded-2xl border-2 border-slate-50 font-bold text-slate-800 outline-none focus:border-blue-400 transition-all shadow-inner" 
+                       required 
+                     />
+                   </div>
+                   <button type="submit" className="w-full py-5 bg-slate-900 text-white rounded-2xl font-black text-sm uppercase shadow-xl hover:bg-slate-800 transition-all active:scale-95 shrink-0">Criar Setor</button>
                 </form>
              </div>
           </div>
@@ -388,24 +483,24 @@ const InventoryView: React.FC<InventoryViewProps> = ({
 
         {sectorToDelete && (
           <div className="fixed inset-0 z-[500] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
-            <div className="bg-white w-full max-w-sm rounded-[2rem] shadow-2xl p-6 animate-in zoom-in-95 duration-200 border border-white/20">
-              <div className="flex flex-col items-center text-center space-y-4">
-                <div className="p-4 bg-red-50 text-red-500 rounded-full shadow-inner">
-                  <Trash2 size={32} />
+            <div className="bg-white w-[95%] md:w-full md:max-w-sm rounded-[2.5rem] shadow-2xl overflow-hidden animate-in zoom-in duration-200 border border-slate-100 flex flex-col max-h-[90dvh]">
+              <div className="p-8 flex flex-col items-center text-center space-y-6 overflow-y-auto">
+                <div className="p-6 bg-rose-50 text-rose-500 rounded-full shadow-inner shrink-0 scale-110">
+                  <Trash2 size={40} />
                 </div>
-                <div>
-                  <h3 className="text-lg font-black text-slate-800">Excluir Setor?</h3>
-                  <p className="text-xs text-slate-500 font-bold mt-2 leading-relaxed">
-                    Você está prestes a remover o setor <br/><span className="text-slate-800 text-sm">"{sectorToDelete.name}"</span>.
+                <div className="space-y-2">
+                  <h3 className="text-2xl font-black text-slate-800">Excluir Setor?</h3>
+                  <p className="text-sm text-slate-500 font-bold leading-relaxed">
+                    Você está prestes a remover o setor <br/><span className="text-slate-900 font-black">"{sectorToDelete.name}"</span>.
                   </p>
-                  <p className="text-[10px] text-slate-400 mt-2 font-medium bg-slate-50 p-2 rounded-lg border border-slate-100">
-                    <AlertTriangle size={12} className="inline mr-1 mb-0.5"/>
-                    Os itens vinculados não serão apagados, mas ficarão sem setor definido.
-                  </p>
+                  <div className="p-4 bg-amber-50 text-amber-600 rounded-2xl border border-amber-100 text-[10px] font-black uppercase tracking-wider flex items-center gap-3">
+                    <AlertTriangle size={18} className="shrink-0"/>
+                    <span className="text-left">Os itens vinculados não serão apagados, mas ficarão sem setor definido.</span>
+                  </div>
                 </div>
-                <div className="flex gap-3 w-full pt-2">
-                  <button onClick={() => setSectorToDelete(null)} className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl font-black text-xs uppercase hover:bg-slate-200 transition-colors">Cancelar</button>
-                  <button onClick={() => { if (onDeleteSector) onDeleteSector(sectorToDelete.id); setSectorToDelete(null); }} className="flex-1 py-3 bg-red-500 text-white rounded-xl font-black text-xs uppercase shadow-lg hover:bg-red-600 transition-colors">Confirmar</button>
+                <div className="flex gap-4 w-full pt-4 shrink-0">
+                  <button onClick={() => setSectorToDelete(null)} className="flex-1 py-4 bg-slate-100 text-slate-600 rounded-2xl font-black text-xs uppercase hover:bg-slate-200 transition-colors">Cancelar</button>
+                  <button onClick={() => { if (onDeleteSector) onDeleteSector(sectorToDelete.id); setSectorToDelete(null); }} className="flex-1 py-4 bg-rose-500 text-white rounded-2xl font-black text-xs uppercase shadow-xl hover:bg-rose-600 transition-colors active:scale-95">Confirmar</button>
                 </div>
               </div>
             </div>
@@ -443,7 +538,8 @@ const InventoryView: React.FC<InventoryViewProps> = ({
                 { id: 'ESTOQUE', label: 'Itens', icon: Package },
                 { id: 'OPERACAO', label: 'Movimentos', icon: History },
                 { id: 'SUGESTAO', label: 'Pedidos', icon: ShoppingCart },
-                ...(showSuppliersTab ? [{ id: 'FORNECEDORES', label: 'Fornecedores', icon: Truck }] : [])
+                ...(showSuppliersTab ? [{ id: 'FORNECEDORES', label: 'Fornecedores', icon: Truck }] : []),
+                ...(role === 'GESTOR' ? [{ id: 'RELATORIOS', label: 'Relatórios', icon: BarChartIcon }] : [])
               ].map(tab => (
                 <button 
                   key={tab.id} 
@@ -675,6 +771,9 @@ const InventoryView: React.FC<InventoryViewProps> = ({
                                    {op.recipientName && (
                                        <span className="flex items-center text-blue-500"><Scan size={10} className="mr-1"/> Retirado por: {op.recipientName}</span>
                                    )}
+                                   {op.withdrawalLocation && (
+                                       <span className="flex items-center text-amber-600"><MapPin size={10} className="mr-1"/> Destino: {op.withdrawalLocation}</span>
+                                   )}
                                 </div>
                              </div>
                           </div>
@@ -784,19 +883,259 @@ const InventoryView: React.FC<InventoryViewProps> = ({
          </div>
       )}
 
+      {activeTab === 'RELATORIOS' && role === 'GESTOR' && (
+        <div className="space-y-6 animate-in slide-in-from-right-4">
+           {/* Summary Cards */}
+           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm">
+                 <div className="flex items-center space-x-3 mb-4">
+                    <div className="p-3 bg-blue-50 text-blue-600 rounded-2xl"><Package size={20}/></div>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total de Itens</p>
+                 </div>
+                 <h4 className="text-2xl font-black text-slate-800">{inventory.length}</h4>
+              </div>
+              <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm">
+                 <div className="flex items-center space-x-3 mb-4">
+                    <div className="p-3 bg-emerald-50 text-emerald-600 rounded-2xl"><DollarSign size={20}/></div>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Valor em Estoque</p>
+                 </div>
+                 <h4 className="text-2xl font-black text-slate-800">R$ {globalTotalValue.toLocaleString('pt-BR')}</h4>
+              </div>
+              <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm">
+                 <div className="flex items-center space-x-3 mb-4">
+                    <div className="p-3 bg-rose-50 text-rose-600 rounded-2xl"><ArrowDownRight size={20}/></div>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Retiradas (30d)</p>
+                 </div>
+                 <h4 className="text-2xl font-black text-slate-800">
+                    {history.filter(h => h.type === 'Saída' && h.timestamp > Date.now() - 30 * 24 * 60 * 60 * 1000).length}
+                 </h4>
+              </div>
+              <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm">
+                 <div className="flex items-center space-x-3 mb-4">
+                    <div className="p-3 bg-slate-900 text-white rounded-2xl"><Truck size={20}/></div>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Fornecedores</p>
+                 </div>
+                 <h4 className="text-2xl font-black text-slate-800">{suppliers.length}</h4>
+              </div>
+           </div>
+
+           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Top Employees withdrawing materials */}
+              <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm">
+                 <h4 className="text-lg font-black text-slate-800 mb-6 flex items-center gap-2">
+                    <UserIcon size={20} className="text-blue-500" /> Colaboradores que mais retiram
+                 </h4>
+                 <div className="h-64 w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                       <BarChart 
+                          data={statsEmployees}
+                          layout="vertical"
+                          onClick={(data) => {
+                            if (data && data.activeLabel) {
+                              setSelectedReportEmployee(data.activeLabel);
+                            }
+                          }}
+                       >
+                          <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
+                          <XAxis type="number" hide />
+                          <YAxis 
+                            dataKey="name" 
+                            type="category" 
+                            width={100} 
+                            tick={{ fontSize: 10, fontWeight: 'bold', fill: '#64748b', cursor: 'pointer' }} 
+                            axisLine={false}
+                            tickLine={false}
+                            onClick={(data) => setSelectedReportEmployee(data.value)}
+                          />
+                          <Tooltip 
+                             cursor={{ fill: '#f8fafc', cursor: 'pointer' }}
+                             contentStyle={{ borderRadius: '1rem', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
+                          />
+                          <Bar dataKey="count" fill={theme.primary} radius={[0, 4, 4, 0]} barSize={20} className="cursor-pointer" />
+                       </BarChart>
+                    </ResponsiveContainer>
+                 </div>
+              </div>
+
+              {/* Modal de Histórico do Colaborador (Drill-down) */}
+              {selectedReportEmployee && (
+                <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+                  <motion.div 
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="bg-white w-full max-w-2xl rounded-[3rem] shadow-2xl overflow-hidden flex flex-col max-h-[80vh]"
+                  >
+                    <div className="p-8 border-b border-slate-50 flex justify-between items-center bg-slate-50/50">
+                      <div>
+                        <h3 className="text-2xl font-black text-slate-800 tracking-tight">Histórico de Retiradas</h3>
+                        <p className="text-sm font-bold text-blue-500 uppercase tracking-widest">{selectedReportEmployee}</p>
+                      </div>
+                      <button onClick={() => setSelectedReportEmployee(null)} className="p-3 bg-white hover:bg-slate-100 rounded-2xl transition-all shadow-sm">
+                        <X size={20} className="text-slate-400" />
+                      </button>
+                    </div>
+                    
+                    <div className="p-8 overflow-y-auto flex-1">
+                      <div className="space-y-4">
+                        {history
+                          .filter(h => h.recipientName === selectedReportEmployee && h.type === 'Saída')
+                          .sort((a, b) => b.timestamp - a.timestamp)
+                          .map((entry, idx) => (
+                            <div key={idx} className="flex items-center justify-between p-5 bg-slate-50 rounded-[1.5rem] border border-slate-100 hover:border-blue-100 hover:bg-white transition-all group">
+                              <div className="flex items-center space-x-4">
+                                <div className="p-3 bg-white rounded-xl shadow-sm text-slate-400 group-hover:text-blue-500 transition-colors">
+                                  <Package size={18} />
+                                </div>
+                                <div>
+                                  <h4 className="font-black text-slate-800">{entry.itemName}</h4>
+                                  <div className="flex items-center gap-3 mt-1">
+                                    <span className="text-[10px] font-bold text-slate-400 uppercase flex items-center">
+                                      <Calendar size={10} className="mr-1" /> {new Date(entry.timestamp).toLocaleDateString('pt-BR')}
+                                    </span>
+                                    <span className="text-[10px] font-bold text-slate-400 uppercase flex items-center">
+                                      <History size={10} className="mr-1" /> {new Date(entry.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="text-right">
+                                <span className="text-lg font-black text-rose-500">-{entry.quantity}</span>
+                                <p className="text-[8px] font-black text-slate-300 uppercase tracking-tighter">RETIRADA</p>
+                              </div>
+                            </div>
+                          ))}
+                        
+                        {history.filter(h => h.recipientName === selectedReportEmployee && h.type === 'Saída').length === 0 && (
+                          <div className="text-center py-12">
+                            <Package size={48} className="mx-auto text-slate-200 mb-4" />
+                            <p className="font-black text-slate-400 uppercase tracking-widest text-xs">Nenhuma retirada encontrada</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    
+                    <div className="p-6 border-t border-slate-50">
+                      <button 
+                        onClick={() => setSelectedReportEmployee(null)}
+                        className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black text-xs uppercase tracking-widest transition-all active:scale-95 shadow-xl"
+                      >
+                        Fechar Visualização
+                      </button>
+                    </div>
+                  </motion.div>
+                </div>
+              )}
+
+              {/* Top Withdrawn Products */}
+              <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm">
+                 <h4 className="text-lg font-black text-slate-800 mb-6 flex items-center gap-2">
+                    <Activity size={20} className="text-rose-500" /> Produtos mais retirados (Qtd)
+                 </h4>
+                 <div className="h-64 w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                       <BarChart 
+                          data={statsProducts}
+                       >
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                          <XAxis 
+                             dataKey="name" 
+                             tick={{ fontSize: 8, fontWeight: 'bold', fill: '#64748b' }} 
+                             axisLine={false}
+                             tickLine={false}
+                          />
+                          <YAxis hide />
+                          <Tooltip 
+                             cursor={{ fill: '#f8fafc' }}
+                             contentStyle={{ borderRadius: '1rem', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
+                          />
+                          <Bar dataKey="qty" fill="#f43f5e" radius={[4, 4, 0, 0]} barSize={30} />
+                       </BarChart>
+                    </ResponsiveContainer>
+                 </div>
+              </div>
+
+              {/* Spending by Supplier (Current Stock Value) */}
+              <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm">
+                 <h4 className="text-lg font-black text-slate-800 mb-6 flex items-center gap-2">
+                    <DollarSign size={20} className="text-emerald-500" /> Valor Stock por Fornecedor
+                 </h4>
+                 <div className="h-64 w-full flex flex-col items-center">
+                    <ResponsiveContainer width="100%" height="100%">
+                       <PieChart>
+                          <Pie
+                             data={statsSuppliers}
+                             cx="50%"
+                             cy="50%"
+                             innerRadius={60}
+                             outerRadius={80}
+                             paddingAngle={5}
+                             dataKey="value"
+                          >
+                             {['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'].map((color, index) => (
+                                <Cell key={`cell-${index}`} fill={color} />
+                             ))}
+                          </Pie>
+                          <Tooltip 
+                             formatter={(value: number) => `R$ ${value.toLocaleString('pt-BR')}`}
+                             contentStyle={{ borderRadius: '1rem', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
+                          />
+                          <Legend verticalAlign="bottom" height={36} formatter={(value) => <span className="text-[10px] font-black text-slate-500">{value}</span>} />
+                       </PieChart>
+                    </ResponsiveContainer>
+                 </div>
+              </div>
+
+              {/* Stock Movement Trends (Daily entries vs exits) */}
+              <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm">
+                  <h4 className="text-lg font-black text-slate-800 mb-6 flex items-center gap-2">
+                    <ArrowUpRight size={20} className="text-slate-900" /> Fluxo de Movimentação (7 dias)
+                 </h4>
+                 <div className="h-64 w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                       <BarChart 
+                          data={statsTrends}
+                       >
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                          <XAxis dataKey="day" tick={{ fontSize: 9, fontWeight: 'bold', fill: '#64748b' }} axisLine={false} tickLine={false} />
+                          <YAxis hide />
+                          <Tooltip contentStyle={{ borderRadius: '1rem', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }} />
+                          <Legend verticalAlign="top" iconType="circle" />
+                          <Bar dataKey="entradas" fill="#10b981" radius={[4, 4, 0, 0]} name="Entradas" />
+                          <Bar dataKey="saidas" fill="#f43f5e" radius={[4, 4, 0, 0]} name="Saídas" />
+                       </BarChart>
+                    </ResponsiveContainer>
+                 </div>
+              </div>
+           </div>
+        </div>
+      )}
+
       {/* Modal FORNECEDOR */}
       {isAddingSupplier && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[300] flex items-center justify-center p-4">
-           <div className="bg-white w-full max-w-lg rounded-[2.5rem] shadow-2xl animate-in zoom-in duration-200 overflow-hidden">
-              <div className="p-8 border-b border-slate-50 flex justify-between items-center">
-                 <h2 className="text-xl font-black text-slate-800">Novo Fornecedor</h2>
-                 <button onClick={() => setIsAddingSupplier(false)} className="text-slate-300 hover:text-slate-500"><X size={24}/></button>
+           <div className="bg-white w-[95%] md:w-full md:max-w-lg rounded-[2.5rem] shadow-2xl animate-in zoom-in duration-200 overflow-hidden flex flex-col max-h-[90dvh]">
+              <div className="p-6 md:p-8 border-b border-slate-50 flex justify-between items-center shrink-0">
+                 <h2 className="text-xl font-black text-slate-800">{editingSupplier ? 'Editar Fornecedor' : 'Novo Fornecedor'}</h2>
+                 <button onClick={() => setIsAddingSupplier(false)} className="text-slate-300 hover:text-slate-500 transition-colors"><X size={24}/></button>
               </div>
-              <form onSubmit={handleSaveSupplierSubmit} className="p-8 space-y-4">
-                 <input type="text" value={supName} onChange={e => setSupName(e.target.value)} className="w-full px-4 py-3 rounded-xl border-2 border-slate-50 outline-none font-bold" placeholder="Nome da Empresa" required />
-                 <input type="text" value={supContact} onChange={e => setSupContact(e.target.value)} className="w-full px-4 py-3 rounded-xl border-2 border-slate-50 outline-none font-bold" placeholder="Contato (WhatsApp/Email)" />
-                 <input type="text" value={supCategory} onChange={e => setSupCategory(e.target.value)} className="w-full px-4 py-3 rounded-xl border-2 border-slate-50 outline-none font-bold" placeholder="Categoria" />
-                 <button type="submit" className="w-full py-4 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl" style={{ backgroundColor: theme.primary }}>Cadastrar Fornecedor</button>
+              <form onSubmit={handleSaveSupplierSubmit} className="p-6 md:p-8 space-y-6 overflow-y-auto">
+                 <div className="space-y-4">
+                    <div>
+                        <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1">Nome da Empresa</label>
+                        <input type="text" value={supName} onChange={e => setSupName(e.target.value)} className="w-full px-5 py-4 rounded-xl border-2 border-slate-50 focus:border-blue-400 outline-none font-bold shadow-inner" placeholder="Ex: Fornecedor Ltda" required />
+                    </div>
+                    <div>
+                        <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1">Contato (WhatsApp/Email)</label>
+                        <input type="text" value={supContact} onChange={e => setSupContact(e.target.value)} className="w-full px-5 py-4 rounded-xl border-2 border-slate-50 focus:border-blue-400 outline-none font-bold shadow-inner" placeholder="Ex: (11) 99999-9999" />
+                    </div>
+                    <div>
+                        <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1">Categoria</label>
+                        <input type="text" value={supCategory} onChange={e => setSupCategory(e.target.value)} className="w-full px-5 py-4 rounded-xl border-2 border-slate-50 focus:border-blue-400 outline-none font-bold shadow-inner" placeholder="Ex: Limpeza / Bebidas" />
+                    </div>
+                 </div>
+                 <button type="submit" className="w-full py-5 text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-xl transition-all active:scale-95 shrink-0" style={{ backgroundColor: theme.primary }}>
+                    {editingSupplier ? 'Salvar Alterações' : 'Cadastrar Fornecedor'}
+                 </button>
               </form>
            </div>
         </div>
@@ -806,46 +1145,65 @@ const InventoryView: React.FC<InventoryViewProps> = ({
       {/* Modal NOVO ITEM */}
       {isAddingItem && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[300] flex items-center justify-center p-4">
-           <div className="bg-white w-full max-w-lg rounded-[2.5rem] shadow-2xl animate-in zoom-in duration-200 overflow-hidden">
-              <div className="p-8 border-b border-slate-50 flex justify-between items-center">
-                 <h2 className="text-xl font-black text-slate-800">{editingItem ? 'Editar Insumo' : 'Novo Insumo'}</h2>
-                 <p className="text-[10px] font-black text-slate-400 uppercase">{currentSector?.name}</p>
-                 <button onClick={resetItemForm} className="text-slate-300 hover:text-slate-500"><X size={24}/></button>
+           <div className="bg-white w-[95%] md:w-full md:max-w-lg rounded-[2.5rem] shadow-2xl animate-in zoom-in duration-200 overflow-hidden flex flex-col max-h-[90dvh]">
+              <div className="p-6 md:p-8 border-b border-slate-50 flex justify-between items-center shrink-0">
+                 <div className="flex flex-col">
+                    <h2 className="text-xl font-black text-slate-800">{editingItem ? 'Editar Insumo' : 'Novo Insumo'}</h2>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{currentSector?.name}</p>
+                 </div>
+                 <button onClick={resetItemForm} className="text-slate-300 hover:text-slate-500 transition-colors"><X size={24}/></button>
               </div>
-              <form onSubmit={handleSaveItemSubmit} className="p-8 space-y-4">
-                 <div className="grid grid-cols-1 gap-4">
-                    <input type="text" value={name} onChange={e => setName(e.target.value)} className="w-full px-4 py-3 rounded-xl border-2 border-slate-50 focus:border-blue-400 outline-none font-bold" placeholder="Nome do Insumo" required />
-                    <div className="relative">
-                       <Barcode size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" />
-                       <input type="text" value={ean} onChange={e => setEan(e.target.value)} className="w-full pl-10 pr-4 py-3 rounded-xl border-2 border-slate-50 outline-none font-bold" placeholder="Código EAN (Obrigatório)" required />
+              <form onSubmit={handleSaveItemSubmit} className="p-6 md:p-8 space-y-6 overflow-y-auto">
+                 <div className="space-y-5">
+                    <div>
+                        <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1">Nome do Insumo</label>
+                        <input type="text" value={name} onChange={e => setName(e.target.value)} className="w-full px-5 py-3 rounded-2xl border-2 border-slate-50 focus:border-blue-400 outline-none font-bold shadow-inner" placeholder="Ex: Papel Interfolha" required />
+                    </div>
+                    <div>
+                        <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1">Código de Barras (EAN)</label>
+                        <div className="relative">
+                            <Barcode size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" />
+                            <input type="text" value={ean} onChange={e => setEan(e.target.value)} className="w-full pl-11 pr-5 py-3 rounded-2xl border-2 border-slate-50 focus:border-blue-400 outline-none font-bold shadow-inner" placeholder="Obrigatório para bipe" required />
+                        </div>
                     </div>
                     <div className="grid grid-cols-2 gap-4">
-                       <select value={category} onChange={e => setCategory(e.target.value)} className="w-full px-4 py-3 rounded-xl border-2 border-slate-50 bg-white font-bold">
-                          {categories.map(c => <option key={c} value={c}>{c}</option>)}
-                       </select>
-                       <select value={unit} onChange={e => setUnit(e.target.value)} className="w-full px-4 py-3 rounded-xl border-2 border-slate-50 bg-white font-bold">
-                          <option value="Unidade">Unidade</option>
-                          <option value="Caixa">Caixa</option>
-                          <option value="Litro">Litro</option>
-                          <option value="Kg">Kg</option>
-                       </select>
+                        <div>
+                            <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1">Categoria</label>
+                            <select value={category} onChange={e => setCategory(e.target.value)} className="w-full px-4 py-3 rounded-2xl border-2 border-slate-50 bg-white font-bold text-slate-700 outline-none focus:border-blue-400 shadow-inner">
+                                {categories.map(c => <option key={c} value={c}>{c}</option>)}
+                            </select>
+                        </div>
+                        <div>
+                            <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1">Unidade</label>
+                            <select value={unit} onChange={e => setUnit(e.target.value)} className="w-full px-4 py-3 rounded-2xl border-2 border-slate-50 bg-white font-bold text-slate-700 outline-none focus:border-blue-400 shadow-inner">
+                                <option value="Unidade">Unidade</option>
+                                <option value="Caixa">Caixa</option>
+                                <option value="Litro">Litro</option>
+                                <option value="Kg">Kg</option>
+                            </select>
+                        </div>
                     </div>
-                    <select value={supplierId} onChange={e => setSupplierId(e.target.value)} className="w-full px-4 py-3 rounded-xl border-2 border-slate-50 bg-white font-bold">
-                       <option value="">Selecione o Fornecedor...</option>
-                       {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                    </select>
+                    <div>
+                        <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1">Fornecedor Preferencial</label>
+                        <select value={supplierId} onChange={e => setSupplierId(e.target.value)} className="w-full px-4 py-3 rounded-2xl border-2 border-slate-50 bg-white font-bold text-slate-700 outline-none focus:border-blue-400 shadow-inner">
+                            <option value="">Selecione...</option>
+                            {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                        </select>
+                    </div>
                     <div className="grid grid-cols-2 gap-4">
-                       <div className="p-4 bg-slate-50 rounded-2xl">
-                          <label className="block text-[9px] font-black text-slate-400 uppercase mb-1">Saldo Inicial</label>
-                          <input type="number" value={initialQuantity} onChange={e => setInitialQuantity(parseInt(e.target.value) || 0)} className="w-full bg-transparent text-xl font-black outline-none" />
+                       <div className="p-4 bg-slate-50 rounded-[1.5rem] border border-slate-100 flex flex-col">
+                          <label className="text-[9px] font-black text-slate-400 uppercase mb-1">Saldo Atual</label>
+                          <input type="number" value={initialQuantity} onChange={e => setInitialQuantity(parseInt(e.target.value) || 0)} className="bg-transparent text-xl font-black outline-none text-slate-800" />
                        </div>
-                       <div className="p-4 bg-slate-50 rounded-2xl">
-                          <label className="block text-[9px] font-black text-slate-400 uppercase mb-1">R$ Valor Unitário</label>
-                          <input type="number" step="0.01" value={price} onChange={e => setPrice(parseFloat(e.target.value) || 0)} className="w-full bg-transparent text-xl font-black outline-none" />
+                       <div className="p-4 bg-slate-50 rounded-[1.5rem] border border-slate-100 flex flex-col">
+                          <label className="text-[9px] font-black text-slate-400 uppercase mb-1">Valor Unit (R$)</label>
+                          <input type="number" step="0.01" value={price} onChange={e => setPrice(parseFloat(e.target.value) || 0)} className="bg-transparent text-xl font-black outline-none text-slate-800" />
                        </div>
                     </div>
                  </div>
-                 <button type="submit" className="w-full py-4 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl" style={{ backgroundColor: theme.primary }}>Salvar Cadastro</button>
+                 <button type="submit" className="w-full py-5 text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-xl transition-all active:scale-95 shrink-0" style={{ backgroundColor: theme.primary }}>
+                    {editingItem ? 'Salvar Alterações' : 'Cadastrar Insumo'}
+                 </button>
               </form>
            </div>
         </div>
@@ -853,17 +1211,33 @@ const InventoryView: React.FC<InventoryViewProps> = ({
 
       {isAddingOp && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[300] flex items-center justify-center p-4">
-            <div className="bg-white w-full max-w-lg rounded-[2.5rem] shadow-2xl animate-in zoom-in duration-200 overflow-hidden">
-              <div className="p-8 border-b border-slate-50 flex justify-between items-center">
+            <div className="bg-white w-[95%] md:w-full md:max-w-lg rounded-2xl md:rounded-[2.5rem] shadow-2xl animate-in zoom-in duration-200 overflow-hidden flex flex-col max-h-[90dvh]">
+              <div className="p-6 md:p-8 border-b border-slate-50 flex justify-between items-center shrink-0">
                  <h2 className="text-xl font-black text-slate-800">Lançar Movimentação</h2>
-                 <button onClick={resetOpForm} className="text-slate-300 hover:text-slate-500"><X size={24}/></button>
+                 <button onClick={resetOpForm} className="text-slate-300 hover:text-slate-500 transition-colors"><X size={24}/></button>
               </div>
               <form onSubmit={(e) => {
                 e.preventDefault();
                 const selectedItem = inventory.find(i => i.id === opItemId);
                 if (!selectedItem || opQuantity <= 0) return;
                 
-                const finalRecipientName = opRecipientName || (opType === 'Saída' ? 'Não Identificado' : '');
+                let finalRecipientName = opRecipientName || (opType === 'Saída' ? 'Não Identificado' : '');
+                let finalRecipientId = opRecipientId;
+
+                // Handle new Extra worker saving
+                if (opIsExtra && opRecipientName && !opRecipientId && onSaveExtra) {
+                  const newExtraId = `extra_${Date.now()}`;
+                  onSaveExtra({
+                    id: newExtraId,
+                    name: opRecipientName,
+                    phone: '',
+                    availability: [],
+                    serviceQuality: 0,
+                    observation: 'Cadastrado via Saída de Estoque',
+                    sectorId: selectedSectorId || ''
+                  });
+                  finalRecipientId = newExtraId;
+                }
 
                 onOperation({ 
                     id: Date.now().toString(), 
@@ -874,11 +1248,12 @@ const InventoryView: React.FC<InventoryViewProps> = ({
                     timestamp: Date.now(), 
                     user: currentUser || 'Sistema', 
                     reason: opReason,
-                    recipientId: opRecipientId,
-                    recipientName: finalRecipientName
+                    recipientId: withdrawalMode === 'PERSON' ? finalRecipientId : undefined,
+                    recipientName: withdrawalMode === 'PERSON' ? finalRecipientName : undefined,
+                    withdrawalLocation: withdrawalMode === 'LOCATION' ? opWithdrawalLocation : undefined
                 });
                 resetOpForm();
-              }} className="p-8 space-y-6">
+              }} className="p-6 md:p-8 space-y-6 overflow-y-auto">
                  <div className="space-y-4">
                     <div className="relative" ref={searchContainerRef}>
                        <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1">Buscar Insumo (Nome ou EAN)</label>
@@ -889,7 +1264,7 @@ const InventoryView: React.FC<InventoryViewProps> = ({
                             value={opSearchQuery} 
                             onChange={e => { setOpSearchQuery(e.target.value); setIsSearchDropdownOpen(true); if(opItemId) setOpItemId(''); }} 
                             onFocus={() => setIsSearchDropdownOpen(true)}
-                            className="w-full pl-9 pr-4 py-3 rounded-xl border-2 border-slate-50 font-bold outline-none focus:border-blue-300 transition-all" 
+                            className="w-full pl-9 pr-4 py-3 rounded-xl border-2 border-slate-50 font-bold outline-none focus:border-blue-300 transition-all bg-white text-slate-800" 
                             placeholder="Digite o nome ou bipe o EAN..." 
                             autoComplete="off"
                           />
@@ -918,57 +1293,102 @@ const InventoryView: React.FC<InventoryViewProps> = ({
                           <button type="button" onClick={() => setOpType('Entrada')} className={`flex-1 py-2 rounded-lg text-[10px] font-black uppercase transition-all ${opType === 'Entrada' ? 'bg-white shadow-sm text-emerald-500' : 'text-slate-400'}`}>Entrada</button>
                           <button type="button" onClick={() => setOpType('Saída')} className={`flex-1 py-2 rounded-lg text-[10px] font-black uppercase transition-all ${opType === 'Saída' ? 'bg-white shadow-sm text-rose-500' : 'text-slate-400'}`}>Saída</button>
                        </div>
-                       <input type="number" value={opQuantity || ''} onChange={e => setOpQuantity(parseInt(e.target.value) || 0)} className="w-full px-4 py-3 rounded-xl border-2 border-slate-50 font-bold outline-none" placeholder="Quantidade" required />
+                       <input type="number" value={opQuantity || ''} onChange={e => setOpQuantity(parseInt(e.target.value) || 0)} className="w-full px-4 py-3 rounded-xl border-2 border-slate-50 font-bold outline-none bg-white text-slate-800" placeholder="Quantidade" required />
                     </div>
 
                     {opType === 'Saída' && (
-                        <div className="relative">
-                            <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1 flex items-center justify-between">
-                                <span>Retirado por (Funcionário)</span>
-                                <span className="flex items-center text-blue-500"><QrCode size={10} className="mr-1"/> Scan Ativo</span>
-                            </label>
-                            <div className="relative">
-                                <Scan className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" size={16} />
-                                <input 
-                                    ref={recipientInputRef}
-                                    type="text" 
-                                    value={opRecipientName} 
-                                    onChange={handleScanRecipient}
-                                    className="w-full pl-9 pr-4 py-3 rounded-xl border-2 border-slate-50 font-bold outline-none focus:border-blue-300 transition-all bg-blue-50/50" 
-                                    placeholder="Bipe o Crachá ou digite o nome..." 
-                                    autoComplete="off"
-                                />
-                                {opRecipientName && (
-                                    <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                                        {opRecipientId ? (
-                                            <CheckCircle2 size={18} className="text-emerald-500" />
+                        <div className="space-y-4">
+                            <div className="flex bg-slate-50 p-1 rounded-xl border border-slate-100">
+                                <button type="button" onClick={() => setWithdrawalMode('PERSON')} className={`flex-1 py-2 rounded-lg text-[10px] font-black uppercase transition-all ${withdrawalMode === 'PERSON' ? 'bg-white shadow-sm text-blue-500' : 'text-slate-400'}`}>Pessoa</button>
+                                <button type="button" onClick={() => setWithdrawalMode('LOCATION')} className={`flex-1 py-2 rounded-lg text-[10px] font-black uppercase transition-all ${withdrawalMode === 'LOCATION' ? 'bg-white shadow-sm text-blue-500' : 'text-slate-400'}`}>Local / Setor</button>
+                            </div>
+
+                            {withdrawalMode === 'PERSON' ? (
+                                <div className="relative">
+                                    <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1 flex items-center justify-between">
+                                        <div className="flex items-center space-x-2">
+                                          <span>Retirado por ({opIsExtra ? 'Extra' : 'Funcionário'})</span>
+                                          <button 
+                                            type="button"
+                                            onClick={() => { setOpIsExtra(!opIsExtra); setOpRecipientId(''); setOpRecipientName(''); }}
+                                            className={`px-3 py-1.5 rounded-full text-xs font-black uppercase transition-all tracking-tighter flex items-center ${opIsExtra ? 'bg-amber-100 text-amber-600 border border-amber-200' : 'bg-slate-100 text-slate-400 border border-slate-200'}`}
+                                          >
+                                            <Sparkles size={12} className="mr-1"/> Extra
+                                          </button>
+                                        </div>
+                                        <span className="flex items-center text-blue-500"><QrCode size={10} className="mr-1"/> Scan Ativo</span>
+                                    </label>
+                                    <div className="relative">
+                                        {opIsExtra ? (
+                                          <Sparkles className="absolute left-3 top-1/2 -translate-y-1/2 text-amber-400" size={16} />
                                         ) : (
-                                            <span className="text-[9px] font-bold text-slate-400">Manual</span>
+                                          <Scan className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" size={16} />
+                                        )}
+                                        <input 
+                                            ref={recipientInputRef}
+                                            type="text" 
+                                            value={opRecipientName} 
+                                            onChange={handleScanRecipient}
+                                            className={`w-full pl-9 pr-4 py-3 rounded-xl border-2 font-bold outline-none focus:border-blue-300 transition-all text-slate-800 ${opIsExtra ? 'bg-amber-50/50 border-amber-100' : 'bg-blue-50/50 border-slate-50'}`}
+                                            placeholder={opIsExtra ? "Digite o nome do extra..." : "Bipe o Crachá ou digite o nome..."} 
+                                            autoComplete="off"
+                                        />
+                                        {opRecipientName && (
+                                            <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                                                {opRecipientId ? (
+                                                    <CheckCircle2 size={18} className="text-emerald-500" />
+                                                ) : (
+                                                    <span className="text-[9px] font-bold text-slate-400">{opIsExtra ? 'Novo Extra' : 'Manual'}</span>
+                                                )}
+                                            </div>
                                         )}
                                     </div>
-                                )}
-                            </div>
-                            {/* Autocomplete for employees if typing manually */}
-                            {opRecipientName && !opRecipientId && employeePredictive.length > 0 && (
-                                <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-xl shadow-lg border border-slate-100 z-[320] overflow-hidden">
-                                    {employeePredictive.map(emp => (
-                                        <button 
-                                            key={emp.id} 
-                                            type="button" 
-                                            onClick={() => { setOpRecipientId(emp.id); setOpRecipientName(emp.name); }}
-                                            className="w-full p-3 text-left hover:bg-slate-50 text-xs font-bold text-slate-700 border-b last:border-none"
-                                        >
-                                            {emp.name} <span className="text-slate-400">({emp.role})</span>
-                                        </button>
-                                    ))}
+                                    {/* Autocomplete for employees or extras if typing manually */}
+                                    {opRecipientName && !opRecipientId && employeePredictive.length > 0 && (
+                                        <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-xl shadow-lg border border-slate-100 z-[320] overflow-hidden">
+                                            {employeePredictive.map((emp: any) => (
+                                                <button 
+                                                    key={emp.id} 
+                                                    type="button" 
+                                                    onClick={() => { setOpRecipientId(emp.id); setOpRecipientName(emp.name); }}
+                                                    className="w-full p-3 text-left hover:bg-slate-50 text-xs font-bold text-slate-700 border-b last:border-none"
+                                                >
+                                                    {emp.name} <span className="text-slate-400">({emp.role || 'Extra'})</span>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            ) : (
+                                <div className="space-y-3">
+                                    <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1">Destino da Retirada</label>
+                                    <div className="flex flex-wrap gap-2 mb-2">
+                                        {['Diluidor', 'Prateleira de Retirada', 'Governança', 'Manutenção', 'Recepção'].map(loc => (
+                                            <button 
+                                                key={loc}
+                                                type="button"
+                                                onClick={() => setOpWithdrawalLocation(loc)}
+                                                className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase transition-all border-2 ${opWithdrawalLocation === loc ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-slate-500 border-slate-100 font-bold'}`}
+                                            >
+                                                {loc}
+                                            </button>
+                                        ))}
+                                    </div>
+                                    <input 
+                                        type="text" 
+                                        value={opWithdrawalLocation}
+                                        onChange={e => setOpWithdrawalLocation(e.target.value)}
+                                        className="w-full px-4 py-3 rounded-xl border-2 border-slate-50 font-bold outline-none focus:border-blue-300 transition-all bg-white text-slate-800"
+                                        placeholder="Outro local ou descrição do destino..."
+                                    />
                                 </div>
                             )}
                         </div>
                     )}
 
-                    <input type="text" value={opReason} onChange={e => setOpReason(e.target.value)} className="w-full px-4 py-3 rounded-xl border-2 border-slate-50 font-bold outline-none" placeholder="Motivo / Justificativa" />
+                    <input type="text" value={opReason} onChange={e => setOpReason(e.target.value)} className="w-full px-4 py-3 rounded-xl border-2 border-slate-50 font-bold outline-none bg-white text-slate-800" placeholder="Motivo / Justificativa" />
                  </div>
-                 <button type="submit" disabled={!opItemId} className="w-full py-4 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl transition-all active:scale-95 disabled:opacity-50 disabled:grayscale" style={{ backgroundColor: theme.primary }}>Confirmar Movimentação</button>
+                 <button type="submit" disabled={!opItemId} className="w-full py-5 text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-xl transition-all active:scale-95 disabled:opacity-50 disabled:grayscale shrink-0" style={{ backgroundColor: theme.primary }}>Confirmar Movimentação</button>
               </form>
            </div>
         </div>

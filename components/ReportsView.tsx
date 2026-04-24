@@ -459,16 +459,16 @@ const ReportsView: React.FC<ReportsViewProps> = ({ apartments, theme, onSelectAp
 
       {/* Filter Modal / Overlay */}
       {showFilters && (
-        <div className="fixed inset-0 bg-slate-900/50 z-[200] flex justify-end" onClick={() => setShowFilters(false)}>
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[200] flex justify-end" onClick={() => setShowFilters(false)}>
            <div 
-             className="w-full max-w-sm h-full bg-white shadow-2xl flex flex-col animate-in slide-in-from-right duration-300"
+             className="w-full md:max-w-sm h-full bg-white shadow-2xl flex flex-col animate-in slide-in-from-right duration-300"
              onClick={e => e.stopPropagation()}
            >
-              <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+              <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50 shrink-0">
                  <h3 className="text-lg font-black text-slate-800 uppercase tracking-tight flex items-center gap-2">
-                    <Filter size={18} /> Filtros de Auditoria
+                    <Filter size={18} /> Filtros
                  </h3>
-                 <button onClick={() => setShowFilters(false)} className="p-2 bg-white rounded-full text-slate-400 shadow-sm"><X size={20}/></button>
+                 <button onClick={() => setShowFilters(false)} className="p-2 bg-white rounded-full text-slate-400 shadow-sm transition-all active:scale-90"><X size={20}/></button>
               </div>
               
               <div className="flex-1 overflow-y-auto p-6 space-y-6">
@@ -760,13 +760,13 @@ const ReportsView: React.FC<ReportsViewProps> = ({ apartments, theme, onSelectAp
       {/* Lightbox Modal */}
       {selectedImage && (
         <div className="fixed inset-0 bg-black/95 z-[500] flex items-center justify-center p-4 animate-in fade-in duration-300 no-print" onClick={() => setSelectedImage(null)}>
-          <button className="absolute top-6 right-6 p-3 bg-white/10 hover:bg-white/20 text-white rounded-full transition-all">
+          <button className="absolute top-6 right-6 p-3 bg-white/10 hover:bg-white/20 text-white rounded-full transition-all z-[510]">
             <X size={32} />
           </button>
           <img 
             src={selectedImage} 
             alt="Visualização" 
-            className="max-w-full max-h-full object-contain rounded-lg shadow-2xl animate-in zoom-in duration-300" 
+            className="max-w-full max-h-[90dvh] object-contain rounded-lg shadow-2xl animate-in zoom-in duration-300" 
             onClick={(e) => e.stopPropagation()} 
             referrerPolicy="no-referrer"
             onError={(e) => {

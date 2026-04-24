@@ -889,6 +889,7 @@ const App: React.FC = () => {
             history={currentHotelData.inventoryHistory} 
             suppliers={currentHotelData.suppliers}
             employees={currentHotelData.employees} 
+            extras={currentHotelData.extras}
             sectors={currentHotelData.sectors}
             showSuppliersTab={currentHotelData.config?.showSuppliersTab} 
             theme={theme} 
@@ -899,6 +900,7 @@ const App: React.FC = () => {
             onDeleteSupplier={handleDeleteSupplier}
             onSaveSector={handleSaveSector}
             onDeleteSector={handleDeleteSector}
+            onSaveExtra={handleSaveExtra}
             role={state.currentUser?.role} 
             currentUser={state.currentUser?.name} 
           />
