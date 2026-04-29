@@ -1,5 +1,6 @@
 
 import React, { useState, useRef, useMemo, useEffect } from 'react';
+import * as XLSX from 'xlsx';
 import * as pdfjsLib from 'pdfjs-dist';
 import pdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import { Employee, Sector, HotelTheme, UniformItem, ExtraLabor, InventoryOperation } from '../types';
@@ -559,12 +560,42 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
     if (emp.scheduleType === '6x1') {
       const dayName = dayInfo.weekdayFull.toLowerCase().split('-')[0];
       const empOffDay = (emp.fixedDayOff || '').toLowerCase().split('-')[0];
+      
       if (dayInfo.isSunday) {
-        if ((emp.sundayOffs || []).includes(dayInfo.sundayIndex)) return `D${dayInfo.sundayIndex}`;
+        const empSundayOffs = (emp.sundayOffs || []).slice().sort((a, b) => a - b);
+        const offIndex = empSundayOffs.indexOf(dayInfo.sundayIndex);
+        if (offIndex !== -1) return `D${offIndex + 1}`;
       }
+      
       if (dayName === empOffDay && !dayInfo.isSunday) return 'F';
     }
     return '';
+  };
+
+  const downloadScaleExcel = () => {
+    const workbook = XLSX.utils.book_new();
+    const rows = [
+      ['COLABORADOR', 'JORNADA', 'FOLGA FIXA', ...scaleData.map(d => d.date.toString())],
+      ['', '', '', ...scaleData.map(d => d.weekdayShort.toUpperCase())]
+    ];
+    
+    filteredEmployees.forEach(emp => {
+      const row = [
+        emp.name,
+        emp.workingHours || '08:00-16:20',
+        emp.fixedDayOff || '-',
+        ...scaleData.map(d => {
+          const status = getShiftStatus(emp, d);
+          if (status === 'FÉRIAS') return 'F';
+          return status || '';
+        })
+      ];
+      rows.push(row);
+    });
+    
+    const worksheet = XLSX.utils.aoa_to_sheet(rows);
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Escala");
+    XLSX.writeFile(workbook, `Escala_${scaleDate.toISOString().slice(0, 7)}.xlsx`);
   };
 
   const filteredEmployees = employees.filter(e => 
@@ -1000,6 +1031,9 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
               <div className="flex gap-2 items-center">
                  <button onClick={() => window.print()} className="bg-slate-200 text-slate-700 px-3 py-2 rounded font-bold flex items-center space-x-2 hover:bg-slate-300 transition-colors text-xs">
                     <Printer size={14} /> <span>Imprimir</span>
+                  </button>
+                  <button onClick={downloadScaleExcel} className="bg-emerald-600 text-white px-3 py-2 rounded font-bold flex items-center space-x-2 hover:bg-emerald-700 transition-colors text-xs">
+                     <Download size={14} /> <span>Excel</span>
                  </button>
                  <input 
                     type="month" 
@@ -1647,6 +1681,20 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
             </div>
          </div>
       )}
+      <style>{`
+        @media print {
+          body { background: white !important; margin: 0 !important; padding: 0 !important; }
+          .no-print, .print\\:hidden { display: none !important; }
+          main { margin-left: 0 !important; padding: 0 !important; width: 100% !important; }
+          .bg-white { background-color: white !important; }
+          table { width: 100% !important; border-collapse: collapse !important; table-layout: fixed !important; }
+          th, td { border: 1px solid #cbd5e1 !important; padding: 2px !important; font-size: 8px !important; }
+          th { background-color: #f8fafc !important; -webkit-print-color-adjust: exact; }
+          .sticky { position: static !important; }
+          .max-w-\\[250px\\] { max-width: none !important; width: auto !important; }
+          @page { size: landscape; margin: 0.5cm; }
+        }
+      `}</style>
     </div>
   );
 };

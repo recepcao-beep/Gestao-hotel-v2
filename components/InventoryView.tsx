@@ -33,7 +33,8 @@ import {
   Sparkles,
   MapPin,
   BarChart as BarChartIcon,
-  Activity
+  Activity,
+  Filter
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -139,8 +140,25 @@ const InventoryView: React.FC<InventoryViewProps> = ({
   const [supName, setSupName] = useState('');
   const [supContact, setSupContact] = useState('');
   const [supCategory, setSupCategory] = useState('');
+  
+  // Dashboard filters
+  const [dashStartDate, setDashStartDate] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 30);
+    return d.toISOString().split('T')[0];
+  });
+  const [dashEndDate, setDashEndDate] = useState(() => new Date().toISOString().split('T')[0]);
 
   const categories = ['Limpeza', 'Rouparia', 'Amenidades', 'Escritório', 'Manutenção'];
+
+  const abbreviateName = (name: string) => {
+    if (!name) return '';
+    const parts = name.trim().split(/\s+/);
+    if (parts.length <= 1) return name;
+    const first = parts[0];
+    const last = parts[parts.length - 1];
+    return `${first} ${last[0]}.`;
+  };
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -207,27 +225,35 @@ const InventoryView: React.FC<InventoryViewProps> = ({
 
   const globalTotalValue = useMemo(() => enrichedInventory.reduce((acc, curr) => acc + curr.totalValue, 0), [enrichedInventory]);
 
+  const dashStart = useMemo(() => new Date(dashStartDate).getTime(), [dashStartDate]);
+  const dashEnd = useMemo(() => new Date(dashEndDate + 'T23:59:59').getTime(), [dashEndDate]);
+
   const statsEmployees = useMemo(() => {
     const counts: Record<string, number> = {};
-    history.filter(h => h.type === 'Saída' && h.recipientName).forEach(h => {
-       counts[h.recipientName || ''] = (counts[h.recipientName || ''] || 0) + 1;
-    });
+    history
+      .filter(h => h.type === 'Saída' && h.recipientName && h.timestamp >= dashStart && h.timestamp <= dashEnd)
+      .forEach(h => {
+         const name = abbreviateName(h.recipientName || '');
+         counts[name] = (counts[name] || 0) + 1;
+      });
     return Object.entries(counts)
        .map(([name, count]) => ({ name, count }))
        .sort((a, b) => b.count - a.count)
        .slice(0, 5);
-  }, [history]);
+  }, [history, dashStart, dashEnd]);
 
   const statsProducts = useMemo(() => {
     const counts: Record<string, number> = {};
-    history.filter(h => h.type === 'Saída').forEach(h => {
-       counts[h.itemName] = (counts[h.itemName] || 0) + h.quantity;
-    });
+    history
+      .filter(h => h.type === 'Saída' && h.timestamp >= dashStart && h.timestamp <= dashEnd)
+      .forEach(h => {
+         counts[h.itemName] = (counts[h.itemName] || 0) + h.quantity;
+      });
     return Object.entries(counts)
        .map(([name, qty]) => ({ name, qty }))
        .sort((a, b) => b.qty - a.qty)
        .slice(0, 5);
-  }, [history]);
+  }, [history, dashStart, dashEnd]);
 
   const statsSuppliers = useMemo(() => {
     const spend: Record<string, number> = {};
@@ -243,21 +269,31 @@ const InventoryView: React.FC<InventoryViewProps> = ({
   }, [inventory, suppliers]);
 
   const statsTrends = useMemo(() => {
-    const days = Array.from({ length: 7 }, (_, i) => {
-       const d = new Date();
-       d.setDate(d.getDate() - i);
-       return d.toISOString().split('T')[0];
-    }).reverse();
+    // Generate days between dashStart and dashEnd
+    const start = new Date(dashStartDate);
+    const end = new Date(dashEndDate);
+    const days = [];
+    let current = new Date(start);
+    
+    // Safety limit of 60 days
+    let count = 0;
+    while (current <= end && count < 60) {
+      days.push(current.toISOString().split('T')[0]);
+      current.setDate(current.getDate() + 1);
+      count++;
+    }
 
     return days.map(day => {
-       const ops = history.filter(h => new Date(h.timestamp).toISOString().split('T')[0] === day);
+       const dStart = new Date(day).getTime();
+       const dEnd = new Date(day + 'T23:59:59').getTime();
+       const ops = history.filter(h => h.timestamp >= dStart && h.timestamp <= dEnd);
        return {
            day: day.split('-').reverse().slice(0, 2).join('/'),
            entradas: ops.filter(o => o.type === 'Entrada').reduce((a, b) => a + b.quantity, 0),
            saidas: ops.filter(o => o.type === 'Saída').reduce((a, b) => a + b.quantity, 0),
        };
     });
-  }, [history]);
+  }, [history, dashStartDate, dashEndDate]);
 
   const resetItemForm = () => {
     setName(''); setEan(''); setCategory('Limpeza'); setInitialQuantity(0); setUnit('Unidade'); setPrice(0); setSupplierId('');
@@ -359,7 +395,7 @@ const InventoryView: React.FC<InventoryViewProps> = ({
   // --- SECTOR SELECTION VIEW ---
   if (!selectedSectorId) {
     return (
-      <div className="space-y-8 animate-in fade-in duration-500 pb-20">
+      <div className="space-y-8 animate-in fade-in duration-500 pb-20 max-w-7xl mx-auto px-4 md:px-8 pt-8">
         <div className="flex flex-col md:flex-row justify-between items-center gap-4">
           <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Controle de Estoque</p>
           <div className="flex gap-2">
@@ -514,7 +550,7 @@ const InventoryView: React.FC<InventoryViewProps> = ({
   const currentSector = sectors.find(s => s.id === selectedSectorId);
 
   return (
-    <div className="space-y-4 md:space-y-6 animate-in slide-in-from-right-4 duration-500 pb-20 relative">
+    <div className="space-y-4 md:space-y-6 animate-in slide-in-from-right-4 duration-500 pb-20 relative max-w-7xl mx-auto px-4 md:px-8 pt-8">
       
       {/* Header com Navegação e Valor Total - Agora Sticky */}
       <div className="sticky top-0 z-30 pt-2 md:pt-4 bg-slate-50/95 backdrop-blur-xl -mx-4 px-4 md:-mx-8 md:px-8 pb-4 space-y-3 md:space-y-4 shadow-sm border-b border-slate-200/50">
@@ -885,6 +921,29 @@ const InventoryView: React.FC<InventoryViewProps> = ({
 
       {activeTab === 'RELATORIOS' && role === 'GESTOR' && (
         <div className="space-y-6 animate-in slide-in-from-right-4">
+           {/* Período de Análise */}
+           <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm flex flex-col md:flex-row justify-between items-center gap-4">
+              <div className="flex items-center gap-2">
+                <Filter size={18} className="text-slate-400" />
+                <span className="text-[10px] font-black text-slate-500 uppercase">Período de Análise</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <input 
+                  type="date" 
+                  value={dashStartDate}
+                  onChange={e => setDashStartDate(e.target.value)}
+                  className="px-4 py-2 rounded-xl border border-slate-200 text-xs font-bold outline-none focus:border-blue-400 transition-colors"
+                />
+                <span className="text-slate-300 font-bold px-1">até</span>
+                <input 
+                  type="date" 
+                  value={dashEndDate}
+                  onChange={e => setDashEndDate(e.target.value)}
+                  className="px-4 py-2 rounded-xl border border-slate-200 text-xs font-bold outline-none focus:border-blue-400 transition-colors"
+                />
+              </div>
+           </div>
+
            {/* Summary Cards */}
            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm">
@@ -978,7 +1037,7 @@ const InventoryView: React.FC<InventoryViewProps> = ({
                     <div className="p-8 overflow-y-auto flex-1">
                       <div className="space-y-4">
                         {history
-                          .filter(h => h.recipientName === selectedReportEmployee && h.type === 'Saída')
+                          .filter(h => abbreviateName(h.recipientName || '') === selectedReportEmployee && h.type === 'Saída')
                           .sort((a, b) => b.timestamp - a.timestamp)
                           .map((entry, idx) => (
                             <div key={idx} className="flex items-center justify-between p-5 bg-slate-50 rounded-[1.5rem] border border-slate-100 hover:border-blue-100 hover:bg-white transition-all group">
@@ -1035,6 +1094,15 @@ const InventoryView: React.FC<InventoryViewProps> = ({
                     <ResponsiveContainer width="100%" height="100%">
                        <BarChart 
                           data={statsProducts}
+                          onClick={(data) => {
+                            if (data && data.activeLabel) {
+                              const product = inventory.find(i => i.name === data.activeLabel);
+                              if (product) {
+                                setEditingItem(product);
+                                setActiveTab('ESTOQUE');
+                              }
+                            }
+                          }}
                        >
                           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                           <XAxis 

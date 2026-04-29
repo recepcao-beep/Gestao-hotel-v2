@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
-import { Integration, HotelTheme } from '../types';
-import { Copy, FileSpreadsheet, XCircle } from 'lucide-react';
+import { Integration, HotelTheme, HotelType } from '../types';
+import { Copy, FileSpreadsheet, XCircle, Database, ArrowRight, CheckCircle2, AlertCircle, RefreshCw } from 'lucide-react';
 
 interface IntegrationsViewProps {
   integrations: Integration[];
@@ -565,6 +565,93 @@ function deleteVehicleFolder() {
 }
 `;
 
+const SupabaseMigrationSection: React.FC<{ theme: HotelTheme }> = ({ theme }) => {
+  const [isMigrating, setIsMigrating] = useState(false);
+  const [migrationResults, setMigrationResults] = useState<any>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleMigrate = async (hotel: HotelType) => {
+    setIsMigrating(true);
+    setError(null);
+    try {
+      const response = await fetch('/api/supabase/migrate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ hotel })
+      });
+      const result = await response.json();
+      if (result.status === 'success') {
+        setMigrationResults(result.results);
+      } else {
+        setError(result.message);
+      }
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setIsMigrating(false);
+    }
+  };
+
+  return (
+    <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm space-y-6">
+      <div className="flex items-center space-x-4">
+        <div className="p-3 bg-blue-50 text-blue-600 rounded-2xl shadow-sm">
+          <Database size={24} />
+        </div>
+        <div>
+          <h3 className="text-lg font-black text-slate-800 uppercase tracking-tighter">Migração para Supabase</h3>
+          <p className="text-xs font-bold text-slate-400">Transfira seus dados das planilhas para o banco de dados.</p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        {(['VILLAGE', 'GOLDEN_PARK', 'THERMAL_RESORT'] as HotelType[]).map(hotel => (
+          <button
+            key={hotel}
+            onClick={() => handleMigrate(hotel)}
+            disabled={isMigrating}
+            className={`px-4 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center space-x-2 ${
+              isMigrating ? 'bg-slate-100 text-slate-400' : 'bg-slate-900 text-white hover:bg-slate-800'
+            }`}
+          >
+            {isMigrating ? <RefreshCw className="animate-spin" size={14} /> : <ArrowRight size={14} />}
+            <span>{hotel.replace('_', ' ')}</span>
+          </button>
+        ))}
+      </div>
+
+      {error && (
+        <div className="p-4 bg-rose-50 border border-rose-100 rounded-2xl flex items-start space-x-3 text-rose-600">
+          <AlertCircle size={18} className="shrink-0 mt-0.5" />
+          <p className="text-xs font-bold">{error}</p>
+        </div>
+      )}
+
+      {migrationResults && (
+        <div className="space-y-3 animate-in fade-in slide-in-from-top-2">
+          <div className="flex items-center space-x-2 text-emerald-600">
+            <CheckCircle2 size={18} />
+            <span className="text-xs font-black uppercase tracking-widest">Migração Concluída</span>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            {Object.entries(migrationResults).map(([key, res]: [string, any]) => (
+              <div key={key} className={`p-3 rounded-xl border text-[9px] font-black uppercase tracking-widest ${
+                res.status === 'success' ? 'bg-emerald-50 border-emerald-100 text-emerald-700' : 'bg-rose-50 border-rose-100 text-rose-700'
+              }`}>
+                <div className="truncate mb-1">{key}</div>
+                <div className="opacity-70">{res.status === 'success' ? `OK (${res.count})` : 'Erro'}</div>
+              </div>
+            ))}
+          </div>
+          <p className="text-[10px] text-slate-500 font-medium italic mt-2">
+            * Certifique-se de que as tabelas existem no Supabase antes de migrar.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const IntegrationsView: React.FC<IntegrationsViewProps> = ({ integrations, theme, onUpdate }) => {
   const [showScriptModal, setShowScriptModal] = useState(false);
   const globalInt = integrations[0];
@@ -606,6 +693,8 @@ const IntegrationsView: React.FC<IntegrationsViewProps> = ({ integrations, theme
           Limpar Cache Local e Reiniciar
         </button>
       </div>
+
+      <SupabaseMigrationSection theme={theme} />
 
       {showScriptModal && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[300] flex items-center justify-center p-4">

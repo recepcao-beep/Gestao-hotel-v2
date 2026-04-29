@@ -5,6 +5,7 @@ import cookieParser from 'cookie-parser';
 import session from 'express-session';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { createClient } from '@supabase/supabase-js';
 
 dotenv.config();
 
@@ -15,6 +16,11 @@ const app = express();
 app.use(express.json({ limit: '50mb' }));
 app.use(cookieParser());
 
+// Supabase Client
+const supabaseUrl = process.env.SUPABASE_URL || '';
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+const supabase = (supabaseUrl && supabaseKey) ? createClient(supabaseUrl, supabaseKey) : null;
+
 // Health check
 app.get('/api/health', (req, res) => {
   res.json({ 
@@ -23,7 +29,8 @@ app.get('/api/health', (req, res) => {
     env: {
       hasSheetId: !!process.env.GOOGLE_SHEET_ID,
       hasServiceAccount: !!process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
-      hasPrivateKey: !!process.env.GOOGLE_PRIVATE_KEY
+      hasPrivateKey: !!process.env.GOOGLE_PRIVATE_KEY,
+      hasSupabase: !!supabase
     }
   });
 });
@@ -91,7 +98,7 @@ const INTERNAL_KEY_MAP: Record<string, string> = {
 };
 
 const GRID_COLUMNS: Record<string, string[]> = {
-  apartments: ['roomNumber', 'floor', 'pisoType', 'pisoStatus', 'banheiroType', 'banheiroStatus', 'temCofre', 'temCortina', 'cortinaStatus', 'cortinaSize', 'cortinaCoverage', 'temEspelhoCorpo', 'espelhoCorpoStatus', 'acBrand', 'moveisStatus', 'moveisDetalhes', 'beds', 'temPortaControle', 'temCabide', 'cabideQuantity', 'temSuportePapel', 'temSuporteShampoo', 'suporteShampooStatus', 'luminariaType', 'luminariaColor', 'tvBrand', 'defects', 'customAnswers'],
+  apartments: ['id', 'roomNumber', 'floor', 'pisoType', 'pisoStatus', 'banheiroType', 'banheiroStatus', 'temCofre', 'temCortina', 'cortinaStatus', 'cortinaSize', 'cortinaCoverage', 'temEspelhoCorpo', 'espelhoCorpoStatus', 'acBrand', 'moveisStatus', 'moveisDetalhes', 'beds', 'temPortaControle', 'temCabide', 'cabideQuantity', 'temSuportePapel', 'temSuporteShampoo', 'suporteShampooStatus', 'luminariaType', 'luminariaColor', 'tvBrand', 'defects', 'customAnswers'],
   employees: ['id', 'name', 'role', 'gender', 'contact', 'salary', 'sectorId', 'fixedDayOff', 'sundayOffs', 'workingHours', 'status', 'startDate', 'scheduleType', 'vacationStatus', 'uniforms', 'photo'],
   budgets: ['id', 'title', 'objective', 'items', 'quotes', 'status', 'createdAt', 'files'],
   extras: ['id', 'name', 'phone', 'availability', 'serviceQuality', 'observation', 'sectorId'],
@@ -156,32 +163,141 @@ function parseValue(val: any, fieldName: string) {
 const CACHE_TTL = 30000; // 30 seconds
 const dataCache: Record<string, { data: any, timestamp: number }> = {};
 
+// Migrate data from Sheets to Supabase
+app.post('/api/supabase/migrate', async (req, res) => {
+  const { hotel } = req.body;
+  if (!hotel) return res.status(400).json({ status: 'error', message: 'Hotel not specified' });
+  if (!supabase) return res.status(500).json({ status: 'error', message: 'Supabase not configured' });
+
+  try {
+    console.log(`[Migration] Starting migration for hotel: ${hotel}`);
+    // EXPLICITLY use the Sheets loading logic, bypassing Supabase lookup
+    const data = await getSheetsOnlyData(hotel);
+    const results: any = {};
+
+    for (const [key, value] of Object.entries(data)) {
+      const tableName = key.toLowerCase(); // apartments, employees, etc.
+      
+      // Prepare data for Supabase (using a JSONB 'data' column for flexibility)
+      let records: any[] = [];
+      if (key === 'apartments' && typeof value === 'object' && value !== null && !Array.isArray(value)) {
+        records = Object.values(value).map((v: any) => {
+          const originalId = v.id || `${v.floor}-${v.roomNumber}`;
+          return { 
+            id: `${hotel}_${originalId}`, 
+            hotel_name: hotel, 
+            data: { ...v, id: originalId } 
+          };
+        });
+      } else if (Array.isArray(value)) {
+        records = value.map((v: any) => ({ 
+          id: `${hotel}_${v.id}`, 
+          hotel_name: hotel, 
+          data: { ...v, id: String(v.id) }
+        }));
+      } else if (key === 'config' && value && typeof value === 'object') {
+        records = [{ id: `config_${hotel}`, hotel_name: hotel, data: value }];
+      }
+
+      if (records.length > 0) {
+        console.log(`[Migration] Migrating ${records.length} records to ${tableName}...`);
+        const { error } = await supabase
+          .from(tableName)
+          .upsert(records);
+        
+        if (error) {
+          console.error(`[Migration Error] ${key} -> ${tableName}:`, JSON.stringify(error));
+          results[key] = { status: 'error', message: error.message, details: error };
+        } else {
+          results[key] = { status: 'success', count: records.length };
+        }
+      } else {
+        results[key] = { status: 'skipped', message: 'Empty or incompatible data' };
+      }
+    }
+
+    res.json({ status: 'success', results });
+  } catch (error: any) {
+    console.error('Migration error:', error);
+    res.status(500).json({ status: 'error', message: error.message });
+  }
+});
+
 // Helper to get data from a specific sheet/cell
 async function getSheetData(hotel: string) {
-  const SPREADSHEET_ID = process.env.GOOGLE_SHEET_ID;
-  if (!SPREADSHEET_ID) {
-    const context = process.env.VERCEL ? 'no Dashboard da Vercel (Environment Variables)' : 'no menu Settings > Secrets do AI Studio';
-    throw new Error(`A variável de ambiente GOOGLE_SHEET_ID não foi encontrada. Por favor, configure-a ${context}.`);
-  }
-
   // Check cache first
   const cached = dataCache[hotel];
   if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-    console.log(`[Cache] Returning cached data for hotel: ${hotel}`);
     return cached.data;
   }
 
+  // If Supabase is configured, try to load from there
+  if (supabase) {
+    try {
+      const hotelData: any = {};
+      
+      for (const key of Object.keys(DATA_MAP)) {
+        const { data, error } = await supabase
+          .from(key.toLowerCase())
+          .select('*')
+          .eq('hotel_name', hotel);
+        
+        if (error) {
+          console.error(`Error loading ${key} from Supabase:`, JSON.stringify(error));
+          hotelData[key] = key === 'apartments' ? {} : [];
+        } else {
+          if (key === 'config') {
+            hotelData[key] = data[0]?.data || {};
+          } else if (key === 'apartments') {
+            const aptMap: any = {};
+            data.forEach((row: any) => {
+              const apt = row.data || {};
+              const id = apt.id || row.id.replace(`${hotel}_`, '');
+              aptMap[id] = { ...apt, id };
+            });
+            hotelData[key] = aptMap;
+          } else {
+            hotelData[key] = data.map((row: any) => {
+              const item = row.data || {};
+              if (row.id && !item.id) {
+                item.id = row.id.replace(`${hotel}_`, '');
+              }
+              return item;
+            }) || [];
+          }
+        }
+      }
+
+      // If we found some data in Supabase (at least one table has records), return it
+      const hasAnyData = Object.values(hotelData).some((v: any) => 
+        (Array.isArray(v) && v.length > 0) || (typeof v === 'object' && v !== null && Object.keys(v).length > 0)
+      );
+
+      if (hasAnyData) {
+        dataCache[hotel] = { data: hotelData, timestamp: Date.now() };
+        return hotelData;
+      }
+    } catch (error) {
+      console.error('[Supabase Load Error] Falling back to Sheets:', error);
+    }
+  }
+
+  return getSheetsOnlyData(hotel);
+}
+
+// Low-level Sheets-only fetcher
+async function getSheetsOnlyData(hotel: string) {
+  const SPREADSHEET_ID = process.env.GOOGLE_SHEET_ID;
+  if (!SPREADSHEET_ID) throw new Error('GOOGLE_SHEET_ID not set');
+
   const hotelData: any = {};
   
-  // Fetch sheets sequentially to avoid bursting the Sheets API quota
-  // Every call to getSheetsData triggered 12 parallel requests, hitting the 60 requests/min limit very fast.
   for (const [key, sheetPrefix] of Object.entries(DATA_MAP)) {
     const sheetName = `${sheetPrefix}_${hotel}`;
     const defaultValue = (key === 'apartments' ? {} : []);
     const gridCols = GRID_COLUMNS[key];
 
     try {
-      // Add a tiny delay between requests to spread out the load
       await new Promise(resolve => setTimeout(resolve, 200));
 
       const response = await sheets.spreadsheets.values.get({
@@ -196,7 +312,6 @@ async function getSheetData(hotel: string) {
         continue;
       }
 
-      // Special handling for Config (key-value pairs)
       if (key === 'config') {
         const config: any = {};
         rows.forEach(row => {
@@ -204,9 +319,7 @@ async function getSheetData(hotel: string) {
             let val = row[1];
             const trimmed = typeof val === 'string' ? val.trim() : '';
             if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
-              try { val = JSON.parse(trimmed); } catch (e) {
-                console.warn(`Failed to parse JSON in config ${row[0]}:`, trimmed.substring(0, 50));
-              }
+              try { val = JSON.parse(trimmed); } catch (e) {}
             } else if (val === 'TRUE' || val === 'true') {
               val = true;
             } else if (val === 'FALSE' || val === 'false') {
@@ -219,7 +332,6 @@ async function getSheetData(hotel: string) {
         continue;
       }
 
-      // Check if it's a grid or a single JSON in A1
       const firstCell = rows[0][0];
       const isJsonInA1 = rows.length === 1 && rows[0].length === 1 && typeof firstCell === 'string' && (firstCell.startsWith('[') || firstCell.startsWith('{'));
 
@@ -264,39 +376,80 @@ async function getSheetData(hotel: string) {
         hotelData[key] = defaultValue;
       }
     } catch (error: any) {
-      if (error.message?.includes('Quota exceeded') || error.code === 429) {
-        console.error(`[QUOTA EXCEEDED] Sheet ${sheetName}. Returning partial/cached data.`);
-        // If we hit a quota, we stop fetching more sheets for this hotel request
-        // and return what we have so far, or better, return the previous cache if available.
-        if (cached) return cached.data;
-        hotelData[key] = defaultValue;
-      } else if (error.message?.includes('Unable to parse range') || error.code === 400) {
-        hotelData[key] = defaultValue;
-      } else {
-        console.error(`Error reading sheet ${sheetName}:`, error.message || error);
-        hotelData[key] = defaultValue;
-      }
+      console.error(`Error reading sheet ${sheetName}:`, error.message);
+      hotelData[key] = defaultValue;
     }
   }
 
-  // Update cache
-  dataCache[hotel] = { data: hotelData, timestamp: Date.now() };
   return hotelData;
 }
 
 // Helper to save data to a specific sheet/cell
 async function saveSheetData(hotel: string, dataType: string, data: any) {
-  const SPREADSHEET_ID = process.env.GOOGLE_SHEET_ID;
-  if (!SPREADSHEET_ID) {
-    const context = process.env.VERCEL ? 'no Dashboard da Vercel (Environment Variables)' : 'no menu Settings > Secrets do AI Studio';
-    throw new Error(`A variável de ambiente GOOGLE_SHEET_ID não foi encontrada. Por favor, configure-a ${context}.`);
-  }
-
   const key = INTERNAL_KEY_MAP[dataType];
   if (!key || !DATA_MAP[key]) {
-    console.warn(`No sheet mapping found for dataType: ${dataType}`);
+    console.warn(`No mapping found for dataType: ${dataType}`);
     return;
   }
+
+  // If Supabase is configured, save there
+  if (supabase) {
+    try {
+      console.log(`[Supabase] Saving ${dataType} for hotel: ${hotel}`);
+      const tableName = key.toLowerCase();
+      let records: any[] = [];
+      
+      if (key === 'config') {
+        records = [{ id: `config_${hotel}`, hotel_name: hotel, data: data }];
+      } else if (key === 'apartments' && typeof data === 'object' && !Array.isArray(data)) {
+        records = Object.values(data).map((v: any) => {
+          const originalId = v.id || `${v.floor}-${v.roomNumber}`;
+          return { 
+            id: `${hotel}_${originalId}`, 
+            hotel_name: hotel, 
+            data: { ...v, id: originalId }
+          };
+        });
+      } else if (Array.isArray(data)) {
+        records = data.map((v: any) => ({ 
+          id: `${hotel}_${v.id}`, 
+          hotel_name: hotel, 
+          data: { ...v, id: String(v.id) }
+        }));
+      }
+
+      if (records.length > 0) {
+        const { error: upsertError } = await supabase
+          .from(tableName)
+          .upsert(records);
+        
+        if (upsertError) {
+          console.error(`[Supabase Save Error] ${dataType}:`, JSON.stringify(upsertError));
+        }
+
+        // Deletion logic: remove records that are no longer in the current app state
+        if (key !== 'config') {
+          const currentIds = records.map(r => r.id);
+          const { error: deleteError } = await supabase
+            .from(tableName)
+            .delete()
+            .eq('hotel_name', hotel)
+            .not('id', 'in', currentIds);
+          
+          if (deleteError) {
+            console.error(`[Supabase Delete Error] ${dataType}:`, JSON.stringify(deleteError));
+          }
+        }
+      } else if (key !== 'config' && Array.isArray(data) && data.length === 0) {
+        // Handle full clear of a collection
+        await supabase.from(tableName).delete().eq('hotel_name', hotel);
+      }
+    } catch (error) {
+      console.error('[Supabase Save Error]:', error);
+    }
+  }
+
+  const SPREADSHEET_ID = process.env.GOOGLE_SHEET_ID;
 
   const sheetName = `${DATA_MAP[key]}_${hotel}`;
   const gridCols = GRID_COLUMNS[key];
@@ -305,10 +458,11 @@ async function saveSheetData(hotel: string, dataType: string, data: any) {
     let values: any[][];
     if (key === 'config' && typeof data === 'object') {
       values = Object.entries(data).map(([k, v]) => [k, typeof v === 'object' ? JSON.stringify(v) : v]);
-    } else if (gridCols && Array.isArray(data)) {
-      values = data.map(item => gridCols.map(col => {
+    } else if (gridCols && (Array.isArray(data) || (typeof data === 'object' && key === 'apartments'))) {
+      const dataArray = Array.isArray(data) ? data : Object.values(data);
+      values = dataArray.map(item => gridCols.map(col => {
         const val = item[col];
-        if (['timestamp', 'lastUpdate', 'createdAt'].includes(col) && typeof val === 'number') {
+        if (['timestamp', 'lastUpdate', 'createdAt', 'startDate', 'check_out_date', 'check_in_date', 'trip_start'].includes(col) && typeof val === 'number') {
           return new Date(val).toISOString();
         }
         return typeof val === 'object' ? JSON.stringify(val) : (val ?? '');
@@ -316,7 +470,7 @@ async function saveSheetData(hotel: string, dataType: string, data: any) {
       
       await sheets.spreadsheets.values.clear({
         spreadsheetId: SPREADSHEET_ID,
-        range: `${sheetName}!A:AC`,
+        range: `${sheetName}!A1:AZ`,
       });
     } else {
       values = [[JSON.stringify(data)]];
