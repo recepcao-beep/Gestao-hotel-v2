@@ -310,7 +310,7 @@ const InventoryView: React.FC<InventoryViewProps> = ({
     e.preventDefault();
     if (!selectedSectorId) return;
     onSave({ 
-      id: editingItem?.id || Date.now().toString(), 
+      id: editingItem?.id || `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`, 
       ean, 
       name, 
       category, 
@@ -327,14 +327,14 @@ const InventoryView: React.FC<InventoryViewProps> = ({
 
   const handleSaveSupplierSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSaveSupplier({ id: editingSupplier?.id || Date.now().toString(), name: supName, contact: supContact, category: supCategory });
+    onSaveSupplier({ id: editingSupplier?.id || `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`, name: supName, contact: supContact, category: supCategory });
     setSupName(''); setSupContact(''); setSupCategory(''); setIsAddingSupplier(false); setEditingSupplier(null);
   };
 
   const handleSaveSectorSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (onSaveSector) {
-      onSaveSector({ id: Date.now().toString(), name: sectorName, standardUniform: [] });
+      onSaveSector({ id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`, name: sectorName, standardUniform: [] });
       setSectorName('');
       setIsAddingSector(false);
     }
@@ -1294,7 +1294,7 @@ const InventoryView: React.FC<InventoryViewProps> = ({
 
                 // Handle new Extra worker saving
                 if (opIsExtra && opRecipientName && !opRecipientId && onSaveExtra) {
-                  const newExtraId = `extra_${Date.now()}`;
+                  const newExtraId = `extra_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
                   onSaveExtra({
                     id: newExtraId,
                     name: opRecipientName,
@@ -1308,7 +1308,7 @@ const InventoryView: React.FC<InventoryViewProps> = ({
                 }
 
                 onOperation({ 
-                    id: Date.now().toString(), 
+                    id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`, 
                     itemId: opItemId, 
                     itemName: selectedItem.name, 
                     type: opType, 

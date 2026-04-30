@@ -21,6 +21,47 @@ const supabaseUrl = process.env.SUPABASE_URL || '';
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const supabase = (supabaseUrl && supabaseKey) ? createClient(supabaseUrl, supabaseKey) : null;
 
+// Debug Supabase
+app.get('/api/supabase/debug', async (req, res) => {
+  if (!supabase) return res.status(500).json({ status: 'error', message: 'Supabase not configured' });
+  
+  try {
+    const debug: any = {};
+    for (const key of Object.keys(DATA_MAP)) {
+      const tableName = key.toLowerCase();
+      const { data, count, error } = await supabase
+        .from(tableName)
+        .select('id, hotel_name, data', { count: 'exact', head: false })
+        .limit(3);
+      
+      if (error) {
+        debug[tableName] = { error: error.message };
+      } else {
+        const samples = data?.map((d: any) => {
+          let item = d.data;
+          if (typeof item === 'string') {
+            try { item = JSON.parse(item); } catch (e) {}
+          }
+          return { id: d.id, hotel_name: d.hotel_name, data_id: item?.id, keys: Object.keys(item || {}) };
+        });
+
+        // Get count of distinct hotels
+        const { data: hotelsData } = await supabase.from(tableName).select('hotel_name');
+        const distinctHotels = [...new Set(hotelsData?.map(d => d.hotel_name))];
+
+        debug[tableName] = { 
+          count, 
+          samples,
+          distinctHotels
+        };
+      }
+    }
+    res.json(debug);
+  } catch (error: any) {
+    res.status(500).json({ status: 'error', message: error.message });
+  }
+});
+
 // Health check
 app.get('/api/health', (req, res) => {
   res.json({ 
@@ -163,6 +204,79 @@ function parseValue(val: any, fieldName: string) {
 const CACHE_TTL = 30000; // 30 seconds
 const dataCache: Record<string, { data: any, timestamp: number }> = {};
 
+let sheetMetadataCache: { names: string[], timestamp: number } | null = null;
+const METADATA_TTL = 60000; // 1 min
+
+async function getSheetNames(spreadsheetId: string): Promise<string[]> {
+  const now = Date.now();
+  if (sheetMetadataCache && (now - sheetMetadataCache.timestamp < METADATA_TTL)) {
+    return sheetMetadataCache.names;
+  }
+  
+  try {
+    const metadata = await sheets.spreadsheets.get({
+      spreadsheetId,
+      fields: 'sheets(properties(title))',
+    });
+    const names = (metadata.data.sheets || []).map(s => s.properties?.title || '');
+    sheetMetadataCache = { names, timestamp: now };
+    return names;
+  } catch (e) {
+    console.warn('[Discovery] Error getting sheet names:', e);
+    throw e;
+  }
+}
+
+/**
+ * Robust sheet name discovery.
+ * Tries to find the best match for a sheet based on prefix and hotel name.
+ * Handles variations like "HOTEIS_Vilage Inn" vs "HOTEIS_VILAGE_INN"
+ */
+async function discoverSheetName(prefix: string, hotel: string): Promise<string> {
+  const SPREADSHEET_ID = process.env.GOOGLE_SHEET_ID;
+  if (!SPREADSHEET_ID) return `${prefix}_${hotel}`;
+
+  try {
+    const allSheetNames = await getSheetNames(SPREADSHEET_ID);
+    const target = `${prefix}_${hotel}`.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+    
+    // 1. Exact match (case insensitive, ignoring non-alphanumeric)
+    const exactMatch = allSheetNames.find(n => n.toLowerCase().replace(/[^a-z0-9]/g, '') === target);
+    if (exactMatch) return exactMatch;
+
+    if (prefix === 'Apartamentos') {
+       console.log(`[Discovery] Target "${target}". Available sheets: ${allSheetNames.join(', ')}`);
+    }
+
+    // 2. Fuzzy match: target contains sheet name or vice versa
+    const fuzzyMatch = allSheetNames.find(n => {
+      if (!n.startsWith(prefix)) return false;
+      const nClean = n.toLowerCase().replace(/[^a-z0-9]/g, '');
+      const hClean = hotel.toLowerCase().replace(/[^a-z0-9]/g, '');
+      const nHClean = nClean.substring(prefix.toLowerCase().replace(/[^a-z0-9]/g, '').length);
+      
+      // Check for common variations
+      const isVillage = (hClean === 'village' || hClean === 'vilage' || hClean === 'vila');
+      const isSheetVillage = (nHClean.includes('village') || nHClean.includes('vilage') || nHClean === 'vila');
+      
+      if (isVillage && isSheetVillage) return true;
+      
+      return nHClean.includes(hClean) || hClean.includes(nHClean);
+    });
+
+    if (fuzzyMatch) {
+      console.log(`[Discovery] Found fuzzy sheet match for "${prefix}" + "${hotel}": "${fuzzyMatch}"`);
+      return fuzzyMatch;
+    }
+
+    return `${prefix}_${hotel}`;
+  } catch (e) {
+    console.warn('[Discovery] Error discovering sheet name:', e);
+    return `${prefix}_${hotel}`;
+  }
+}
+
 // Migrate data from Sheets to Supabase
 app.post('/api/supabase/migrate', async (req, res) => {
   const { hotel } = req.body;
@@ -170,15 +284,14 @@ app.post('/api/supabase/migrate', async (req, res) => {
   if (!supabase) return res.status(500).json({ status: 'error', message: 'Supabase not configured' });
 
   try {
-    console.log(`[Migration] Starting migration for hotel: ${hotel}`);
+    console.log(`[Migration] STARTING for hotel: "${hotel}"`);
     // EXPLICITLY use the Sheets loading logic, bypassing Supabase lookup
     const data = await getSheetsOnlyData(hotel);
     const results: any = {};
 
     for (const [key, value] of Object.entries(data)) {
-      const tableName = key.toLowerCase(); // apartments, employees, etc.
+      const tableName = key.toLowerCase(); 
       
-      // Prepare data for Supabase (using a JSONB 'data' column for flexibility)
       let records: any[] = [];
       if (key === 'apartments' && typeof value === 'object' && value !== null && !Array.isArray(value)) {
         records = Object.values(value).map((v: any) => {
@@ -195,72 +308,199 @@ app.post('/api/supabase/migrate', async (req, res) => {
           hotel_name: hotel, 
           data: { ...v, id: String(v.id) }
         }));
-      } else if (key === 'config' && value && typeof value === 'object') {
+      } else if (key === 'config' && value && typeof value === 'object' && Object.keys(value).length > 0) {
         records = [{ id: `config_${hotel}`, hotel_name: hotel, data: value }];
       }
 
       if (records.length > 0) {
-        console.log(`[Migration] Migrating ${records.length} records to ${tableName}...`);
+        console.log(`[Migration] Syncing ${records.length} records to table "${tableName}" for "${hotel}"...`);
         const { error } = await supabase
           .from(tableName)
-          .upsert(records);
+          .upsert(records, { onConflict: 'id' });
         
         if (error) {
-          console.error(`[Migration Error] ${key} -> ${tableName}:`, JSON.stringify(error));
-          results[key] = { status: 'error', message: error.message, details: error };
+          console.error(`[Migration Error] ${key} -> ${tableName}:`, error.message);
+          results[key] = { status: 'error', message: error.message };
         } else {
+          // If migration was successful, we might want to delete ghosts in Supabase
+          // but ONLY if we are sure we loaded everything from Sheets.
+          // For safety, we only delete if we have a substantial number of records or if it's config.
+          if (records.length > 5 || key === 'config') {
+             const currentIds = records.map(r => r.id);
+             await supabase.from(tableName).delete().eq('hotel_name', hotel).not('id', 'in', currentIds);
+          }
           results[key] = { status: 'success', count: records.length };
         }
       } else {
-        results[key] = { status: 'skipped', message: 'Empty or incompatible data' };
+        console.log(`[Migration] Skipped ${key} - no data found in Sheets`);
+        results[key] = { status: 'skipped', message: 'No data retrieved from sheet' };
       }
     }
 
-    res.json({ status: 'success', results });
+    delete dataCache[hotel];
+    res.json({ status: 'success', results, message: 'Processamento concluído. Verifique os logs para detalhes.' });
   } catch (error: any) {
-    console.error('Migration error:', error);
+    console.error('[Migration CRITICAL Error]:', error);
     res.status(500).json({ status: 'error', message: error.message });
   }
 });
 
 // Helper to get data from a specific sheet/cell
-async function getSheetData(hotel: string) {
-  // Check cache first
+async function getSheetData(hotel: string, forceSheets: boolean = false) {
+  // Check cache first (ignore cache if forcing sheets)
   const cached = dataCache[hotel];
-  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+  if (!forceSheets && cached && Date.now() - cached.timestamp < CACHE_TTL) {
     return cached.data;
+  }
+
+  // If forcing sheets, bypass Supabase entirely
+  if (forceSheets) {
+    console.log(`[Force Sheets] Bypassing Supabase for hotel: "${hotel}"`);
+    return getSheetsOnlyData(hotel);
   }
 
   // If Supabase is configured, try to load from there
   if (supabase) {
     try {
       const hotelData: any = {};
+      console.log(`[Supabase Load] Request for hotel: "${hotel}"`);
       
       for (const key of Object.keys(DATA_MAP)) {
-        const { data, error } = await supabase
-          .from(key.toLowerCase())
-          .select('*')
-          .eq('hotel_name', hotel);
+        const englishTableName = key.toLowerCase();
+        const ptTableNameExact = DATA_MAP[key];
+        const ptTableNameLower = DATA_MAP[key].toLowerCase();
+        
+        let possibleTables = [ptTableNameExact, ptTableNameLower, englishTableName];
+        let tableName = possibleTables[0];
+        let result: any = { data: null, error: new Error('Not searched yet') };
+        
+        // Search through tables iteratively until we find one that works and has data
+        for (const tbl of possibleTables) {
+           tableName = tbl;
+           
+           // First try exact match
+           let query = supabase.from(tableName).select('*', { count: 'exact' }).eq('hotel_name', hotel);
+           result = await query;
+           
+           if (!result.error && result.data && result.data.length > 0) {
+               break; // Found it with exact hotel name!
+           }
+           
+           // If no error but no exact match data, try fuzzy matching the hotel_name
+           if (!result.error || (result.error && result.error.code === 'PGRST116')) {
+               const { data: allHotels } = await supabase.from(tableName).select('hotel_name');
+               if (allHotels && allHotels.length > 0) {
+                  const distinct = [...new Set(allHotels.map(d => d.hotel_name).filter(Boolean))];
+                  const closeMatch = distinct.find((h: any) => {
+                    const hLower = h.toLowerCase().trim();
+                    const hotelLower = hotel.toLowerCase().trim();
+                    return hLower.includes(hotelLower) || 
+                           hotelLower.includes(hLower) ||
+                           hLower.replace(/[^a-z0-9]/g, '') === hotelLower.replace(/[^a-z0-9]/g, '') ||
+                           (hotelLower === 'village' && hLower === 'vila') ||
+                           (hLower === 'village' && hotelLower === 'vila');
+                  });
+                  
+                  if (closeMatch) {
+                    result = await supabase.from(tableName).select('*', { count: 'exact' }).eq('hotel_name', closeMatch);
+                    if (!result.error && result.data && result.data.length > 0) {
+                        break; // Found it with fuzzy hotel name match!
+                    }
+                  }
+               }
+           }
+        }
+
+        if (result.error && JSON.stringify(result.error).includes('hotel_name')) {
+          console.warn(`[Supabase Load] 'hotel_name' column may not exist in table "${tableName}". Querying without filter...`);
+          result = await supabase.from(tableName).select('*', { count: 'exact' });
+        } else if ((!result.data || result.data.length === 0) && hotel && !result.error) {
+          console.log(`[Supabase Load] No data for exact match "${hotel}", trying fuzzy search...`);
+          // Try to see if there's ANY hotel name that contains the query or vice-versa
+          const { data: allHotels } = await supabase.from(tableName).select('hotel_name');
+          const distinct = [...new Set(allHotels?.map(d => d.hotel_name).filter(Boolean) || [])];
+          
+          const closeMatch = distinct.find((h: any) => {
+            const hLower = h.toLowerCase().trim();
+            const hotelLower = hotel.toLowerCase().trim();
+            return hLower.includes(hotelLower) || 
+                   hotelLower.includes(hLower) ||
+                   hLower.replace(/[^a-z0-9]/g, '') === hotelLower.replace(/[^a-z0-9]/g, '') ||
+                   (hotelLower === 'village' && hLower === 'vila') ||
+                   (hLower === 'village' && hotelLower === 'vila');
+          });
+
+          if (closeMatch) {
+            console.log(`[Supabase Load] Closest match for "${hotel}" found: "${closeMatch}". Retrying query.`);
+            result = await supabase
+              .from(tableName)
+              .select('*', { count: 'exact' })
+              .eq('hotel_name', closeMatch);
+          }
+        }
+
+        const { data, error, count } = result;
         
         if (error) {
-          console.error(`Error loading ${key} from Supabase:`, JSON.stringify(error));
+          console.error(`Error loading ${key} from Supabase table "${tableName}":`, JSON.stringify(error));
           hotelData[key] = key === 'apartments' ? {} : [];
         } else {
+          console.log(`[Supabase Load] ${key} ("${tableName}"): found ${data?.length || 0} rows (Total: ${count})`);
+          
+          const processRowData = (row: any) => {
+            let item = row.data || row.Dados || row.dados || row.Data;
+            if (item) {
+              if (typeof item === 'string') {
+                try {
+                  item = JSON.parse(item);
+                } catch (e) {
+                  console.error(`Failed to parse row.data as JSON for table ${tableName}, id ${row.id}`);
+                  item = {};
+                }
+              }
+            } else {
+              // If no 'data' column or it's empty, use the row itself (excluding metadata)
+              const { id, hotel_name, created_at, updated_at, ...rest } = row;
+              item = Object.keys(rest).length > 0 ? rest : {};
+            }
+            return item || {};
+          };
+
           if (key === 'config') {
-            hotelData[key] = data[0]?.data || {};
+            hotelData[key] = data.length > 0 ? processRowData(data[0]) : {};
           } else if (key === 'apartments') {
             const aptMap: any = {};
-            data.forEach((row: any) => {
-              const apt = row.data || {};
-              const id = apt.id || row.id.replace(`${hotel}_`, '');
-              aptMap[id] = { ...apt, id };
+            data?.forEach((row: any) => {
+              const apt = processRowData(row);
+              // Robust ID recovery - handle both prefixed and non-prefixed IDs
+              let id = apt.id;
+              if (!id && row.id) {
+                const rowIdUpper = row.id.toUpperCase();
+                const hotelUpper = `${hotel}_`.toUpperCase();
+                if (rowIdUpper.startsWith(hotelUpper)) {
+                  id = row.id.substring(hotel.length + 1);
+                } else if (rowIdUpper.startsWith('VILLAGE_')) {
+                  id = row.id.substring('VILLAGE_'.length);
+                } else if (rowIdUpper.startsWith('VILA_')) {
+                  id = row.id.substring('VILA_'.length);
+                } else {
+                  id = row.id;
+                }
+              }
+              
+              if (!id) {
+                console.warn(`[Supabase Load] Could not resolve ID for apartment row:`, JSON.stringify(row));
+              } else {
+                aptMap[id] = { ...apt, id };
+              }
             });
+            console.log(`[Supabase Load] Processed ${Object.keys(aptMap).length} apartments. Sample keys:`, Object.keys(aptMap).slice(0, 3));
             hotelData[key] = aptMap;
           } else {
-            hotelData[key] = data.map((row: any) => {
-              const item = row.data || {};
+            hotelData[key] = data?.map((row: any) => {
+              const item = processRowData(row);
               if (row.id && !item.id) {
-                item.id = row.id.replace(`${hotel}_`, '');
+                item.id = row.id.startsWith(`${hotel}_`) ? row.id.substring(hotel.length + 1) : row.id;
               }
               return item;
             }) || [];
@@ -274,9 +514,11 @@ async function getSheetData(hotel: string) {
       );
 
       if (hasAnyData) {
+        console.log(`[Supabase Load] Success for ${hotel}. Tables with data: ${Object.entries(hotelData).filter(([k,v]: any) => (Array.isArray(v) ? v.length > 0 : Object.keys(v).length > 0)).map(([k]) => k).join(', ')}`);
         dataCache[hotel] = { data: hotelData, timestamp: Date.now() };
         return hotelData;
       }
+      console.log(`[Supabase Load] No data found in any table for ${hotel}`);
     } catch (error) {
       console.error('[Supabase Load Error] Falling back to Sheets:', error);
     }
@@ -290,119 +532,214 @@ async function getSheetsOnlyData(hotel: string) {
   const SPREADSHEET_ID = process.env.GOOGLE_SHEET_ID;
   if (!SPREADSHEET_ID) throw new Error('GOOGLE_SHEET_ID not set');
 
+  console.log(`[Sheets Fetch] Fetching batch data for hotel "${hotel}"...`);
   const hotelData: any = {};
   
-  for (const [key, sheetPrefix] of Object.entries(DATA_MAP)) {
-    const sheetName = `${sheetPrefix}_${hotel}`;
-    const defaultValue = (key === 'apartments' ? {} : []);
-    const gridCols = GRID_COLUMNS[key];
+  // 1. Discover all sheet names first (concurrency helped by getSheetNames cache)
+  const sheetNamesMapping = new Map<string, string>();
+  const keys = Object.keys(DATA_MAP);
+  
+  await Promise.all(keys.map(async (key) => {
+    const sheetPrefix = DATA_MAP[key];
+    const sheetName = await discoverSheetName(sheetPrefix, hotel);
+    sheetNamesMapping.set(key, sheetName);
+  }));
 
-    try {
-      await new Promise(resolve => setTimeout(resolve, 200));
+  try {
+    const ranges = keys.map(key => `${sheetNamesMapping.get(key)}!A:AC`);
+    
+    // Use batchGet to minimize round trips and quota usage
+    const response = await sheets.spreadsheets.values.batchGet({
+      spreadsheetId: SPREADSHEET_ID,
+      ranges,
+    });
 
-      const response = await sheets.spreadsheets.values.get({
-        spreadsheetId: SPREADSHEET_ID,
-        range: `${sheetName}!A:AC`,
-      });
-      
-      const rows = response.data.values;
-      
-      if (!rows || rows.length === 0) {
-        hotelData[key] = defaultValue;
-        continue;
-      }
+    const valueRanges = response.data.valueRanges || [];
+    
+    keys.forEach((key, idx) => {
+       const rows = valueRanges[idx]?.values || [];
+       const defaultValue = (key === 'apartments' ? {} : []);
+       const gridCols = GRID_COLUMNS[key];
 
-      if (key === 'config') {
-        const config: any = {};
-        rows.forEach(row => {
-          if (row[0] && row[1] !== undefined) {
-            let val = row[1];
-            const trimmed = typeof val === 'string' ? val.trim() : '';
-            if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
-              try { val = JSON.parse(trimmed); } catch (e) {}
-            } else if (val === 'TRUE' || val === 'true') {
-              val = true;
-            } else if (val === 'FALSE' || val === 'false') {
-              val = false;
-            }
-            config[row[0]] = val;
-          }
-        });
-        hotelData[key] = config;
-        continue;
-      }
+       if (!rows || rows.length === 0) {
+         hotelData[key] = defaultValue;
+         return;
+       }
 
-      const firstCell = rows[0][0];
-      const isJsonInA1 = rows.length === 1 && rows[0].length === 1 && typeof firstCell === 'string' && (firstCell.startsWith('[') || firstCell.startsWith('{'));
+       if (key === 'config') {
+         const config: any = {};
+         rows.forEach(row => {
+           if (row[0] && row[1] !== undefined) {
+             let val = row[1];
+             const trimmed = typeof val === 'string' ? val.trim() : '';
+             if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
+               try { val = JSON.parse(trimmed); } catch (e) {}
+             } else if (val === 'TRUE' || val === 'true') val = true;
+             else if (val === 'FALSE' || val === 'false') val = false;
+             config[row[0]] = val;
+           }
+         });
+         hotelData[key] = config;
+         return;
+       }
 
-      if (isJsonInA1) {
-        try {
-          const parsed = JSON.parse(firstCell);
-          if (key === 'apartments') {
-            hotelData[key] = (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ? parsed : {};
-          } else {
-            hotelData[key] = Array.isArray(parsed) ? parsed : (parsed && typeof parsed === 'object' ? [parsed] : []);
-          }
-          continue;
-        } catch (e) {}
-      }
+       const firstCell = rows[0][0];
+       const isJsonInA1 = rows.length === 1 && rows[0].length === 1 && typeof firstCell === 'string' && (firstCell.startsWith('[') || firstCell.startsWith('{'));
 
-      if (gridCols) {
-        let dataRows = rows;
-        const firstRow = rows[0].map(c => String(c).toLowerCase());
-        if (firstRow.includes('id') || firstRow.includes('apto') || firstRow.includes('nome') || firstRow.includes('ean')) {
-          dataRows = rows.slice(1);
-        }
+       if (isJsonInA1) {
+         try {
+           const parsed = JSON.parse(firstCell);
+           if (key === 'apartments') {
+             hotelData[key] = (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ? parsed : {};
+           } else {
+             hotelData[key] = Array.isArray(parsed) ? parsed : (parsed && typeof parsed === 'object' ? [parsed] : []);
+           }
+           return;
+         } catch (e) {}
+       }
 
-        const parsedRows = dataRows.map(row => {
-          const item: any = {};
-          gridCols.forEach((col, index) => {
-            item[col] = parseValue(row[index], col);
-          });
-          return item;
-        }).filter(item => item.id || item.roomNumber);
+       if (gridCols) {
+         let dataRows = rows;
+         const firstRow = rows[0].map(c => String(c).toLowerCase().trim());
+         let colMap: Record<string, number> = {};
+         
+         const hasHeaders = firstRow.includes('id') || firstRow.includes('apto') || firstRow.includes('nome') || firstRow.includes('ean') || firstRow.includes('roomnumber') || firstRow.includes('quarto');
+         
+         if (hasHeaders) {
+           dataRows = rows.slice(1);
+           // Dynamically map columns
+           gridCols.forEach((col) => {
+              let idx = firstRow.indexOf(col.toLowerCase());
+              if (idx === -1) {
+                  if (col === 'id' || col === 'roomNumber') idx = firstRow.findIndex(c => ['quarto', 'apto', 'numero', 'id', 'roomnumber'].includes(c));
+                  else if (col === 'floor') idx = firstRow.findIndex(c => ['andar', 'chão', 'floor'].includes(c));
+                  else if (col === 'pisoType') idx = firstRow.findIndex(c => c.startsWith('pisot'));
+                  else if (col === 'pisoStatus') idx = firstRow.findIndex(c => c.startsWith('pisos'));
+                  else if (col === 'banheiroType') idx = firstRow.findIndex(c => c.startsWith('banht'));
+                  else if (col === 'banheiroStatus') idx = firstRow.findIndex(c => c.startsWith('banhs'));
+                  else if (col === 'temCofre') idx = firstRow.findIndex(c => c === 'cofre');
+                  else if (col === 'temCortina') idx = firstRow.findIndex(c => c === 'cortina');
+                  else if (col === 'cortinaStatus') idx = firstRow.findIndex(c => c.startsWith('cortinas') || c.replace(/\s+/g,'').startsWith('cortinas'));
+                  else if (col === 'cortinaSize') idx = firstRow.findIndex(c => c.startsWith('cortinam'));
+                  else if (col === 'cortinaCoverage') idx = firstRow.findIndex(c => c.startsWith('cortinac'));
+                  else if (col === 'temEspelhoCorpo') idx = firstRow.findIndex(c => c === 'espelho' || (c.startsWith('espelho') && !c.startsWith('espelhos')));
+                  else if (col === 'espelhoCorpoStatus') idx = firstRow.findIndex(c => c.startsWith('espelhos') || c.replace(/\s+/g,'').startsWith('espelhos'));
+                  else if (col === 'acBrand') idx = firstRow.findIndex(c => c === 'ac' || c.startsWith('ar cond') || c === 'ar');
+                  else if (col === 'moveisStatus') idx = firstRow.findIndex(c => c.startsWith('moveiss') || c.replace(/\s+/g,'').startsWith('moveiss'));
+                  else if (col === 'moveisDetalhes') idx = firstRow.findIndex(c => c.startsWith('moveisd') || c.startsWith('detalhes') || c === 'moveis');
+                  else if (col === 'beds') idx = firstRow.findIndex(c => c === 'cama' || c === 'camas');
+                  else if (col === 'temPortaControle') idx = firstRow.findIndex(c => c.startsWith('portacont'));
+                  else if (col === 'temCabide') idx = firstRow.findIndex(c => c === 'cabide' || c === 'cabides');
+                  else if (col === 'cabideQuantity') idx = firstRow.findIndex(c => c === 'cabideq' || c.startsWith('quant'));
+                  else if (col === 'temSuportePapel') idx = firstRow.findIndex(c => c.startsWith('suportpap'));
+                  else if (col === 'temSuporteShampoo') idx = firstRow.findIndex(c => c === 'suportsham');
+                  else if (col === 'suporteShampooStatus') idx = firstRow.findIndex(c => c.startsWith('suportshams'));
+                  else if (col === 'luminariaType') idx = firstRow.findIndex(c => c.startsWith('lumintype') || c.startsWith('luminaria t'));
+                  else if (col === 'luminariaColor') idx = firstRow.findIndex(c => c.startsWith('lumincolor') || c.startsWith('luminaria c'));
+                  else if (col === 'tvBrand') idx = firstRow.findIndex(c => c === 'tv' || c.startsWith('marca tv'));
+                  else if (col === 'defects') idx = firstRow.findIndex(c => c === 'avarias' || c === 'defeitos');
+              }
+              if (idx !== -1) colMap[col] = idx;
+           });
+         }
 
-        if (key === 'apartments') {
-          const aptMap: any = {};
-          parsedRows.forEach(apt => {
-            const id = apt.id || `${apt.floor}-${apt.roomNumber}`;
-            aptMap[id] = { ...apt, id };
-          });
-          hotelData[key] = aptMap;
-        } else {
-          hotelData[key] = parsedRows;
-        }
-      } else {
-        hotelData[key] = defaultValue;
-      }
-    } catch (error: any) {
-      console.error(`Error reading sheet ${sheetName}:`, error.message);
-      hotelData[key] = defaultValue;
-    }
+         const parsedRows = dataRows.map(row => {
+           const item: any = {};
+           if (hasHeaders && Object.keys(colMap).length > 0) {
+              gridCols.forEach((col) => {
+                if (colMap[col] !== undefined) {
+                   item[col] = parseValue(row[colMap[col]], col);
+                }
+              });
+           } else {
+              gridCols.forEach((col, cIdx) => {
+                item[col] = parseValue(row[cIdx], col);
+              });
+           }
+           return item;
+         }).filter(item => {
+           if (key === 'apartments') return item.roomNumber || item.id;
+           return item.id || item.name || item.title;
+         });
+
+         if (key === 'apartments') {
+           const aptMap: any = {};
+           parsedRows.forEach(apt => {
+             // Robust ID resolution: prefer roomNumber if it looks like a number, or id
+             const id = String(apt.id || apt.roomNumber);
+             if (id) aptMap[id] = { ...apt, id };
+           });
+           hotelData[key] = aptMap;
+         } else {
+           // De-duplicate items by ID
+           const idMap = new Map();
+           parsedRows.forEach(item => {
+             if (item.id) idMap.set(String(item.id), item);
+           });
+           hotelData[key] = Array.from(idMap.values());
+         }
+       } else {
+         hotelData[key] = defaultValue;
+       }
+    });
+
+    console.log(`[Batch Sheets Fetch] Success for hotel "${hotel}". Total tables populated: ${Object.keys(hotelData).length}`);
+    dataCache[hotel] = { data: hotelData, timestamp: Date.now() };
+    return hotelData;
+
+  } catch (err: any) {
+    console.error(`[Batch Sheets Fetch Error] Hotel "${hotel}":`, err.message);
+    throw err;
   }
-
-  return hotelData;
 }
 
 // Helper to save data to a specific sheet/cell
-async function saveSheetData(hotel: string, dataType: string, data: any) {
+async function saveSheetData(hotel: string, dataType: string, data: any, options: { isFullSync?: boolean } = {}) {
   const key = INTERNAL_KEY_MAP[dataType];
   if (!key || !DATA_MAP[key]) {
     console.warn(`No mapping found for dataType: ${dataType}`);
     return;
   }
 
+  // We determine if this is a single item save or a full collection sync
+  const isSingle = (typeof data === 'object' && data !== null && !Array.isArray(data) && 
+                   (data.id !== undefined || data.roomNumber !== undefined) && 
+                   !(options.isFullSync === true));
+
+  console.log(`[saveSheetData] Hotel: ${hotel}, Type: ${dataType}, isSingle: ${isSingle}, FullSync: ${options.isFullSync}`);
+
   // If Supabase is configured, save there
   if (supabase) {
     try {
-      console.log(`[Supabase] Saving ${dataType} for hotel: ${hotel}`);
-      const tableName = key.toLowerCase();
+      const englishTableName = key.toLowerCase();
+      const ptTableNameExact = DATA_MAP[key];
+      const ptTableNameLower = DATA_MAP[key].toLowerCase();
+      
+      let tableName = ptTableNameExact;
+      
+      // Let's first check which table actually has data/exists
+      let check = await supabase.from(ptTableNameExact).select('id', { count: 'exact', head: true });
+      if (check.error || check.count === null || check.count === 0) {
+        let checkLower = await supabase.from(ptTableNameLower).select('id', { count: 'exact', head: true });
+        if (!checkLower.error && checkLower.count !== null && checkLower.count > 0) {
+            tableName = ptTableNameLower;
+        } else {
+            let checkEn = await supabase.from(englishTableName).select('id', { count: 'exact', head: true });
+            if (!checkEn.error && checkEn.count !== null && checkEn.count > 0) {
+                tableName = englishTableName;
+            }
+        }
+      }
+      
       let records: any[] = [];
       
       if (key === 'config') {
         records = [{ id: `config_${hotel}`, hotel_name: hotel, data: data }];
-      } else if (key === 'apartments' && typeof data === 'object' && !Array.isArray(data)) {
-        records = Object.values(data).map((v: any) => {
+      } else if (key === 'apartments') {
+        // Special case for apartments: can be a map or a single object
+        const apartmentArray = isSingle ? [data] : Object.values(data);
+        
+        records = apartmentArray.map((v: any) => {
           const originalId = v.id || `${v.floor}-${v.roomNumber}`;
           return { 
             id: `${hotel}_${originalId}`, 
@@ -419,17 +756,21 @@ async function saveSheetData(hotel: string, dataType: string, data: any) {
       }
 
       if (records.length > 0) {
+        console.log(`[Supabase Save] ${dataType} for "${hotel}": Upserting ${records.length} records...`);
         const { error: upsertError } = await supabase
           .from(tableName)
-          .upsert(records);
+          .upsert(records, { onConflict: 'id' });
         
         if (upsertError) {
-          console.error(`[Supabase Save Error] ${dataType}:`, JSON.stringify(upsertError));
+          console.error(`[Supabase Save Error] ${dataType}:`, upsertError.message);
         }
 
-        // Deletion logic: remove records that are no longer in the current app state
-        if (key !== 'config') {
+        // DANGEROUS: Deletion of orphans. ONLY do this if we are 100% sure it's a full sync.
+        const shouldDeleteOrphans = options.isFullSync === true || (Array.isArray(data) && data.length > 0 && !isSingle);
+        
+        if (key !== 'config' && shouldDeleteOrphans && records.length > 0) {
           const currentIds = records.map(r => r.id);
+          console.log(`[Supabase Cleanup] Deleting orphans for ${tableName} (kept ${currentIds.length} ids)`);
           const { error: deleteError } = await supabase
             .from(tableName)
             .delete()
@@ -437,11 +778,12 @@ async function saveSheetData(hotel: string, dataType: string, data: any) {
             .not('id', 'in', currentIds);
           
           if (deleteError) {
-            console.error(`[Supabase Delete Error] ${dataType}:`, JSON.stringify(deleteError));
+            console.error(`[Supabase Cleanup Error] ${dataType}:`, deleteError.message);
           }
         }
-      } else if (key !== 'config' && Array.isArray(data) && data.length === 0) {
-        // Handle full clear of a collection
+      } else if (records.length === 0 && options.isFullSync) {
+        // Explicitly clearing all data
+        console.log(`[Supabase Clear] Deleting ALL records for table "${tableName}" for hotel "${hotel}"`);
         await supabase.from(tableName).delete().eq('hotel_name', hotel);
       }
     } catch (error) {
@@ -450,8 +792,8 @@ async function saveSheetData(hotel: string, dataType: string, data: any) {
   }
 
   const SPREADSHEET_ID = process.env.GOOGLE_SHEET_ID;
-
-  const sheetName = `${DATA_MAP[key]}_${hotel}`;
+  const sheetPrefix = DATA_MAP[key];
+  const sheetName = await discoverSheetName(sheetPrefix, hotel);
   const gridCols = GRID_COLUMNS[key];
 
   try {
@@ -459,7 +801,10 @@ async function saveSheetData(hotel: string, dataType: string, data: any) {
     if (key === 'config' && typeof data === 'object') {
       values = Object.entries(data).map(([k, v]) => [k, typeof v === 'object' ? JSON.stringify(v) : v]);
     } else if (gridCols && (Array.isArray(data) || (typeof data === 'object' && key === 'apartments'))) {
-      const dataArray = Array.isArray(data) ? data : Object.values(data);
+      const dataArray = (Array.isArray(data)) ? data : Object.values(data);
+      
+      // If NOT a full sync, we probably shouldn't be clearing the whole sheet
+      const isFullSync = options.isFullSync || Array.isArray(data) || (!isSingle && Object.keys(data).length > 2);
       values = dataArray.map(item => gridCols.map(col => {
         const val = item[col];
         if (['timestamp', 'lastUpdate', 'createdAt', 'startDate', 'check_out_date', 'check_in_date', 'trip_start'].includes(col) && typeof val === 'number') {
@@ -512,11 +857,15 @@ async function saveSheetData(hotel: string, dataType: string, data: any) {
 
 // API Routes
 app.get('/api/sheets/load', async (req, res) => {
-  const { hotel } = req.query;
+  const { hotel, nocache, forceSheets } = req.query;
   if (!hotel) return res.status(400).json({ status: 'error', message: 'Hotel not specified' });
 
   try {
-    const data = await getSheetData(hotel as string);
+    if (nocache || forceSheets) {
+      console.log(`[Load] Bypassing cache for hotel: ${hotel}`);
+      delete dataCache[hotel as string];
+    }
+    const data = await getSheetData(hotel as string, forceSheets === 'true');
     res.json({ status: 'success', data: data || {} });
   } catch (error: any) {
     console.error(`[Load Error] Hotel: ${hotel} -`, error);
@@ -528,12 +877,16 @@ app.get('/api/sheets/load', async (req, res) => {
 });
 
 app.post('/api/sheets/action', async (req, res) => {
-  const { hotel, dataType, ...payload } = req.body;
+  const { hotel, dataType, isFullSync, newFiles, ...payload } = req.body;
   if (!hotel) return res.status(400).json({ status: 'error', message: 'Hotel not specified' });
 
   try {
+    console.log(`[API Action] ${dataType} for "${hotel}" (FullSync: ${isFullSync || false})`);
+    
+    // Fetch current data FIRST to avoid overwriting everything with just one item
     let currentData = await getSheetData(hotel);
     let targetDataType = dataType;
+    const internalKey = INTERNAL_KEY_MAP[dataType];
     
     // Handle different data types
     switch (dataType) {
@@ -575,7 +928,7 @@ app.post('/api/sheets/action', async (req, res) => {
         if (!Array.isArray(currentData.inventoryHistory)) currentData.inventoryHistory = [];
         currentData.inventoryHistory.push(payload);
         
-        // Atualiza o saldo no estoque (Balance) automaticamente na planilha de Estoque
+        // Auto-update inventory balance
         if (Array.isArray(currentData.inventory)) {
           const item = currentData.inventory.find((i: any) => i.id === payload.itemId);
           if (item) {
@@ -612,7 +965,6 @@ app.post('/api/sheets/action', async (req, res) => {
         if (!Array.isArray(currentData.vehicles)) currentData.vehicles = [];
         const vIndex = currentData.vehicles.findIndex((v: any) => v.id === payload.id);
         if (vIndex > -1) {
-          // Merge para evitar perda de dados em atualizações parciais como CHECKOUT
           currentData.vehicles[vIndex] = { ...currentData.vehicles[vIndex], ...payload };
         } else {
           currentData.vehicles.push(payload);
@@ -622,38 +974,51 @@ app.post('/api/sheets/action', async (req, res) => {
         currentData.config = { ...currentData.config, ...payload };
         break;
       case 'DELETE':
-        const { targetType, targetId } = payload;
+        const { targetType, id: targetId } = payload;
+        const deleteKey = INTERNAL_KEY_MAP[targetType];
+        if (!deleteKey) break;
+
         targetDataType = targetType;
-        if (targetType === 'APARTMENT' && currentData.apartments) delete currentData.apartments[targetId];
-        else if (targetType === 'BUDGET' && currentData.budgets) currentData.budgets = currentData.budgets.filter((b: any) => b.id !== targetId);
-        else if (targetType === 'EMPLOYEE' && currentData.employees) currentData.employees = currentData.employees.filter((e: any) => e.id !== targetId);
-        else if (targetType === 'EXTRA' && currentData.extras) currentData.extras = currentData.extras.filter((e: any) => e.id !== targetId);
-        else if (targetType === 'SECTOR' && currentData.sectors) currentData.sectors = currentData.sectors.filter((s: any) => s.id !== targetId);
-        else if (targetType === 'INVENTORY' && currentData.inventory) currentData.inventory = currentData.inventory.filter((i: any) => i.id !== targetId);
-        else if (targetType === 'SUPPLIER' && currentData.suppliers) currentData.suppliers = currentData.suppliers.filter((s: any) => s.id !== targetId);
-        else if (targetType === 'USER' && currentData.users) currentData.users = currentData.users.filter((u: any) => u.id !== targetId);
-        else if (targetType === 'PARKING_LOCATION' && currentData.parkingLocations) currentData.parkingLocations = currentData.parkingLocations.filter((p: any) => p.id !== targetId);
-        else if (targetType === 'VEHICLE' && currentData.vehicles) currentData.vehicles = currentData.vehicles.filter((v: any) => v.id !== targetId);
+        if (deleteKey === 'apartments' && currentData.apartments) {
+          delete currentData.apartments[targetId];
+        } else if (Array.isArray(currentData[deleteKey])) {
+          currentData[deleteKey] = currentData[deleteKey].filter((item: any) => item.id !== targetId);
+        }
+
+        // Delete from Supabase immediately if deleting
+        if (supabase) {
+          const tableName = deleteKey.toLowerCase();
+          await supabase.from(tableName).delete().eq('id', `${hotel}_${targetId}`);
+        }
         break;
     }
 
-    const internalKey = INTERNAL_KEY_MAP[targetDataType];
-    if (internalKey) {
-      await saveSheetData(hotel, targetDataType, currentData[internalKey]);
-      
-      // Se for uma operação de estoque, precisamos salvar também a planilha de saldo (Estoque)
-      if (dataType === 'INVENTORY_OP') {
-        await saveSheetData(hotel, 'INVENTORY', currentData.inventory);
-      }
+    // Persist to Google Sheets and Supabase
+    // isFullSync should be true if it's a delete or if we explicitly passed it
+    const shouldSyncAll = isFullSync || dataType === 'DELETE' || dataType === 'INVENTORY_OP';
+    
+    const keyToSave = INTERNAL_KEY_MAP[targetDataType];
+    if (keyToSave) {
+        // IMPORTANT: For single item updates (not full sync), we pass only the payload
+        // to saveSheetData. This ensures the isSingle logic correctly triggers
+        // a partial update instead of overwriting the entire collection.
+        const dataToSave = (shouldSyncAll || dataType === 'CONFIG') ? currentData[keyToSave] : payload;
+        
+        await saveSheetData(hotel, targetDataType, dataToSave, { isFullSync: shouldSyncAll });
+
+        // If it was an inventory op, also save final inventory state as a full sync
+        if (dataType === 'INVENTORY_OP') {
+            await saveSheetData(hotel, 'INVENTORY', currentData.inventory, { isFullSync: true });
+        }
     }
 
-    // Limpa o cache após qualquer alteração para garantir que o próximo carregamento seja atualizado
+    // Clear cache after any change
     delete dataCache[hotel];
 
     res.json({ status: 'success' });
   } catch (error: any) {
-    console.error('Error in sheets action:', error);
-    res.status(500).json({ status: 'error', message: error.message });
+    console.error(`[Action Error] Hotel: ${hotel} -`, error);
+    res.status(500).json({ status: 'error', message: error.message || 'Erro ao processar ação' });
   }
 });
 

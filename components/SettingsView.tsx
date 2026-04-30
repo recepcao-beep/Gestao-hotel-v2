@@ -13,6 +13,7 @@ interface SettingsViewProps {
   };
   onUpdateConfig: (config: any) => void;
   theme: HotelTheme;
+  currentHotel: HotelType;
   suppliers: Supplier[];
   onSaveSupplier: (supplier: Supplier) => void;
   onDeleteSupplier: (id: string) => void;
@@ -23,6 +24,7 @@ interface SettingsViewProps {
   users?: User[];
   onSaveUser: (user: User) => void;
   onDeleteUser: (id: string) => void;
+  onForceSyncFromSheets?: () => void;
 }
 
 const SettingsView: React.FC<SettingsViewProps> = ({ 
@@ -30,6 +32,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({
   hotelConfig, 
   onUpdateConfig, 
   theme, 
+  currentHotel,
   suppliers,
   onSaveSupplier,
   onDeleteSupplier,
@@ -39,7 +42,8 @@ const SettingsView: React.FC<SettingsViewProps> = ({
   onDeleteParkingLocation,
   users = [],
   onSaveUser,
-  onDeleteUser
+  onDeleteUser,
+  onForceSyncFromSheets
 }) => {
   const [activeTab, setActiveTab] = useState<'INTEGRATION' | 'PROFILE' | 'FEATURES' | 'CHECKLIST' | 'USERS' | 'PARKING_SPOTS'>('INTEGRATION');
   
@@ -79,6 +83,38 @@ const SettingsView: React.FC<SettingsViewProps> = ({
   const [parkingName, setParkingName] = useState('');
   const [parkingSpots, setParkingSpots] = useState('');
 
+  // Migration state
+  const [isMigrating, setIsMigrating] = useState(false);
+  const [migrationStatus, setMigrationStatus] = useState<string | null>(null);
+
+  const handleManualMigration = async () => {
+    if (!window.confirm(`Isso irá copiar os dados do Google Sheets para o bancos de dados (Supabase) para o hotel ${currentHotel}. Deseja continuar?`)) return;
+    
+    setIsMigrating(true);
+    setMigrationStatus("Iniciando migração...");
+    try {
+      const response = await fetch('/api/supabase/migrate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ hotel: currentHotel })
+      });
+      const result = await response.json();
+      if (result.status === 'success') {
+        const detailStr = Object.entries(result.results || {})
+          .map(([k, v]: any) => `${k}: ${v.count || v.status}`)
+          .join(', ');
+        setMigrationStatus(`Sucesso! Detalhes: ${detailStr}`);
+        alert(`Sincronização concluída!\n\n${detailStr}`);
+      } else {
+        setMigrationStatus(`Erro: ${result.message}`);
+      }
+    } catch (e) {
+      setMigrationStatus(`Erro de rede: ${e}`);
+    } finally {
+      setIsMigrating(false);
+    }
+  };
+
   const tabs = [
     { id: 'INTEGRATION', label: 'Integração Global', icon: Database },
     { id: 'FEATURES', label: 'Funcionalidades', icon: Sliders },
@@ -91,7 +127,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({
   const handleSaveSupplierSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     onSaveSupplier({
-      id: editingSupplier?.id || Date.now().toString(),
+      id: editingSupplier?.id || `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       name: supName,
       contact: supContact,
       category: supCategory
@@ -114,7 +150,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({
   const handleSaveFieldSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const newField = {
-      id: editingField?.id || `custom_${Date.now()}`,
+      id: editingField?.id || `custom_${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
       title: fieldTitle,
       type: fieldType,
       color: fieldColor,
@@ -148,7 +184,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({
       return;
     }
     const newUser: User = {
-      id: editingUser?.id || `user_${Date.now()}`,
+      id: editingUser?.id || `user_${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
       name: userName,
       password: userPassword,
       role: userRole,
@@ -180,7 +216,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({
   const handleSaveParkingLocationSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const newLocation: ParkingLocation = {
-      id: editingParkingLocation?.id || `parking_${Date.now()}`,
+      id: editingParkingLocation?.id || `parking_${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
       name: parkingName,
       totalSpots: parseInt(parkingSpots, 10) || 0
     };
@@ -242,7 +278,67 @@ const SettingsView: React.FC<SettingsViewProps> = ({
 
         <div className="flex-1 min-w-0">
           {activeTab === 'INTEGRATION' && (
-            <IntegrationsView integrations={integrations} theme={theme} onUpdate={onUpdate} />
+            <div className="space-y-6">
+              {onForceSyncFromSheets && (
+                 <div className="bg-rose-50 border border-rose-200 rounded-[3rem] p-8 text-center">
+                   <h3 className="text-xl font-black text-rose-800 uppercase tracking-tighter mb-2">Modo Emergencial</h3>
+                   <p className="text-rose-600 text-sm font-medium mb-6">Em caso de erros com o banco de dados (Supabase), utilize esta opção para forçar o carregamento dos dados direto da Planilha do Google.</p>
+                   <button 
+                     onClick={onForceSyncFromSheets}
+                     className="bg-rose-600 hover:bg-rose-700 text-white px-6 py-3 rounded-2xl font-black uppercase text-xs tracking-wider transition-colors shadow-lg shadow-rose-200"
+                   >
+                     Usar dados da Planilha
+                   </button>
+                 </div>
+              )}
+              <IntegrationsView integrations={integrations} theme={theme} onUpdate={onUpdate} />
+              
+              <div className="bg-amber-50 rounded-[3rem] p-8 border border-amber-200">
+                <div className="flex items-center space-x-4 mb-6">
+                  <div className="p-3 bg-white text-amber-600 rounded-2xl shadow-sm">
+                    <Database size={24} />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-black text-amber-900 uppercase tracking-tighter">Sincronização de Emergência</h3>
+                    <p className="text-xs font-bold text-amber-700 uppercase tracking-widest mt-1">Sheets para Supabase (Database)</p>
+                  </div>
+                </div>
+                
+                <div className="space-y-6">
+                  <p className="text-sm font-medium text-amber-800 leading-relaxed">
+                    Se os dados nas Planilhas Google foram editados manualmente ou parecem não estar carregando no sistema, 
+                    você pode forçar uma nova cópia total das planilhas para o Banco de Dados Supabase.
+                  </p>
+                  
+                  <div className="flex flex-col md:flex-row items-center gap-4">
+                    <button
+                      onClick={handleManualMigration}
+                      disabled={isMigrating}
+                      className={`flex items-center justify-center space-x-3 w-full md:w-auto px-8 py-4 rounded-2xl font-black uppercase tracking-widest transition-all shadow-xl active:scale-95 ${
+                        isMigrating 
+                          ? 'bg-amber-200 text-amber-500 cursor-not-allowed' 
+                          : 'bg-amber-600 text-white hover:bg-amber-700 shadow-amber-200'
+                      }`}
+                    >
+                      <Database size={18} />
+                      <span>{isMigrating ? 'Sincronizando...' : `Sincronizar ${currentHotel} Agora`}</span>
+                    </button>
+                    
+                    {migrationStatus && (
+                      <div className="flex-1 w-full p-4 bg-white/60 rounded-2xl border border-amber-100 text-xs font-mono text-amber-800 break-all">
+                        {migrationStatus}
+                      </div>
+                    )}
+                  </div>
+                  
+                  <div className="bg-white/40 p-4 rounded-2xl">
+                    <p className="text-[10px] font-bold text-amber-900 leading-tight">
+                      ⚠️ ATENÇÃO: Os dados existentes no Banco de Dados para este hotel serão sobrescritos pelos dados das Planilhas.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
           )}
 
           {activeTab === 'FEATURES' && (

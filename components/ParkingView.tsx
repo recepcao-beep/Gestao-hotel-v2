@@ -98,7 +98,7 @@ const ParkingView: React.FC<ParkingViewProps> = ({ theme, parkingLocations = [],
 
   const createHistoryLog = (vehicleId: string, plate: string, action: string, details?: string): VehicleHistory => {
     return {
-      id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+      id: Date.now().toString() + '-' + Math.random().toString(36).substr(2, 9),
       vehicleId,
       vehiclePlate: plate,
       action,
@@ -169,7 +169,7 @@ const ParkingView: React.FC<ParkingViewProps> = ({ theme, parkingLocations = [],
           return {
             data: base64,
             mimeType,
-            fileName: `photo_${Date.now()}_${index}.jpg`
+            fileName: `photo_${Date.now()}_${index}_${Math.random().toString(36).substr(2, 5)}.jpg`
           };
         });
         const newLog = createHistoryLog(updatedVehicle.id, updatedVehicle.plate, 'Edição', 'Informações do veículo atualizadas');
@@ -179,7 +179,7 @@ const ParkingView: React.FC<ParkingViewProps> = ({ theme, parkingLocations = [],
       setEditingVehicleId(null);
     } else {
       const newVehicle: Vehicle = {
-        id: Date.now().toString(),
+        id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         guest_name: formData.guest_name?.toUpperCase() || '',
         plate: formData.plate?.replace(/[^a-zA-Z0-9]/g, '').toUpperCase() || '',
         identifier: formData.identifier || '',

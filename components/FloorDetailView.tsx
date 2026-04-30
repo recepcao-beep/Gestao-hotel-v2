@@ -17,12 +17,24 @@ interface FloorDetailViewProps {
 }
 
 const FloorDetailView: React.FC<FloorDetailViewProps> = ({ floor, theme, apartments, onBack, onSelectApartment }) => {
-  const baseApartmentNumbers = Array.from({ length: 35 }, (_, i) => floor + i)
-    .filter(num => num !== 234 && num !== 417);
-
+  // Dynamically determine room numbers for this floor
   const filteredApartmentNumbers = useMemo(() => {
-    return baseApartmentNumbers;
-  }, [baseApartmentNumbers]);
+    const nums = new Set<number>();
+    
+    // Baseline: Generate standard rooms for this floor (e.g. 200..234)
+    Array.from({ length: 35 }, (_, i) => floor + i)
+      .filter(num => num !== 234 && num !== 417)
+      .forEach(num => nums.add(num));
+
+    // Also include any rooms we found in data for this floor just in case
+    (Object.values(apartments) as Apartment[]).forEach(apt => {
+      if (Number(apt.floor) === floor && apt.roomNumber) {
+        nums.add(Number(apt.roomNumber));
+      }
+    });
+    
+    return Array.from(nums).sort((a, b) => a - b);
+  }, [apartments, floor]);
 
   return (
     <div className="space-y-4 md:space-y-6">
@@ -45,7 +57,10 @@ const FloorDetailView: React.FC<FloorDetailViewProps> = ({ floor, theme, apartme
       <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-7 gap-3 md:gap-4 pb-20">
         {filteredApartmentNumbers.map((num) => {
           const id = `${floor}-${num}`;
-          const aptData = apartments[id];
+          // Robust lookup: try composite ID first, then just the number, then search
+          const aptData = apartments[id] || 
+                          apartments[num.toString()] || 
+                          (Object.values(apartments) as Apartment[]).find(a => Number(a.roomNumber) === num && Number(a.floor) === floor);
           const isInitialized = !!aptData;
           
           // Lógica de Alerta Visual

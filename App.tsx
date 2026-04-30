@@ -39,24 +39,34 @@ const getInitialHotelData = (): HotelData => ({
 const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
 
 const safeJSONParse = (value: any, defaultValue: any) => {
+  let parsed = value;
   if (typeof value === 'string' && value.trim() !== '') {
     const trimmed = value.trim();
     if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
       try {
-        return JSON.parse(trimmed);
+        parsed = JSON.parse(trimmed);
       } catch (e) {
         console.warn(`Failed to parse JSON: ${value}`, e);
         return defaultValue;
       }
+    } else {
+        if (Array.isArray(defaultValue) || (defaultValue !== null && typeof defaultValue === 'object')) {
+            return defaultValue;
+        }
     }
   }
-  return value || defaultValue;
+  
+  if (Array.isArray(defaultValue) && !Array.isArray(parsed)) {
+      return defaultValue;
+  }
+  
+  return parsed || defaultValue;
 };
 
 const safeGetTime = (val: any) => {
-  if (!val) return Date.now();
+  if (!val) return Date.now() + Math.floor(Math.random() * 1000);
   if (typeof val === 'number') return val;
-  if (val instanceof Date) return isNaN(val.getTime()) ? Date.now() : val.getTime();
+  if (val instanceof Date) return isNaN(val.getTime()) ? (Date.now() + Math.floor(Math.random() * 1000)) : val.getTime();
   
   // Try standard parsing
   const d = new Date(val);
@@ -71,7 +81,7 @@ const safeGetTime = (val: any) => {
     }
   }
   
-  return Date.now();
+  return Date.now() + Math.floor(Math.random() * 1000);
 };
 
 const App: React.FC = () => {
@@ -123,35 +133,83 @@ const App: React.FC = () => {
     }
   }, [state.currentHotel]);
 
-  const loadDataFromSheet = useCallback(async (hotelOverride?: HotelType) => {
+  const loadDataFromSheet = useCallback(async (hotelOverride?: HotelType, forceSheets: boolean = false) => {
     const targetHotel = hotelOverride || state.currentHotel;
+    if (!targetHotel) return null;
+    
     setIsRefreshing(true);
-    try {
-      // Usa URL da API local
-      const apiUrl = `${GLOBAL_API_URL}/load`;
-      const fetchUrl = `${apiUrl}?hotel=${targetHotel}&nocache=${Date.now()}`;
-      
-      const response = await fetch(fetchUrl, {
-        method: 'GET',
-        headers: {
-          'Accept': 'application/json',
-          'Cache-Control': 'no-cache'
-        }
-      });
-      
-      if (!response.ok) {
+    const apiUrl = `${GLOBAL_API_URL}/load`;
+    const fetchUrl = `${apiUrl}?hotel=${encodeURIComponent(targetHotel)}&nocache=${Date.now()}${forceSheets ? '&forceSheets=true' : ''}`;
+    
+    console.log(`[App] ${forceSheets ? 'Force ' : ''}Syncing ${targetHotel}...`);
+    
+    let attempt = 0;
+    const maxRetries = 2;
+    let response: Response | null = null;
+    let lastError: any = null;
+
+    while (attempt <= maxRetries) {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 60000); 
+
+        response = await fetch(fetchUrl, {
+          method: 'GET',
+          headers: {
+            'Accept': 'application/json',
+            'Cache-Control': 'no-cache'
+          },
+          signal: controller.signal
+        });
+        
+        clearTimeout(timeoutId);
+        
+        if (response.ok) break;
+        
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || `HTTP ${response.status}`);
+        const errorMsg = errorData.message || `HTTP ${response.status}`;
+        console.warn(`[App] Fetch attempt ${attempt + 1} failed: ${errorMsg}`);
+        lastError = new Error(errorMsg);
+        
+        if (response.status === 429) {
+           await new Promise(r => setTimeout(r, 2000));
+        } else {
+           await new Promise(r => setTimeout(r, 1000));
+        }
+      } catch (err: any) {
+        console.warn(`[App] Fetch attempt ${attempt + 1} threw error:`, err.message);
+        lastError = err;
+        await new Promise(r => setTimeout(r, 1000));
       }
-      
+      attempt++;
+    }
+
+    try {
+      if (!response || !response.ok) {
+        throw lastError || new Error(`Falha após ${maxRetries + 1} tentativas`);
+      }
+
       const result = await response.json();
       
       if (result && result.status === 'success') {
         const incomingData = result.data;
         
+        // Helper para garantir IDs únicos e evitar erros de chave duplicada no React
+        const dedupe = (arr: any[]) => {
+          const map = new Map();
+          arr.forEach(item => {
+            if (item.id) {
+              const idStr = String(item.id);
+              // Se já existir, prioriza o item que tem mais dados ou mantém o primeiro
+              if (!map.has(idStr)) map.set(idStr, item);
+            }
+          });
+          return Array.from(map.values());
+        };
+
         // NORMALIZAÇÃO RIGOROSA DE FUNCIONÁRIOS
         const rawEmployees = Array.isArray(incomingData.employees) ? incomingData.employees : [];
-        const normalizedEmployees = rawEmployees.map((emp: any) => {
+        const normalizedEmployees = dedupe(rawEmployees.map((emp: any, idx: number) => {
           let sOffs: number[] = [];
           if (typeof emp.sundayOffs === 'string' && emp.sundayOffs !== '') {
             try {
@@ -166,7 +224,7 @@ const App: React.FC = () => {
 
           return {
             ...emp,
-            id: emp.id?.toString() || '',
+            id: emp.id?.toString() || `emp-${Date.now()}-${idx}-${Math.random().toString(36).substr(2, 5)}`,
             name: emp.name || 'Sem Nome',
             gender: (emp.gender?.toUpperCase() === 'F' || emp.gender?.toUpperCase() === 'FEMININO') ? 'F' : 'M',
             role: emp.role || '',
@@ -177,34 +235,34 @@ const App: React.FC = () => {
             uniforms: safeJSONParse(emp.uniforms, []),
             photo: emp.photo || '' // Normalized photo field
           };
-        });
+        }));
 
         // NORMALIZAÇÃO DE EXTRAS
         const rawExtras = Array.isArray(incomingData.extras) ? incomingData.extras : [];
-        const normalizedExtras = rawExtras.map((ext: any) => ({
+        const normalizedExtras = dedupe(rawExtras.map((ext: any, idx: number) => ({
           ...ext,
-          id: ext.id?.toString() || '',
+          id: ext.id?.toString() || `extra-${Date.now()}-${idx}-${Math.random().toString(36).substr(2, 5)}`,
           name: ext.name || '',
           phone: ext.phone || '',
           availability: safeJSONParse(ext.availability, []),
           serviceQuality: parseFloat(ext.serviceQuality) || 0,
           sectorId: ext.sectorId?.toString() || '',
           observation: ext.observation || ''
-        }));
+        })));
 
         const rawSectors = Array.isArray(incomingData.sectors) ? incomingData.sectors : [];
-        const normalizedSectors = rawSectors.map((sec: any) => ({
+        const normalizedSectors = dedupe(rawSectors.map((sec: any, idx: number) => ({
           ...sec,
-          id: sec.id?.toString() || '',
+          id: sec.id?.toString() || `sec-${Date.now()}-${idx}-${Math.random().toString(36).substr(2, 5)}`,
           name: sec.name || 'Setor Sem Nome',
           standardUniform: safeJSONParse(sec.standardUniform, [])
-        }));
+        })));
 
         // NORMALIZAÇÃO DE ORÇAMENTOS
         const rawBudgets = Array.isArray(incomingData.budgets) ? incomingData.budgets : [];
-        const normalizedBudgets = rawBudgets.map((b: any) => ({
+        const normalizedBudgets = dedupe(rawBudgets.map((b: any, idx: number) => ({
           ...b,
-          id: b.id?.toString() || '',
+          id: b.id?.toString() || `budget-${Date.now()}-${idx}-${Math.random().toString(36).substr(2, 5)}`,
           title: b.title || 'Sem Título',
           objective: b.objective || '',
           items: safeJSONParse(b.items, []).map((it: any) => ({
@@ -218,33 +276,33 @@ const App: React.FC = () => {
           quotes: safeJSONParse(b.quotes, []),
           files: safeJSONParse(b.files, []), // Normalized files
           createdAt: safeGetTime(b.createdAt)
-        }));
+        })));
 
         // NORMALIZAÇÃO DE ESTOQUE
         const rawInventory = Array.isArray(incomingData.inventory) ? incomingData.inventory : [];
-        const normalizedInventory = rawInventory.map((inv: any) => ({
+        const normalizedInventory = dedupe(rawInventory.map((inv: any, idx: number) => ({
             ...inv,
-            id: inv.id?.toString(),
+            id: inv.id?.toString() || `inv-${Date.now()}-${idx}-${Math.random().toString(36).substr(2, 5)}`,
             quantity: parseFloat(inv.quantity) || 0,
             price: parseFloat(inv.price) || 0,
             lastUpdate: safeGetTime(inv.lastUpdate),
             sectorId: inv.sectorId?.toString() || '' // Parse sectorId
-        }));
+        })));
 
         const rawInventoryHistory = Array.isArray(incomingData.inventoryHistory) ? incomingData.inventoryHistory : [];
-        const normalizedInventoryHistory = rawInventoryHistory.map((op: any) => ({
+        const normalizedInventoryHistory = dedupe(rawInventoryHistory.map((op: any, idx: number) => ({
             ...op,
-            id: op.id?.toString(),
+            id: op.id?.toString() || `hist-${Date.now()}-${idx}-${Math.random().toString(36).substr(2, 5)}`,
             quantity: parseFloat(op.quantity) || 0,
             timestamp: safeGetTime(op.timestamp),
             recipientName: op.recipientName || ''
-        }));
+        })));
 
         const rawSuppliers = Array.isArray(incomingData.suppliers) ? incomingData.suppliers : [];
-        const normalizedSuppliers = rawSuppliers.map((s: any) => ({
+        const normalizedSuppliers = dedupe(rawSuppliers.map((s: any, idx: number) => ({
             ...s,
-            id: s.id?.toString()
-        }));
+            id: s.id?.toString() || `sup-${Date.now()}-${idx}-${Math.random().toString(36).substr(2, 5)}`
+        })));
 
         const rawVehicles = Array.isArray(incomingData.vehicles) ? incomingData.vehicles : [];
         const normalizedVehicles = rawVehicles.map((v: any) => ({
@@ -285,16 +343,72 @@ const App: React.FC = () => {
           }
         }
 
+        console.log(`[App] Normalizing ${Object.keys(incomingData.apartments || {}).length} apartments for ${targetHotel}`);
         const normalizedApartments: Record<string, Apartment> = {};
         Object.entries(incomingData.apartments || {}).forEach(([id, apt]: [string, any]) => {
-          normalizedApartments[id] = {
+          let roomNumber = Number(apt.roomNumber) || 0;
+          let floor = Number(apt.floor || apt.chão || apt.andar) || 0;
+          
+          // Fallback: Try to extract roomNumber from apt.id or id string if missing (e.g., "VILLAGE_200" or just "200")
+          if (!roomNumber) {
+            const possibleIdStr = String(apt.id || id);
+            const match = possibleIdStr.match(/\d+/);
+            if (match) {
+              roomNumber = parseInt(match[0], 10);
+            }
+          }
+
+          // In standard hotel mapping, floor could be 200, 300, 400
+          if (floor < 100 && roomNumber >= 100) {
+            floor = Math.floor(roomNumber / 100) * 100;
+          } else if (!floor && roomNumber > 0) {
+            floor = Math.floor(roomNumber / 100) * 100;
+          }
+          
+          // Use floor-roomNumber as the definitive ID if available
+          const normalizedId = (floor > 0 && roomNumber > 0) ? `${floor}-${roomNumber}` : String(apt.id || id);
+          
+          // Map possible Portuguese translations back to expected English keys
+          let bedsVal = apt.beds !== undefined ? apt.beds : (apt.cama !== undefined ? apt.cama : apt.camas);
+          
+          let moveisDetalhesVal = safeJSONParse(apt.moveisDetalhes || apt.detalhesMoveis || apt.moveis, []);
+          
+          if (typeof bedsVal === 'string' && bedsVal.trim().startsWith('[')) {
+              bedsVal = safeJSONParse(bedsVal, []);
+          }
+
+          if (!Array.isArray(bedsVal)) {
+               // If beds is just "Sim" and moveisDetalhes has bed configurations, use those!
+               if (moveisDetalhesVal && moveisDetalhesVal.length > 0 && moveisDetalhesVal[0].type) {
+                   bedsVal = moveisDetalhesVal;
+               } else {
+                   bedsVal = []; // Fallback to avoid map errors
+               }
+          }
+          if (!Array.isArray(bedsVal)) bedsVal = [];
+          
+          normalizedApartments[normalizedId] = {
             ...apt,
-            defects: Array.isArray(apt.defects) ? apt.defects : [],
-            beds: Array.isArray(apt.beds) ? apt.beds : [],
-            moveisDetalhes: Array.isArray(apt.moveisDetalhes) ? apt.moveisDetalhes : [],
-            customAnswers: safeJSONParse(apt.customAnswers, {})
+            id: normalizedId,
+            roomNumber,
+            floor,
+            beds: bedsVal,
+            pisoType: apt.pisoType || apt.tipoPiso || apt.piso,
+            pisoStatus: apt.pisoStatus || apt.statusPiso,
+            banheiroType: apt.banheiroType || apt.tipoBanheiro || apt.banheiro,
+            banheiroStatus: apt.banheiroStatus || apt.statusBanheiro,
+            temCofre: apt.temCofre !== undefined ? apt.temCofre : apt.cofre,
+            temCortina: apt.temCortina !== undefined ? apt.temCortina : apt.cortina,
+            defects: safeJSONParse(apt.defects || apt.defeitos, []),
+            moveisDetalhes: moveisDetalhesVal,
+            customAnswers: safeJSONParse(apt.customAnswers || apt.respostasCustomizadas, {})
           };
         });
+        
+        if (Object.keys(normalizedApartments).length > 0) {
+          const firstId = Object.keys(normalizedApartments)[0];
+          console.log('[App] Sample Apartment:', normalizedApartments[firstId]);
+        }
 
         const normalizedData = {
           ...incomingData,
@@ -362,7 +476,7 @@ const App: React.FC = () => {
     }
   }, [state]);
 
-  const syncToSheet = async (dataType: 'APARTMENT' | 'BUDGET' | 'EMPLOYEE' | 'EXTRA' | 'SECTOR' | 'INVENTORY' | 'INVENTORY_OP' | 'SUPPLIER' | 'CONFIG' | 'DELETE' | 'USER' | 'PARKING_LOCATION' | 'VEHICLE' | 'CHECKOUT_VEHICLE', data: any, newFiles?: any[], hotelOverride?: HotelType) => {
+  const syncToSheet = async (dataType: 'APARTMENT' | 'BUDGET' | 'EMPLOYEE' | 'EXTRA' | 'SECTOR' | 'INVENTORY' | 'INVENTORY_OP' | 'SUPPLIER' | 'CONFIG' | 'DELETE' | 'USER' | 'PARKING_LOCATION' | 'VEHICLE' | 'CHECKOUT_VEHICLE', data: any, newFiles?: any[], hotelOverride?: HotelType, isFullSync?: boolean) => {
     try {
       const apiUrl = `${GLOBAL_API_URL}/action`;
       await fetch(apiUrl, {
@@ -373,6 +487,7 @@ const App: React.FC = () => {
         body: JSON.stringify({
           hotel: hotelOverride || state.currentHotel,
           dataType,
+          isFullSync,
           ...data,
           newFiles
         })
@@ -914,6 +1029,7 @@ const App: React.FC = () => {
             hotelConfig={currentHotelData.config} 
             onUpdateConfig={handleUpdateConfig} 
             theme={theme} 
+            currentHotel={state.currentHotel}
             suppliers={currentHotelData.suppliers} 
             onSaveSupplier={handleSaveSupplier} 
             onDeleteSupplier={handleDeleteSupplier} 
@@ -924,6 +1040,7 @@ const App: React.FC = () => {
             parkingLocations={currentHotelData.parkingLocations || []}
             onSaveParkingLocation={handleSaveParkingLocation}
             onDeleteParkingLocation={handleDeleteParkingLocation}
+            onForceSyncFromSheets={() => loadDataFromSheet(state.currentHotel, true)}
           />
         );
       case ViewType.PARKING:
@@ -959,7 +1076,7 @@ const App: React.FC = () => {
         }
       } else {
         const newUser: User = {
-          id: `user_${Date.now()}`,
+          id: `user_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
           name: name,
           email: email,
           password: '',

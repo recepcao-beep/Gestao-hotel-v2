@@ -469,7 +469,7 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
   const handleSaveSectorSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     onSaveSector({ 
-      id: editingSector?.id || Date.now().toString(), 
+      id: editingSector?.id || `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`, 
       name: sectorName, 
       standardUniform: sectorUniforms,
       roles: sectorRoles
@@ -490,7 +490,7 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
     }
 
     const newEmp: Employee = {
-      id: editingEmployee?.id || Date.now().toString(),
+      id: editingEmployee?.id || `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       name: name || 'Sem Nome', 
       role: role || 'Cargo', 
       gender, 
@@ -519,7 +519,7 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
   const handleSaveExtraSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     onSaveExtra({
-      id: editingExtra?.id || Date.now().toString(),
+      id: editingExtra?.id || `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       name: extraName,
       phone: extraPhone,
       availability: extraAvailability,
@@ -1202,7 +1202,7 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
                     <div className="w-full h-px bg-slate-200 mb-4"></div>
                     <div className="space-y-2">
                       {day.shifts.map((shift, j) => (
-                        <div key={j} className="text-slate-700 font-medium text-sm flex items-center">
+                        <div key={`${shift}-${j}`} className="text-slate-700 font-medium text-sm flex items-center">
                           <Clock size={14} className="mr-2 text-slate-400" />
                           {shift}
                         </div>

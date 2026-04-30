@@ -121,7 +121,7 @@ const BudgetsView: React.FC<BudgetsViewProps> = ({ budgets, theme, onSave, onDel
   };
 
   const addServiceItem = () => {
-    setItems([...items, { id: Date.now().toString(), description: '', materials: [], laborCost: 0, estimatedTime: '', serviceProvider: '' }]);
+    setItems([...items, { id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`, description: '', materials: [], laborCost: 0, estimatedTime: '', serviceProvider: '' }]);
   };
 
   const removeServiceItem = (id: string) => {
@@ -138,7 +138,7 @@ const BudgetsView: React.FC<BudgetsViewProps> = ({ budgets, theme, onSave, onDel
         return {
           ...item,
           materials: [...(item.materials || []), { 
-            id: Date.now().toString(), 
+            id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`, 
             name: '', 
             quantity: 1, 
             unit: 'Un',
@@ -222,7 +222,7 @@ const BudgetsView: React.FC<BudgetsViewProps> = ({ budgets, theme, onSave, onDel
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const finalBudget: Budget = {
-      id: editingBudget?.id || Date.now().toString(),
+      id: editingBudget?.id || `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       title: title || 'Novo Orçamento',
       objective,
       items,

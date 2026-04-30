@@ -79,7 +79,7 @@ const ApartmentDetailView: React.FC<ApartmentDetailViewProps> = ({ apartment, th
       const desc = newDefectText.trim() || 'Avaria fotografada';
       
       const newDefect: Defect = {
-        id: `${data.id}-${Date.now()}`,
+        id: `${data.id}-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
         description: desc,
         driveLink: 'pendente',
         timestamp: Date.now(),

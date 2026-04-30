@@ -54,10 +54,22 @@ const Dashboard: React.FC<DashboardProps> = ({
       diff: i.quantity - i.minQuantity
     }));
 
-  const floorData = [200, 300, 400, 500, 600, 700].map(floor => ({
-    name: `${floor}`,
-    defects: aptList.filter(a => a.floor === floor).reduce((acc, curr) => acc + (curr.defects?.length || 0), 0)
-  }));
+  const floorData = useMemo(() => {
+    const floorSet = new Set<number>();
+    aptList.forEach(a => {
+      if (a.floor !== undefined && a.floor !== null) floorSet.add(Number(a.floor));
+    });
+    
+    // Default floors if none found
+    const floors = floorSet.size > 0 
+      ? Array.from(floorSet).sort((a, b) => a - b)
+      : [200, 300, 400, 500, 600, 700];
+
+    return floors.map(floor => ({
+      name: `${floor}`,
+      defects: aptList.filter(a => Number(a.floor) === floor).reduce((acc, curr) => acc + (curr.defects?.length || 0), 0)
+    }));
+  }, [aptList]);
 
   const pieData = [
     { name: 'Com Avarias', value: apartmentsWithIssues, color: '#ef4444' },

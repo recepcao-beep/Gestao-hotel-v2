@@ -604,6 +604,63 @@ const SupabaseMigrationSection: React.FC<{ theme: HotelTheme }> = ({ theme }) =>
         </div>
       </div>
 
+      <div className="bg-amber-50 border-2 border-amber-200 p-6 rounded-3xl space-y-4">
+        <div className="flex items-center space-x-2 text-amber-700">
+          <AlertCircle size={20} />
+          <h4 className="font-black text-sm uppercase">Atenção: Correção de Banco de Dados Obrigatória</h4>
+        </div>
+        <p className="text-xs text-amber-800 font-medium">
+          Se você encontrar erros de "migration" ou "no unique constraint", você <strong>precisa</strong> rodar o script SQL abaixo no 
+          <strong> SQL Editor</strong> do seu painel Supabase. Isso definirá e corrigirá as chaves primárias necessárias.
+        </p>
+        <div className="relative">
+          <pre className="bg-slate-900 text-slate-100 p-4 rounded-xl text-[10px] overflow-x-auto font-mono max-h-40">
+{`-- SQL DE REPARO PARA RESTAURAR A SINCRONIZAÇÃO
+-- Copie todo este texto, cole no SQL Editor do seu Supabase e clique em 'Run'
+DO $$ 
+DECLARE
+    t text;
+BEGIN
+    FOR t IN SELECT unnest(ARRAY['apartments', 'budgets', 'employees', 'extras', 'sectors', 'inventory', 'inventoryhistory', 'suppliers', 'vehicles', 'parkinglocations', 'users', 'config']) LOOP
+        BEGIN
+            EXECUTE format('ALTER TABLE %I ADD CONSTRAINT %I UNIQUE (id)', t, t || '_id_unique_key');
+            RAISE NOTICE 'Added UNIQUE constraint to %', t;
+        EXCEPTION WHEN OTHERS THEN
+            RAISE NOTICE 'Skipped %: %', t, SQLERRM;
+        END;
+    END LOOP;
+END $$;`}
+          </pre>
+          <button 
+            type="button"
+            onClick={() => {
+              const sql = `-- SQL DE REPARO PARA RESTAURAR A SINCRONIZAÇÃO
+-- Copie todo este texto, cole no SQL Editor do seu Supabase e clique em 'Run'
+DO $$ 
+DECLARE
+    t text;
+BEGIN
+    FOR t IN SELECT unnest(ARRAY['apartments', 'budgets', 'employees', 'extras', 'sectors', 'inventory', 'inventoryhistory', 'suppliers', 'vehicles', 'parkinglocations', 'users', 'config']) LOOP
+        BEGIN
+            EXECUTE format('ALTER TABLE %I ADD CONSTRAINT %I UNIQUE (id)', t, t || '_id_unique_key');
+            RAISE NOTICE 'Added UNIQUE constraint to %', t;
+        EXCEPTION WHEN OTHERS THEN
+            RAISE NOTICE 'Skipped %: %', t, SQLERRM;
+        END;
+    END LOOP;
+END $$;`;
+              navigator.clipboard.writeText(sql).then(() => {
+                alert("Script de reparo copiado! Vá ao painel do Supabase, entre em SQL Editor, cole este código e clique em RUN.");
+              });
+            }}
+            className="absolute top-2 right-2 p-2 bg-white/10 hover:bg-white/20 rounded-lg text-white transition-all"
+            title="Copiar SQL"
+          >
+            <Copy size={14} />
+          </button>
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         {(['VILLAGE', 'GOLDEN_PARK', 'THERMAL_RESORT'] as HotelType[]).map(hotel => (
           <button

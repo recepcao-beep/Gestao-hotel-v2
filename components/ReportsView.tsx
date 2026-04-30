@@ -683,7 +683,7 @@ const ReportsView: React.FC<ReportsViewProps> = ({ apartments, theme, onSelectAp
                   <td className="px-8 py-5 print:px-2 print:py-3">
                     <div className="space-y-1">
                       {apt.beds?.map((b, i) => (
-                        <p key={i} className="text-[9px] text-slate-600">
+                        <p key={`${apt.id}-bed-${i}`} className="text-[9px] text-slate-600">
                           {i+1}: {b.type} (B: {b.baseStatus} | C: {b.mattressStatus})
                         </p>
                       ))}
@@ -701,7 +701,7 @@ const ReportsView: React.FC<ReportsViewProps> = ({ apartments, theme, onSelectAp
                     <div className="flex flex-col gap-1 items-center">
                       {(apt.defects?.length || 0) > 0 ? (
                         apt.defects.map((d, di) => (
-                          <div key={di} className="flex flex-col items-center gap-1 mb-2 last:mb-0">
+                          <div key={`${apt.id}-def-${di}`} className="flex flex-col items-center gap-1 mb-2 last:mb-0">
                             <span className="px-2 py-0.5 bg-rose-50 text-rose-600 text-[8px] font-black rounded uppercase print:bg-transparent print:p-0 print:block">
                               • {d.description}
                             </span>

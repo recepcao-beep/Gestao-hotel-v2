@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Hotel, FileBarChart, LayoutGrid } from 'lucide-react';
 import { HotelTheme, Apartment } from '../types';
 import ReportsView from './ReportsView';
@@ -20,10 +20,41 @@ const ApartmentsView: React.FC<ApartmentsViewProps> = ({
   onSelectApartment
 }) => {
   const [activeTab, setActiveTab] = useState<'FLOORS' | 'REPORTS'>('FLOORS');
-  const floors = [200, 300, 400, 500, 600, 700];
+  
+  // Dynamically determine floors from apartments data
+  const floors = useMemo(() => {
+    const floorSet = new Set<number>();
+    
+    // Baseline: village has 200, 300, 400, 500, 600, 700 floors
+    [200, 300, 400, 500, 600, 700].forEach(f => floorSet.add(f));
+
+    (Object.values(apartments) as Apartment[]).forEach(apt => {
+      if (apt.floor !== undefined && apt.floor !== null) floorSet.add(Number(apt.floor));
+    });
+    
+    return Array.from(floorSet).sort((a, b) => a - b);
+  }, [apartments]);
 
   return (
     <div className="space-y-6">
+      {Object.keys(apartments).length === 0 && (
+        <div className="p-8 bg-amber-50 border-2 border-dashed border-amber-200 rounded-3xl text-center space-y-3">
+          <div className="w-12 h-12 bg-amber-100 text-amber-600 rounded-full flex items-center justify-center mx-auto mb-2">
+            <Hotel size={24} />
+          </div>
+          <p className="text-amber-900 font-bold text-lg">Nenhum dado encontrado</p>
+          <p className="text-amber-700 max-w-md mx-auto">
+            Não encontramos apartamentos para o hotel <span className="font-bold underline">{hotelName}</span>. 
+            Isso pode indicar que os dados ainda estão nos Sheets ou a migração falhou.
+          </p>
+          <button 
+             onClick={() => window.location.reload()}
+             className="px-6 py-2 bg-amber-600 text-white rounded-xl font-bold text-sm hover:bg-amber-700 transition-colors shadow-lg shadow-amber-200"
+          >
+            Tentar Recarregar
+          </button>
+        </div>
+      )}
       {/* Tabs Layout */}
       <div className="flex items-center space-x-2 bg-white/50 p-1 rounded-3xl border border-slate-200 w-fit">
         <button
