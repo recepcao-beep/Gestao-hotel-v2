@@ -56,32 +56,40 @@ const FloorDetailView: React.FC<FloorDetailViewProps> = ({ floor, theme, apartme
       {/* Apartment Grid */}
       <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-7 gap-3 md:gap-4 pb-20">
         {filteredApartmentNumbers.map((num) => {
-          const id = `${floor}-${num}`;
-          // Robust lookup: try composite ID first, then just the number, then search
-          const aptData = apartments[id] || 
-                          apartments[num.toString()] || 
+          const finalId = num.toString();
+          // Robust lookup: try number first, then composite as fallback
+          const aptData = apartments[finalId] || 
+                          apartments[`${floor}-${num}`] || 
                           (Object.values(apartments) as Apartment[]).find(a => Number(a.roomNumber) === num && Number(a.floor) === floor);
           const isInitialized = !!aptData;
           
           // Lógica de Alerta Visual
-          const hasDefects = isInitialized && aptData.defects.length > 0;
+          const hasDefects = isInitialized && (aptData.defects || []).length > 0;
           const isUrgent = isInitialized && (
             aptData.pisoStatus === 'Reparo urgente' || 
-            aptData.banheiroStatus === 'Reparo urgente'
+            aptData.pisoStatus === 'Avaria identificada' ||
+            aptData.banheiroStatus === 'Reparo urgente' ||
+            aptData.banheiroStatus === 'Avaria identificada'
           );
           
-          // Prioridade: Com Avaria/Urgente (Vermelho) > Normal (Verde) > Não Iniciado (Cinza)
-          const needsAttention = hasDefects || isUrgent;
+          // Consider checking completed status if needed (e.g. if any field is filled)
+          // For now, let's stick to the color logic the user mentioned (green if filled)
+          const isFilled = isInitialized && (
+            aptData.pisoStatus || 
+            aptData.banheiroStatus || 
+            (aptData.defects && aptData.defects.length > 0)
+          );
+
+          // Prioridade: Não Preenchido ou Com Avaria (Vermelho) > Normal (Verde)
+          const needsAttention = !isFilled || hasDefects || isUrgent;
 
           return (
             <button
               key={num}
-              onClick={() => onSelectApartment(id)}
+              onClick={() => onSelectApartment(finalId)}
               className={`relative h-28 md:h-32 rounded-2xl border-2 flex flex-col items-center justify-center transition-all duration-200 active:scale-95 shadow-sm ${
-                !isInitialized
-                ? 'bg-slate-50 border-slate-200 text-slate-400'
-                : needsAttention 
-                ? 'bg-red-50 border-red-500 text-red-800' 
+                needsAttention 
+                ? 'bg-red-50 border-red-400 text-red-800' 
                 : 'bg-green-50 border-green-500 text-green-800'
               }`}
             >

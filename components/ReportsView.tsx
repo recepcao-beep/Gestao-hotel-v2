@@ -652,9 +652,9 @@ const ReportsView: React.FC<ReportsViewProps> = ({ apartments, theme, onSelectAp
           </div>
         </div>
 
-        <div className="overflow-x-auto">
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-left print:text-[10px]">
-            <thead>
+             <thead>
               <tr className="bg-slate-50/50 print:bg-slate-100">
                 <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest print:px-2 print:py-2">U.H.</th>
                 <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest print:px-2 print:py-2">Detalhes do Item</th>
@@ -754,6 +754,87 @@ const ReportsView: React.FC<ReportsViewProps> = ({ apartments, theme, onSelectAp
               ))}
             </tbody>
           </table>
+        </div>
+
+        {/* Mobile View */}
+        <div className="md:hidden flex flex-col p-4 space-y-4 bg-slate-50">
+          {filteredData.map(apt => (
+            <div key={apt.id} className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex flex-col space-y-3 relative overflow-hidden">
+              <div className="absolute top-0 left-0 w-1.5 h-full bg-slate-200" style={{ backgroundColor: theme.primary }}></div>
+              <div className="flex justify-between items-start pl-2">
+                <div>
+                  <h3 className="text-lg font-black text-slate-800">U.H. {apt.roomNumber}</h3>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Andar {apt.floor}</p>
+                </div>
+                <button 
+                  onClick={() => onSelectApartment(apt.id)}
+                  className="bg-slate-900 text-white px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest shadow-md active:scale-95 transition-all"
+                >
+                  Ver Quarto
+                </button>
+              </div>
+              <div className="pl-2 space-y-2">
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="bg-slate-50 p-2 rounded-lg">
+                    <span className="font-bold text-slate-500 block mb-0.5">Piso</span>
+                    <span className="text-slate-800 font-medium">{apt.pisoType || '---'} ({apt.pisoStatus || 'OK'})</span>
+                  </div>
+                  <div className="bg-slate-50 p-2 rounded-lg">
+                    <span className="font-bold text-slate-500 block mb-0.5">Banheiro</span>
+                    <span className="text-slate-800 font-medium">{apt.banheiroType || '---'}</span>
+                  </div>
+                  <div className="bg-slate-50 p-2 rounded-lg">
+                    <span className="font-bold text-slate-500 block mb-0.5">TV & AC</span>
+                    <span className="text-slate-800 font-medium">{apt.tvBrand || '---'} / {apt.acBrand || '---'}</span>
+                  </div>
+                  <div className="bg-slate-50 p-2 rounded-lg">
+                    <span className="font-bold text-slate-500 block mb-0.5">Cortina/Cofre</span>
+                    <span className="text-slate-800 font-medium">{apt.temCortina ? 'Tem' : 'Não'} / {apt.temCofre ? 'Tem' : 'Não'}</span>
+                  </div>
+                </div>
+                
+                {/* Mobile Defeitos */}
+                {(apt.defects?.length || 0) > 0 ? (
+                  <div className="mt-2 bg-rose-50/50 p-2 rounded-xl border border-rose-100/50 flex flex-col gap-2">
+                    {apt.defects?.map((d, di) => (
+                      <div key={`${apt.id}-def-${di}`} className="flex flex-col gap-1">
+                        <span className="text-[10px] font-bold text-rose-600 block uppercase tracking-tight">• {d.description}</span>
+                        {(d.data || (d.driveLink && d.driveLink !== 'pendente')) && (
+                          <div 
+                            className="relative group cursor-pointer no-print mt-0.5 inline-block w-fit" 
+                            onClick={() => setSelectedImage(getDirectDriveUrl(d.data || d.driveLink))}
+                          >
+                            <img 
+                              src={getDirectDriveUrl(d.data || d.driveLink)} 
+                              className="w-10 h-10 rounded-md object-cover shadow-sm border border-rose-200" 
+                              alt="Avaria" 
+                              referrerPolicy="no-referrer"
+                            />
+                            <div className="absolute inset-0 flex items-center justify-center bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity rounded-md">
+                              <Maximize2 size={10} className="text-white" />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="mt-2 text-center py-2 bg-emerald-50/50 rounded-xl border border-emerald-100/50">
+                     <span className="text-emerald-500 font-black text-[10px] uppercase">✓ Tudo em Dia</span>
+                  </div>
+                )}
+                
+                {(apt.pisoStatus === 'Reparo urgente' || apt.banheiroStatus === 'Reparo urgente') && (
+                    <span className="block mt-1 px-2 py-1 bg-red-50 text-red-600 text-[10px] font-black rounded-lg uppercase text-center">
+                      • REPARO URGENTE
+                    </span>
+                )}
+              </div>
+            </div>
+          ))}
+          {filteredData.length === 0 && (
+             <div className="text-center py-8 text-slate-400 font-bold text-sm">Nenhum quarto encontrado.</div>
+          )}
         </div>
       </div>
 

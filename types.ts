@@ -128,7 +128,9 @@ export interface Employee {
   sundayOffs: number[];
   monthlySundayOff: string;
   weeklyDayOff: string;
-  vacationStatus: 'Pendente' | 'Concedida';
+  vacationStatus: 'Pendente' | 'Concedida' | 'Férias Atuais';
+  vacationStart?: string;
+  vacationEnd?: string;
   uniforms: UniformItem[];
   photo?: string; // Added photo support (Drive Link)
 }
@@ -290,6 +292,7 @@ export interface HotelData {
   config?: {
     showSuppliersTab: boolean;
     apartmentChecklist?: FormFieldConfig[];
+    visibleTabs?: Record<string, boolean>;
   };
 }
 
@@ -303,4 +306,6 @@ export interface AppState {
   integrations: Integration[];
   currentUser: User | null;
   users?: User[];
+  isDarkMode?: boolean;
+  lastDataSource?: 'SUPABASE' | 'SHEETS' | 'CACHE';
 }

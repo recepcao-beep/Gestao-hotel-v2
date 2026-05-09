@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { Integration, HotelTheme, Supplier, ParkingLocation, User, ViewType, HotelType } from '../types';
 import IntegrationsView from './IntegrationsView';
-import { Database, UserCircle, Shield, Sliders, ToggleLeft, ToggleRight, Truck, Plus, Trash2, Briefcase, User as UserIcon, X, Layout, GripVertical, Settings, Car, Users } from 'lucide-react';
+import { Database, UserCircle, Shield, Sliders, ToggleLeft, ToggleRight, Truck, Plus, Trash2, Briefcase, User as UserIcon, X, Layout, GripVertical, Settings, Car, Users, RefreshCw, FileSpreadsheet, AlertCircle, ArrowRight } from 'lucide-react';
 import { DEFAULT_CHECKLIST } from '../defaultChecklist';
 
 interface SettingsViewProps {
@@ -10,6 +10,7 @@ interface SettingsViewProps {
   hotelConfig?: {
     showSuppliersTab: boolean;
     apartmentChecklist?: any[]; // FormFieldConfig[]
+    visibleTabs?: Record<string, boolean>;
   };
   onUpdateConfig: (config: any) => void;
   theme: HotelTheme;
@@ -25,6 +26,8 @@ interface SettingsViewProps {
   onSaveUser: (user: User) => void;
   onDeleteUser: (id: string) => void;
   onForceSyncFromSheets?: () => void;
+  isDarkMode: boolean;
+  onToggleDarkMode: (enabled: boolean) => void;
 }
 
 const SettingsView: React.FC<SettingsViewProps> = ({ 
@@ -43,9 +46,23 @@ const SettingsView: React.FC<SettingsViewProps> = ({
   users = [],
   onSaveUser,
   onDeleteUser,
-  onForceSyncFromSheets
+  onForceSyncFromSheets,
+  isDarkMode,
+  onToggleDarkMode
 }) => {
-  const [activeTab, setActiveTab] = useState<'INTEGRATION' | 'PROFILE' | 'FEATURES' | 'CHECKLIST' | 'USERS' | 'PARKING_SPOTS'>('INTEGRATION');
+  const [activeTab, setActiveTab] = useState<'INTEGRATION' | 'PROFILE' | 'FEATURES' | 'CHECKLIST' | 'USERS' | 'PARKING_SPOTS' | 'APPEARANCE' | 'MENU'>('INTEGRATION');
+  
+  const viewLabels: Record<string, string> = {
+    [ViewType.DASHBOARD]: 'Geral (Dashboard)',
+    [ViewType.APARTMENTS]: 'Apartamentos / Vistorias',
+    [ViewType.BUDGETS]: 'Gerenciamento de Orçamentos',
+    [ViewType.EMPLOYEES]: 'Pessoas / Funcionários',
+    [ViewType.INVENTORY]: 'Controle de Estoque',
+    [ViewType.REPORTS]: 'Relatórios e BI',
+    [ViewType.TODAY_SCHEDULE]: 'Pauta do Dia',
+    [ViewType.PARKING]: 'Estacionamento / Vagas',
+    [ViewType.SETTINGS]: 'Configurações'
+  };
   
   // Supplier management state
   const [isAddingSupplier, setIsAddingSupplier] = useState(false);
@@ -86,6 +103,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({
   // Migration state
   const [isMigrating, setIsMigrating] = useState(false);
   const [migrationStatus, setMigrationStatus] = useState<string | null>(null);
+  const [showAdvancedMigration, setShowAdvancedMigration] = useState(false);
 
   const handleManualMigration = async () => {
     if (!window.confirm(`Isso irá copiar os dados do Google Sheets para o bancos de dados (Supabase) para o hotel ${currentHotel}. Deseja continuar?`)) return;
@@ -116,10 +134,11 @@ const SettingsView: React.FC<SettingsViewProps> = ({
   };
 
   const tabs = [
+    { id: 'APPEARANCE', label: 'Aparência', icon: Sliders },
+    { id: 'MENU', label: 'Ajustar Menu', icon: Layout },
     { id: 'INTEGRATION', label: 'Integração Global', icon: Database },
     { id: 'FEATURES', label: 'Funcionalidades', icon: Sliders },
     { id: 'CHECKLIST', label: 'Formulário de Vistoria', icon: Layout },
-    { id: 'PARKING_SPOTS', label: 'Configuração de Vagas', icon: Car },
     { id: 'USERS', label: 'Usuários', icon: Users },
     { id: 'PROFILE', label: 'Perfil de Acesso', icon: UserCircle },
   ];
@@ -277,69 +296,229 @@ const SettingsView: React.FC<SettingsViewProps> = ({
         </aside>
 
         <div className="flex-1 min-w-0">
-          {activeTab === 'INTEGRATION' && (
-            <div className="space-y-6">
-              {onForceSyncFromSheets && (
-                 <div className="bg-rose-50 border border-rose-200 rounded-[3rem] p-8 text-center">
-                   <h3 className="text-xl font-black text-rose-800 uppercase tracking-tighter mb-2">Modo Emergencial</h3>
-                   <p className="text-rose-600 text-sm font-medium mb-6">Em caso de erros com o banco de dados (Supabase), utilize esta opção para forçar o carregamento dos dados direto da Planilha do Google.</p>
-                   <button 
-                     onClick={onForceSyncFromSheets}
-                     className="bg-rose-600 hover:bg-rose-700 text-white px-6 py-3 rounded-2xl font-black uppercase text-xs tracking-wider transition-colors shadow-lg shadow-rose-200"
-                   >
-                     Usar dados da Planilha
-                   </button>
-                 </div>
-              )}
-              <IntegrationsView integrations={integrations} theme={theme} onUpdate={onUpdate} />
-              
-              <div className="bg-amber-50 rounded-[3rem] p-8 border border-amber-200">
-                <div className="flex items-center space-x-4 mb-6">
-                  <div className="p-3 bg-white text-amber-600 rounded-2xl shadow-sm">
-                    <Database size={24} />
-                  </div>
-                  <div>
-                    <h3 className="text-lg font-black text-amber-900 uppercase tracking-tighter">Sincronização de Emergência</h3>
-                    <p className="text-xs font-bold text-amber-700 uppercase tracking-widest mt-1">Sheets para Supabase (Database)</p>
-                  </div>
-                </div>
-                
-                <div className="space-y-6">
-                  <p className="text-sm font-medium text-amber-800 leading-relaxed">
-                    Se os dados nas Planilhas Google foram editados manualmente ou parecem não estar carregando no sistema, 
-                    você pode forçar uma nova cópia total das planilhas para o Banco de Dados Supabase.
+          {activeTab === 'MENU' && (
+            <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+               <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] p-8 shadow-sm border border-slate-100 dark:border-slate-700">
+                  <h3 className="text-xl font-black text-slate-800 dark:text-white uppercase tracking-tighter mb-6 flex items-center gap-2">
+                    <Layout className="text-indigo-500" /> Personalizar Visibilidade do Menu
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 font-medium mb-8">
+                    Selecione quais abas estarão visíveis no menu lateral para todos os usuários desta unidade.
                   </p>
                   
-                  <div className="flex flex-col md:flex-row items-center gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                     {Object.entries(viewLabels).map(([view, label]) => {
+                        if (view === ViewType.SETTINGS) return null;
+                        
+                        const isVisible = hotelConfig?.visibleTabs?.[view] !== false; 
+                        
+                        return (
+                          <div 
+                            key={view}
+                            className="flex items-center justify-between p-5 bg-slate-50 dark:bg-slate-900/50 rounded-2xl border border-slate-100 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all"
+                          >
+                            <div className="flex items-center gap-3">
+                               <div className={`w-2 h-2 rounded-full ${isVisible ? 'bg-indigo-500 animate-pulse' : 'bg-slate-300'}`} />
+                               <span className={`text-xs font-black uppercase tracking-tight ${isVisible ? 'text-slate-800 dark:text-white' : 'text-slate-400'}`}>
+                                 {label}
+                               </span>
+                            </div>
+                            <button 
+                              onClick={() => {
+                                const newVisibleTabs = { ...(hotelConfig?.visibleTabs || {}) };
+                                newVisibleTabs[view] = !isVisible;
+                                onUpdateConfig({ ...hotelConfig, visibleTabs: newVisibleTabs });
+                              }}
+                              className={`relative w-12 h-6 rounded-full transition-all duration-300 ${isVisible ? 'bg-indigo-500' : 'bg-slate-300 dark:bg-slate-700'}`}
+                            >
+                              <div className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform duration-300 shadow-sm ${isVisible ? 'translate-x-6' : 'translate-x-0'}`} />
+                            </button>
+                          </div>
+                        );
+                     })}
+                  </div>
+
+                  <div className="mt-8 p-6 bg-amber-50 dark:bg-amber-900/20 rounded-3xl border border-amber-100 dark:border-amber-800/50 flex gap-4">
+                     <AlertCircle className="text-amber-600 shrink-0" size={24} />
+                     <div>
+                        <p className="text-xs font-black text-amber-800 dark:text-amber-200 uppercase tracking-tight">Nota Crítica</p>
+                        <p className="text-[10px] text-amber-700 dark:text-amber-300 font-bold leading-relaxed mt-1">
+                          A aba de <strong>Configurações</strong> sempre permanecerá visível para administradores para garantir que o sistema possa ser reconfigurado.
+                        </p>
+                     </div>
+                  </div>
+               </div>
+            </div>
+          )}
+
+          {activeTab === 'APPEARANCE' && (
+            <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+               <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] p-8 shadow-sm border border-slate-100 dark:border-slate-700">
+                  <h3 className="text-xl font-black text-slate-800 dark:text-white uppercase tracking-tighter mb-6 flex items-center gap-2">
+                    <Sliders className="text-sky-500" /> Preferências Visuais
+                  </h3>
+                  
+                  <div className="flex items-center justify-between p-6 bg-slate-50 dark:bg-slate-900/50 rounded-3xl border border-slate-100 dark:border-slate-700 transition-all">
+                    <div className="flex items-center gap-4">
+                      <div className={`p-3 rounded-2xl ${isDarkMode ? 'bg-indigo-500/20 text-indigo-400' : 'bg-amber-500/20 text-amber-600'}`}>
+                        {isDarkMode ? <Shield size={24} /> : <Sliders size={24} />}
+                      </div>
+                      <div>
+                        <p className="font-black text-slate-800 dark:text-white uppercase text-xs tracking-widest">Tema Escuro</p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">Reduz o cansaço visual e economiza bateria</p>
+                      </div>
+                    </div>
+                    <button 
+                      onClick={() => onToggleDarkMode(!isDarkMode)}
+                      className={`relative w-14 h-8 rounded-full transition-all duration-300 ${isDarkMode ? 'bg-indigo-600' : 'bg-slate-200'}`}
+                    >
+                      <div className={`absolute top-1 left-1 w-6 h-6 bg-white rounded-full transition-transform duration-300 shadow-sm flex items-center justify-center ${isDarkMode ? 'translate-x-6' : 'translate-x-0'}`}>
+                        {isDarkMode ? <Shield size={12} className="text-indigo-600" /> : <Shield size={12} className="text-slate-400" />}
+                      </div>
+                    </button>
+                  </div>
+                  
+                  <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-4">
+                     <div className="p-6 border-2 border-slate-100 dark:border-slate-700 rounded-3xl opacity-50 cursor-not-allowed">
+                        <p className="font-black text-slate-400 uppercase text-[10px] tracking-widest mb-1">Cores Personalizadas</p>
+                        <p className="text-xs text-slate-400 font-medium">Em breve: Escolha sua paleta</p>
+                     </div>
+                     <div className="p-6 border-2 border-slate-100 dark:border-slate-700 rounded-3xl opacity-50 cursor-not-allowed">
+                        <p className="font-black text-slate-400 uppercase text-[10px] tracking-widest mb-1">Layout Compacto</p>
+                        <p className="text-xs text-slate-400 font-medium">Em breve: Ajuste a densidade da tela</p>
+                     </div>
+                  </div>
+               </div>
+            </div>
+          )}
+
+          {activeTab === 'INTEGRATION' && (
+            <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+              {/* Seção de Conexão Principal */}
+              <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] p-6 shadow-sm border border-slate-100 dark:border-slate-700">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+                  <div className="flex items-center gap-3">
+                    <div className="p-3 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 rounded-2xl">
+                      <FileSpreadsheet size={24} />
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-black text-slate-800 dark:text-white uppercase tracking-tighter leading-tight">Google Sheets Sync</h3>
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Conexão Global V47</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${integrations[0]?.status === 'Connected' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+                      {integrations[0]?.status === 'Connected' ? 'Conectado' : 'Desconectado'}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="flex gap-2">
+                    <input 
+                      type="text" 
+                      value={integrations[0]?.url || ''} 
+                      onChange={e => onUpdate({ ...integrations[0], url: e.target.value })}
+                      placeholder="Link do Apps Script Web App..." 
+                      className="flex-1 px-4 py-3 rounded-xl border-2 border-slate-50 dark:border-slate-700 outline-none text-xs font-bold bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-200" 
+                    />
+                    <button 
+                      onClick={() => {
+                        onUpdate({ ...integrations[0], status: integrations[0].url ? 'Connected' : 'Disconnected', lastSync: Date.now() });
+                        alert('Conexão configurada!');
+                      }}
+                      className="px-6 py-3 bg-slate-900 dark:bg-sky-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-800 dark:hover:bg-sky-700 transition-all active:scale-95 whitespace-nowrap"
+                    >
+                      Salvar
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Grid de Ações Técnicas */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Coluna 1: Nuvem & Banco de Dados */}
+                <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] p-6 shadow-sm border border-slate-100 dark:border-slate-700 space-y-4">
+                  <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                    <Database size={14} className="text-sky-500" /> Nuvem & Database
+                  </h4>
+                  
+                  <div className="space-y-3">
                     <button
                       onClick={handleManualMigration}
                       disabled={isMigrating}
-                      className={`flex items-center justify-center space-x-3 w-full md:w-auto px-8 py-4 rounded-2xl font-black uppercase tracking-widest transition-all shadow-xl active:scale-95 ${
+                      className={`w-full flex items-center justify-between p-4 rounded-2xl border-2 transition-all active:scale-95 ${
                         isMigrating 
-                          ? 'bg-amber-200 text-amber-500 cursor-not-allowed' 
-                          : 'bg-amber-600 text-white hover:bg-amber-700 shadow-amber-200'
+                          ? 'border-slate-50 bg-slate-50 text-slate-400' 
+                          : 'border-amber-100 bg-amber-50/50 hover:bg-amber-50 text-amber-700'
                       }`}
                     >
-                      <Database size={18} />
-                      <span>{isMigrating ? 'Sincronizando...' : `Sincronizar ${currentHotel} Agora`}</span>
+                      <div className="text-left">
+                        <p className="text-[10px] font-black uppercase tracking-tighter">Sincronização Total</p>
+                        <p className="text-[9px] font-bold opacity-70 uppercase leading-none mt-1">Sheets ➔ Supabase</p>
+                      </div>
+                      <RefreshCw size={18} className={isMigrating ? 'animate-spin' : ''} />
+                    </button>
+
+                    <button
+                      onClick={() => setShowAdvancedMigration(true)}
+                      className="w-full flex items-center justify-between p-4 rounded-2xl border-2 border-blue-100 dark:border-blue-900/50 bg-blue-50/50 dark:bg-blue-500/10 hover:bg-blue-50 text-blue-700 dark:text-blue-400 transition-all active:scale-95"
+                    >
+                      <div className="text-left">
+                        <p className="text-[10px] font-black uppercase tracking-tighter">Migração Supabase</p>
+                        <p className="text-[9px] font-bold opacity-70 uppercase mt-1">Configurações Avançadas</p>
+                      </div>
+                      <ArrowRight size={18} />
                     </button>
                     
                     {migrationStatus && (
-                      <div className="flex-1 w-full p-4 bg-white/60 rounded-2xl border border-amber-100 text-xs font-mono text-amber-800 break-all">
+                      <div className="p-3 bg-slate-900 rounded-xl text-[9px] font-mono text-emerald-400 break-all leading-tight max-h-20 overflow-y-auto">
                         {migrationStatus}
                       </div>
                     )}
                   </div>
-                  
-                  <div className="bg-white/40 p-4 rounded-2xl">
-                    <p className="text-[10px] font-bold text-amber-900 leading-tight">
-                      ⚠️ ATENÇÃO: Os dados existentes no Banco de Dados para este hotel serão sobrescritos pelos dados das Planilhas.
-                    </p>
+                </div>
+
+                {/* Coluna 2: Utilitários & Recuperação */}
+                <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] p-6 shadow-sm border border-slate-100 dark:border-slate-700 space-y-4">
+                  <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                    <Shield size={14} className="text-rose-500" /> Suporte & Cache
+                  </h4>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <button 
+                      onClick={() => {
+                        if(window.confirm('Limpar cache e reiniciar?')) {
+                          localStorage.clear();
+                          window.location.reload();
+                        }
+                      }}
+                      className="flex flex-col items-center justify-center p-4 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-700 hover:border-rose-200 transition-all group"
+                    >
+                      <Trash2 size={20} className="text-slate-400 group-hover:text-rose-500 mb-2" />
+                      <span className="text-[9px] font-black uppercase text-slate-500 group-hover:text-slate-800 dark:group-hover:text-white">Limpar Cache</span>
+                    </button>
+
+                    {onForceSyncFromSheets && (
+                      <button 
+                        onClick={onForceSyncFromSheets}
+                        className="flex flex-col items-center justify-center p-4 rounded-2xl bg-rose-50 dark:bg-rose-500/10 border border-rose-100 dark:border-rose-900/50 hover:bg-rose-100 transition-all text-rose-600 dark:text-rose-400"
+                      >
+                        <AlertCircle size={20} className="mb-2" />
+                        <span className="text-[9px] font-black uppercase">Modo Planilha</span>
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="pt-2 border-t border-slate-50 dark:border-slate-700">
+                    <p className="text-[9px] text-slate-400 font-bold uppercase mb-2">Google Drive & Código</p>
+                    <IntegrationsView integrations={integrations} theme={theme} onUpdate={onUpdate} compactOnly={true} />
                   </div>
                 </div>
               </div>
             </div>
           )}
+
 
           {activeTab === 'FEATURES' && (
             <div className="space-y-6">
@@ -494,46 +673,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({
             </div>
           )}
 
-          {activeTab === 'PARKING_SPOTS' && (
-            <div className="space-y-6">
-              <div className="bg-white p-8 rounded-[3rem] border border-slate-100 shadow-sm space-y-6 animate-in slide-in-from-top-4">
-                <div className="flex justify-between items-center">
-                  <div>
-                    <h3 className="text-lg font-black text-slate-800 uppercase tracking-tighter">Configuração de Vagas</h3>
-                    <p className="text-xs font-bold text-slate-400 mt-1">Cadastre os locais de estacionamento e a quantidade de vagas.</p>
-                  </div>
-                  <button 
-                    onClick={() => setIsAddingParkingLocation(true)}
-                    className="bg-slate-900 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center space-x-2 active:scale-95 transition-all shadow-lg"
-                  >
-                    <Plus size={14} />
-                    <span>Adicionar Local</span>
-                  </button>
-                </div>
 
-                <div className="space-y-3">
-                  {parkingLocations.map((loc) => (
-                    <div key={loc.id} className="p-4 bg-slate-50 rounded-[1.5rem] border border-slate-100 flex items-center justify-between group">
-                      <div className="flex items-center space-x-4">
-                        <div className="p-3 bg-white rounded-xl text-slate-600 shadow-sm"><Car size={20} /></div>
-                        <div>
-                          <p className="font-black text-slate-800">{loc.name}</p>
-                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Total de Vagas: {loc.totalSpots}</p>
-                        </div>
-                      </div>
-                      <div className="flex items-center space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button onClick={() => handleEditParkingLocation(loc)} className="p-2 text-slate-400 hover:text-sky-500 hover:bg-sky-50 rounded-lg transition-colors"><Settings size={16}/></button>
-                        <button onClick={() => onDeleteParkingLocation(loc.id)} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={16}/></button>
-                      </div>
-                    </div>
-                  ))}
-                  {parkingLocations.length === 0 && (
-                    <div className="text-center py-8 text-slate-400 font-bold text-sm">Nenhum local cadastrado.</div>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
 
           {activeTab === 'PROFILE' && (
             <div className="space-y-6">
@@ -773,31 +913,21 @@ const SettingsView: React.FC<SettingsViewProps> = ({
       )}
 
       {/* Parking Location Modal */}
-      {isAddingParkingLocation && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[300] flex items-center justify-center p-4">
-           <div className="bg-white w-[95%] md:w-full md:max-w-lg rounded-2xl md:rounded-[2.5rem] shadow-2xl animate-in zoom-in duration-200 overflow-hidden flex flex-col max-h-[90dvh]">
-              <div className="p-6 md:p-8 border-b border-slate-50 flex justify-between items-center shrink-0">
-                 <h2 className="text-xl font-black text-slate-800">{editingParkingLocation ? 'Editar Local' : 'Novo Local de Vagas'}</h2>
-                 <button onClick={() => { setIsAddingParkingLocation(false); setEditingParkingLocation(null); setParkingName(''); setParkingSpots(''); }} className="text-slate-300 hover:text-slate-500 transition-colors"><X size={24}/></button>
-              </div>
-              <form onSubmit={handleSaveParkingLocationSubmit} className="p-6 md:p-8 space-y-4 overflow-y-auto">
-                 <div className="space-y-4">
-                    <div>
-                       <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1">Nome do Local</label>
-                       <input type="text" value={parkingName} onChange={e => setParkingName(e.target.value)} className="w-full px-4 py-3 rounded-xl border-2 border-slate-50 outline-none font-bold bg-white text-slate-800 uppercase" placeholder="Ex: PÁTIO A" required />
-                    </div>
-                    <div>
-                       <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1">Quantidade de Vagas</label>
-                       <input type="number" value={parkingSpots} onChange={e => setParkingSpots(e.target.value)} className="w-full px-4 py-3 rounded-xl border-2 border-slate-50 outline-none font-bold bg-white text-slate-800" placeholder="Ex: 10" min="1" required />
-                    </div>
-                 </div>
-                 <button type="submit" className="w-full py-4 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl transition-all active:scale-95 mt-4 shrink-0" style={{ backgroundColor: theme.primary }}>
-                   {editingParkingLocation ? 'Atualizar Local' : 'Cadastrar Local'}
-                 </button>
-              </form>
-           </div>
+      {showAdvancedMigration && (
+        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[300] flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-800 w-full max-w-2xl rounded-[3rem] shadow-2xl animate-in zoom-in duration-300 overflow-hidden flex flex-col max-h-[90dvh]">
+             <div className="p-8 border-b border-slate-50 dark:border-slate-700 flex justify-between items-center shrink-0">
+                <h3 className="text-xl font-black text-slate-800 dark:text-white uppercase tracking-tighter">Configurações de Banco de Dados</h3>
+                <button onClick={() => setShowAdvancedMigration(false)} className="text-slate-300 hover:text-slate-500 transition-colors"><X size={32}/></button>
+             </div>
+             <div className="p-8 overflow-y-auto custom-scrollbar">
+                <IntegrationsView integrations={integrations} theme={theme} onUpdate={onUpdate} />
+             </div>
+          </div>
         </div>
       )}
+
+
     </div>
   );
 };

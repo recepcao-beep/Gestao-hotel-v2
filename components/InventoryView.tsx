@@ -548,6 +548,7 @@ const InventoryView: React.FC<InventoryViewProps> = ({
 
   // --- INVENTORY DETAIL VIEW ---
   const currentSector = sectors.find(s => s.id === selectedSectorId);
+  const isGovernance = currentSector?.name.toLowerCase() === 'governança';
 
   return (
     <div className="space-y-4 md:space-y-6 animate-in slide-in-from-right-4 duration-500 pb-20 relative max-w-7xl mx-auto px-4 md:px-8 pt-8">
@@ -565,8 +566,16 @@ const InventoryView: React.FC<InventoryViewProps> = ({
            <div className="flex items-center space-x-3 md:space-x-4">
               <div className="p-2.5 md:p-4 bg-slate-900 text-white rounded-xl md:rounded-2xl"><Package size={18} className="md:w-6 md:h-6"/></div>
               <div>
-                 <p className="text-[9px] md:text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">Estoque: {currentSector?.name}</p>
-                 <h3 className="text-lg md:text-2xl font-black text-slate-800">R$ {globalTotalValue.toLocaleString('pt-BR')}</h3>
+                 {isGovernance ? (
+                   <h3 className="text-lg md:text-xl font-black text-slate-800 uppercase tracking-tight">Estoque: {currentSector?.name}</h3>
+                 ) : (
+                   <>
+                     <p className="text-[9px] md:text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">Estoque: {currentSector?.name}</p>
+                     <h3 className="text-lg md:text-2xl font-black text-slate-800">
+                        R$ {globalTotalValue.toLocaleString('pt-BR')}
+                     </h3>
+                   </>
+                 )}
               </div>
            </div>
            <div className="flex bg-slate-100/50 p-1 rounded-xl md:rounded-2xl border border-slate-200/50 w-full md:w-auto overflow-x-auto no-scrollbar">
@@ -635,7 +644,7 @@ const InventoryView: React.FC<InventoryViewProps> = ({
 
         {/* Linha de Cabeçalhos - Agora integrada ao bloco fixo */}
         {activeTab === 'ESTOQUE' && (
-          <div className="hidden md:grid grid-cols-[1fr_80px_120px_100px_100px_100px] gap-4 px-8 py-3 bg-slate-50/50 rounded-xl border border-slate-100 mt-2">
+          <div className={`hidden md:grid gap-4 px-8 py-3 bg-slate-50/50 rounded-xl border border-slate-100 mt-2 ${isGovernance ? 'grid-cols-[1fr_80px_120px_100px]' : 'grid-cols-[1fr_80px_120px_100px_100px_100px]'}`}>
              <div className="flex items-center">
                 <span className="bg-blue-600 text-white px-2 py-0.5 rounded-[4px] text-[8px] font-black uppercase tracking-tighter">Insumo</span>
              </div>
@@ -645,12 +654,16 @@ const InventoryView: React.FC<InventoryViewProps> = ({
              <div className="flex items-center justify-center">
                 <span className="bg-blue-600 text-white px-2 py-0.5 rounded-[4px] text-[8px] font-black uppercase tracking-tighter">Consumo Médio</span>
              </div>
-             <div className="flex items-center justify-center">
-                <span className="bg-blue-600 text-white px-2 py-0.5 rounded-[4px] text-[8px] font-black uppercase tracking-tighter">R$ Unit</span>
-             </div>
-             <div className="flex items-center justify-center">
-                <span className="bg-blue-600 text-white px-2 py-0.5 rounded-[4px] text-[8px] font-black uppercase tracking-tighter">R$ Total</span>
-             </div>
+             {!isGovernance && (
+               <>
+                 <div className="flex items-center justify-center">
+                    <span className="bg-blue-600 text-white px-2 py-0.5 rounded-[4px] text-[8px] font-black uppercase tracking-tighter">R$ Unit</span>
+                 </div>
+                 <div className="flex items-center justify-center">
+                    <span className="bg-blue-600 text-white px-2 py-0.5 rounded-[4px] text-[8px] font-black uppercase tracking-tighter">R$ Total</span>
+                 </div>
+               </>
+             )}
              <div className="flex items-center justify-end">
                 <span className="bg-blue-600 text-white px-2 py-0.5 rounded-[4px] text-[8px] font-black uppercase tracking-tighter">Ações</span>
              </div>
@@ -688,8 +701,12 @@ const InventoryView: React.FC<InventoryViewProps> = ({
                           <span className={`text-lg font-black ${isLow ? 'text-rose-500' : 'text-slate-800'}`}>{item.quantity}</span>
                         </td>
                         <td className="px-8 py-5 text-center text-xs font-bold text-slate-400">{item.suggestion.mcd.toFixed(2)}/dia</td>
-                        <td className="px-8 py-5 text-center text-xs font-bold text-slate-600">R$ {(item.price || 0).toLocaleString('pt-BR')}</td>
-                        <td className="px-8 py-5 text-center text-sm font-black text-slate-900">R$ {item.totalValue.toLocaleString('pt-BR')}</td>
+                        {!isGovernance && (
+                          <>
+                            <td className="px-8 py-5 text-center text-xs font-bold text-slate-600">R$ {(item.price || 0).toLocaleString('pt-BR')}</td>
+                            <td className="px-8 py-5 text-center text-sm font-black text-slate-900">R$ {item.totalValue.toLocaleString('pt-BR')}</td>
+                          </>
+                        )}
                         <td className="px-8 py-5 text-right">
                           <div className="flex justify-end items-center space-x-2">
                             <button 
@@ -738,19 +755,29 @@ const InventoryView: React.FC<InventoryViewProps> = ({
                       </div>
                     </div>
                     
-                    <div className="grid grid-cols-3 gap-4 py-3 border-y border-slate-50">
+                    <div className={`grid gap-4 py-3 border-y border-slate-50 ${isGovernance ? 'grid-cols-2' : 'grid-cols-3'}`}>
                       <div>
                         <p className="text-[8px] font-black text-slate-400 uppercase mb-1">Consumo</p>
                         <p className="text-[10px] font-bold text-slate-600">{item.suggestion.mcd.toFixed(2)}/dia</p>
                       </div>
-                      <div>
-                        <p className="text-[8px] font-black text-slate-400 uppercase mb-1">R$ Unit</p>
-                        <p className="text-[10px] font-bold text-slate-600">R$ {(item.price || 0).toLocaleString('pt-BR')}</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-[8px] font-black text-slate-400 uppercase mb-1">R$ Total</p>
-                        <p className="text-[10px] font-black text-slate-900">R$ {item.totalValue.toLocaleString('pt-BR')}</p>
-                      </div>
+                      {!isGovernance && (
+                        <>
+                          <div>
+                            <p className="text-[8px] font-black text-slate-400 uppercase mb-1">R$ Unit</p>
+                            <p className="text-[10px] font-bold text-slate-600">R$ {(item.price || 0).toLocaleString('pt-BR')}</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-[8px] font-black text-slate-400 uppercase mb-1">R$ Total</p>
+                            <p className="text-[10px] font-black text-slate-900">R$ {item.totalValue.toLocaleString('pt-BR')}</p>
+                          </div>
+                        </>
+                      )}
+                      {isGovernance && (
+                        <div className="text-right">
+                          <p className="text-[8px] font-black text-slate-400 uppercase mb-1">Unidade</p>
+                          <p className="text-[10px] font-bold text-slate-600">{item.unit}</p>
+                        </div>
+                      )}
                     </div>
 
                     <div className="flex justify-end space-x-3 pt-2">
@@ -845,12 +872,12 @@ const InventoryView: React.FC<InventoryViewProps> = ({
                           <th className="px-6 py-4 text-[9px] font-black text-slate-400 uppercase tracking-widest text-center">Atual</th>
                           <th className="px-6 py-4 text-[9px] font-black text-slate-400 uppercase tracking-widest text-center">Sugestão</th>
                           <th className="px-6 py-4 text-[9px] font-black text-slate-400 uppercase tracking-widest">Fornecedor</th>
-                          <th className="px-6 py-4 text-[9px] font-black text-slate-400 uppercase tracking-widest text-right">R$ Estimado</th>
+                          {!isGovernance && <th className="px-6 py-4 text-[9px] font-black text-slate-400 uppercase tracking-widest text-right">R$ Estimado</th>}
                        </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-50">
                        {suggestedOrders.length === 0 ? (
-                          <tr><td colSpan={5} className="py-20 text-center text-slate-300 italic font-bold">Nenhum item precisa de reposição no momento.</td></tr>
+                          <tr><td colSpan={isGovernance ? 4 : 5} className="py-20 text-center text-slate-300 italic font-bold">Nenhum item precisa de reposição no momento.</td></tr>
                        ) : (
                           suggestedOrders.map(item => {
                              const supplierName = suppliers.find(s => s.id === item.supplierId)?.name || 'Não Def.';
@@ -866,7 +893,7 @@ const InventoryView: React.FC<InventoryViewProps> = ({
                                       <p className="text-[8px] font-bold text-slate-400 uppercase mt-1">{item.suggestion.reason}</p>
                                    </td>
                                    <td className="px-6 py-4 text-xs font-bold text-slate-600">{supplierName}</td>
-                                   <td className="px-6 py-4 text-right text-xs font-black text-slate-800">R$ {(item.suggestion.suggestedQuantity * (item.price || 0)).toLocaleString('pt-BR')}</td>
+                                   {!isGovernance && <td className="px-6 py-4 text-right text-xs font-black text-slate-800">R$ {(item.suggestion.suggestedQuantity * (item.price || 0)).toLocaleString('pt-BR')}</td>}
                                 </tr>
                              );
                           })
@@ -958,7 +985,9 @@ const InventoryView: React.FC<InventoryViewProps> = ({
                     <div className="p-3 bg-emerald-50 text-emerald-600 rounded-2xl"><DollarSign size={20}/></div>
                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Valor em Estoque</p>
                  </div>
-                 <h4 className="text-2xl font-black text-slate-800">R$ {globalTotalValue.toLocaleString('pt-BR')}</h4>
+                 <h4 className="text-2xl font-black text-slate-800">
+                    {isGovernance ? 'N/A' : `R$ ${globalTotalValue.toLocaleString('pt-BR')}`}
+                 </h4>
               </div>
               <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm">
                  <div className="flex items-center space-x-3 mb-4">
@@ -1123,35 +1152,37 @@ const InventoryView: React.FC<InventoryViewProps> = ({
               </div>
 
               {/* Spending by Supplier (Current Stock Value) */}
-              <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm">
-                 <h4 className="text-lg font-black text-slate-800 mb-6 flex items-center gap-2">
-                    <DollarSign size={20} className="text-emerald-500" /> Valor Stock por Fornecedor
-                 </h4>
-                 <div className="h-64 w-full flex flex-col items-center">
-                    <ResponsiveContainer width="100%" height="100%">
-                       <PieChart>
-                          <Pie
-                             data={statsSuppliers}
-                             cx="50%"
-                             cy="50%"
-                             innerRadius={60}
-                             outerRadius={80}
-                             paddingAngle={5}
-                             dataKey="value"
-                          >
-                             {['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'].map((color, index) => (
-                                <Cell key={`cell-${index}`} fill={color} />
-                             ))}
-                          </Pie>
-                          <Tooltip 
-                             formatter={(value: number) => `R$ ${value.toLocaleString('pt-BR')}`}
-                             contentStyle={{ borderRadius: '1rem', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
-                          />
-                          <Legend verticalAlign="bottom" height={36} formatter={(value) => <span className="text-[10px] font-black text-slate-500">{value}</span>} />
-                       </PieChart>
-                    </ResponsiveContainer>
-                 </div>
-              </div>
+              {!isGovernance && (
+                <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm">
+                   <h4 className="text-lg font-black text-slate-800 mb-6 flex items-center gap-2">
+                      <DollarSign size={20} className="text-emerald-500" /> Valor Stock por Fornecedor
+                   </h4>
+                   <div className="h-64 w-full flex flex-col items-center">
+                      <ResponsiveContainer width="100%" height="100%">
+                         <PieChart>
+                            <Pie
+                               data={statsSuppliers}
+                               cx="50%"
+                               cy="50%"
+                               innerRadius={60}
+                               outerRadius={80}
+                               paddingAngle={5}
+                               dataKey="value"
+                            >
+                               {['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'].map((color, index) => (
+                                  <Cell key={`cell-${index}`} fill={color} />
+                               ))}
+                            </Pie>
+                            <Tooltip 
+                               formatter={(value: number) => `R$ ${value.toLocaleString('pt-BR')}`}
+                               contentStyle={{ borderRadius: '1rem', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
+                            />
+                            <Legend verticalAlign="bottom" height={36} formatter={(value) => <span className="text-[10px] font-black text-slate-500">{value}</span>} />
+                         </PieChart>
+                      </ResponsiveContainer>
+                   </div>
+                </div>
+              )}
 
               {/* Stock Movement Trends (Daily entries vs exits) */}
               <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm">
@@ -1258,15 +1289,17 @@ const InventoryView: React.FC<InventoryViewProps> = ({
                             {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                         </select>
                     </div>
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className={isGovernance ? "grid grid-cols-1" : "grid grid-cols-2 gap-4"}>
                        <div className="p-4 bg-slate-50 rounded-[1.5rem] border border-slate-100 flex flex-col">
                           <label className="text-[9px] font-black text-slate-400 uppercase mb-1">Saldo Atual</label>
                           <input type="number" value={initialQuantity} onChange={e => setInitialQuantity(parseInt(e.target.value) || 0)} className="bg-transparent text-xl font-black outline-none text-slate-800" />
                        </div>
-                       <div className="p-4 bg-slate-50 rounded-[1.5rem] border border-slate-100 flex flex-col">
-                          <label className="text-[9px] font-black text-slate-400 uppercase mb-1">Valor Unit (R$)</label>
-                          <input type="number" step="0.01" value={price} onChange={e => setPrice(parseFloat(e.target.value) || 0)} className="bg-transparent text-xl font-black outline-none text-slate-800" />
-                       </div>
+                       {!isGovernance && (
+                         <div className="p-4 bg-slate-50 rounded-[1.5rem] border border-slate-100 flex flex-col">
+                            <label className="text-[9px] font-black text-slate-400 uppercase mb-1">Valor Unit (R$)</label>
+                            <input type="number" step="0.01" value={price} onChange={e => setPrice(parseFloat(e.target.value) || 0)} className="bg-transparent text-xl font-black outline-none text-slate-800" />
+                         </div>
+                       )}
                     </div>
                  </div>
                  <button type="submit" className="w-full py-5 text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-xl transition-all active:scale-95 shrink-0" style={{ backgroundColor: theme.primary }}>

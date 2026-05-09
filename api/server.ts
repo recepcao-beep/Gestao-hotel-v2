@@ -6,6 +6,20 @@ import session from 'express-session';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { createClient } from '@supabase/supabase-js';
+import fs from 'fs';
+
+// Intercept console.log and console.error
+const logStream = fs.createWriteStream(path.join(process.cwd(), 'server_debug.log'), { flags: 'a' });
+const origLog = console.log;
+const origError = console.error;
+console.log = (...args) => {
+  logStream.write(`[LOG] ${args.map(a => typeof a === 'object' ? JSON.stringify(a) : a).join(' ')}\n`);
+  origLog(...args);
+};
+console.error = (...args) => {
+  logStream.write(`[ERR] ${args.map(a => typeof a === 'object' ? JSON.stringify(a) : a).join(' ')}\n`);
+  origError(...args);
+};
 
 dotenv.config();
 
@@ -21,6 +35,42 @@ const supabaseUrl = process.env.SUPABASE_URL || '';
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const supabase = (supabaseUrl && supabaseKey) ? createClient(supabaseUrl, supabaseKey) : null;
 
+let currentLogs: string[] = [];
+function log(msg: string) {
+  const t = new Date().toISOString().split('T')[1].split('.')[0];
+  const fullMsg = `[${t}] ${msg}`;
+  console.log(fullMsg);
+  currentLogs.push(fullMsg);
+}
+
+const normalizeApartment = (apt: any) => {
+  if (!apt) return apt;
+  const normalized = { ...apt };
+  if (normalized.camas && Array.isArray(normalized.camas)) {
+    normalized.beds = normalized.camas.map((c: any) => ({
+      type: c.tipo || c.type,
+      baseStatus: c.baseStatus || c.statusBase,
+      baseColor: c.baseColor || c.corBase,
+      mattressStatus: c.mattressStatus || c.statusColchao,
+      mattressColor: c.mattressColor || c.corColchao,
+      hasSkirt: c.hasSkirt !== undefined ? c.hasSkirt : c.temSaia,
+      skirtColor: c.skirtColor || c.corSaia
+    }));
+    delete normalized.camas;
+  }
+  if (normalized.defeitos && Array.isArray(normalized.defeitos)) {
+     normalized.defects = normalized.defeitos.map((d: any) => ({
+       id: d.id,
+       driveLink: d.driveLink || d.linkDrive,
+       description: d.description || d.descricao,
+       timestamp: d.timestamp || d.data,
+       fileName: d.fileName || d.nomeArquivo
+     }));
+     delete normalized.defeitos;
+  }
+  return normalized;
+};
+
 // Debug Supabase
 app.get('/api/supabase/debug', async (req, res) => {
   if (!supabase) return res.status(500).json({ status: 'error', message: 'Supabase not configured' });
@@ -28,32 +78,14 @@ app.get('/api/supabase/debug', async (req, res) => {
   try {
     const debug: any = {};
     for (const key of Object.keys(DATA_MAP)) {
-      const tableName = key.toLowerCase();
-      const { data, count, error } = await supabase
-        .from(tableName)
-        .select('id, hotel_name, data', { count: 'exact', head: false })
-        .limit(3);
-      
-      if (error) {
-        debug[tableName] = { error: error.message };
-      } else {
-        const samples = data?.map((d: any) => {
-          let item = d.data;
-          if (typeof item === 'string') {
-            try { item = JSON.parse(item); } catch (e) {}
-          }
-          return { id: d.id, hotel_name: d.hotel_name, data_id: item?.id, keys: Object.keys(item || {}) };
-        });
-
-        // Get count of distinct hotels
-        const { data: hotelsData } = await supabase.from(tableName).select('hotel_name');
-        const distinctHotels = [...new Set(hotelsData?.map(d => d.hotel_name))];
-
-        debug[tableName] = { 
-          count, 
-          samples,
-          distinctHotels
-        };
+      const names = [DATA_MAP[key], DATA_MAP[key].toLowerCase(), key.toLowerCase()];
+      for (const tableName of names) {
+        if (debug[tableName]) continue;
+        const { count, error } = await supabase
+          .from(tableName)
+          .select('id', { count: 'exact', head: true });
+        
+        debug[tableName] = error ? { error: error.message } : count;
       }
     }
     res.json(debug);
@@ -140,7 +172,7 @@ const INTERNAL_KEY_MAP: Record<string, string> = {
 
 const GRID_COLUMNS: Record<string, string[]> = {
   apartments: ['id', 'roomNumber', 'floor', 'pisoType', 'pisoStatus', 'banheiroType', 'banheiroStatus', 'temCofre', 'temCortina', 'cortinaStatus', 'cortinaSize', 'cortinaCoverage', 'temEspelhoCorpo', 'espelhoCorpoStatus', 'acBrand', 'moveisStatus', 'moveisDetalhes', 'beds', 'temPortaControle', 'temCabide', 'cabideQuantity', 'temSuportePapel', 'temSuporteShampoo', 'suporteShampooStatus', 'luminariaType', 'luminariaColor', 'tvBrand', 'defects', 'customAnswers'],
-  employees: ['id', 'name', 'role', 'gender', 'contact', 'salary', 'sectorId', 'fixedDayOff', 'sundayOffs', 'workingHours', 'status', 'startDate', 'scheduleType', 'vacationStatus', 'uniforms', 'photo'],
+  employees: ['id', 'name', 'role', 'gender', 'contact', 'salary', 'sectorId', 'fixedDayOff', 'sundayOffs', 'workingHours', 'status', 'startDate', 'scheduleType', 'vacationStatus', 'vacationStart', 'vacationEnd', 'uniforms', 'photo'],
   budgets: ['id', 'title', 'objective', 'items', 'quotes', 'status', 'createdAt', 'files'],
   extras: ['id', 'name', 'phone', 'availability', 'serviceQuality', 'observation', 'sectorId'],
   sectors: ['id', 'name', 'standardUniform', 'roles'],
@@ -149,7 +181,7 @@ const GRID_COLUMNS: Record<string, string[]> = {
   suppliers: ['id', 'name', 'contact', 'category'],
   users: ['id', 'name', 'password', 'role', 'allowedTabs', 'email', 'status'],
   parkingLocations: ['id', 'name', 'totalSpots'],
-  vehicles: ['id', 'guest_name', 'plate', 'identifier', 'location', 'trip_start', 'model', 'color', 'is_on_trip', 'payment_pending', 'unused', 'check_in_date', 'is_active', 'check_out_date', 'photos', 'history']
+  vehicles: ['id', 'guest_name', 'plate', 'identifier', 'location', 'trip_start', 'model', 'color', 'is_on_trip', 'payment_pending', 'deleted_date', 'check_in_date', 'is_active', 'check_out_date', 'photos', 'history']
 };
 
 function parseValue(val: any, fieldName: string) {
@@ -471,7 +503,7 @@ async function getSheetData(hotel: string, forceSheets: boolean = false) {
           } else if (key === 'apartments') {
             const aptMap: any = {};
             data?.forEach((row: any) => {
-              const apt = processRowData(row);
+              const apt = normalizeApartment(processRowData(row));
               // Robust ID recovery - handle both prefixed and non-prefixed IDs
               let id = apt.id;
               if (!id && row.id) {
@@ -481,6 +513,8 @@ async function getSheetData(hotel: string, forceSheets: boolean = false) {
                   id = row.id.substring(hotel.length + 1);
                 } else if (rowIdUpper.startsWith('VILLAGE_')) {
                   id = row.id.substring('VILLAGE_'.length);
+                } else if (rowIdUpper.startsWith('VILAGE_')) { // NEW CHECK FOR VILAGE_
+                  id = row.id.substring('VILAGE_'.length);
                 } else if (rowIdUpper.startsWith('VILA_')) {
                   id = row.id.substring('VILA_'.length);
                 } else {
@@ -514,76 +548,97 @@ async function getSheetData(hotel: string, forceSheets: boolean = false) {
       );
 
       if (hasAnyData) {
-        console.log(`[Supabase Load] Success for ${hotel}. Tables with data: ${Object.entries(hotelData).filter(([k,v]: any) => (Array.isArray(v) ? v.length > 0 : Object.keys(v).length > 0)).map(([k]) => k).join(', ')}`);
-        dataCache[hotel] = { data: hotelData, timestamp: Date.now() };
-        return hotelData;
+        log(`Supabase Load Success for ${hotel}. Tables: ${Object.entries(hotelData).filter(([k,v]: any) => (Array.isArray(v) ? v.length > 0 : Object.keys(v).length > 0)).map(([k]) => k).join(', ')}`);
+        const finalData = { ...hotelData, _logs: currentLogs };
+        dataCache[hotel] = { data: finalData, timestamp: Date.now() };
+        return finalData;
       }
-      console.log(`[Supabase Load] No data found in any table for ${hotel}`);
-    } catch (error) {
-      console.error('[Supabase Load Error] Falling back to Sheets:', error);
+      log(`No data found in any table for ${hotel}`);
+    } catch (error: any) {
+      log(`Supabase Load Error: ${error.message}. Falling back to Sheets.`);
     }
   }
 
-  return getSheetsOnlyData(hotel);
+  const sheetsData = await getSheetsOnlyData(hotel);
+  return { ...sheetsData, _logs: currentLogs };
 }
 
 // Low-level Sheets-only fetcher
 async function getSheetsOnlyData(hotel: string) {
+  log(`Fetching batch data from Sheets for "${hotel}"...`);
   const SPREADSHEET_ID = process.env.GOOGLE_SHEET_ID;
   if (!SPREADSHEET_ID) throw new Error('GOOGLE_SHEET_ID not set');
 
-  console.log(`[Sheets Fetch] Fetching batch data for hotel "${hotel}"...`);
   const hotelData: any = {};
   
-  // 1. Discover all sheet names first (concurrency helped by getSheetNames cache)
+  // 1. Discover all sheet names first
   const sheetNamesMapping = new Map<string, string>();
   const keys = Object.keys(DATA_MAP);
   
+  let allSheetNames: string[] = [];
+  try {
+    allSheetNames = await getSheetNames(SPREADSHEET_ID);
+  } catch(e) {}
+  
   await Promise.all(keys.map(async (key) => {
-    const sheetPrefix = DATA_MAP[key];
-    const sheetName = await discoverSheetName(sheetPrefix, hotel);
-    sheetNamesMapping.set(key, sheetName);
+    try {
+      const sheetPrefix = DATA_MAP[key];
+      const sheetName = await discoverSheetName(sheetPrefix, hotel);
+      sheetNamesMapping.set(key, sheetName);
+      log(`Discovered sheet for ${key}: "${sheetName}"`);
+    } catch (e) {}
   }));
 
   try {
-    const ranges = keys.map(key => `${sheetNamesMapping.get(key)}!A:AC`);
-    
-    // Use batchGet to minimize round trips and quota usage
-    const response = await sheets.spreadsheets.values.batchGet({
-      spreadsheetId: SPREADSHEET_ID,
-      ranges,
+    const validKeys = keys.filter(key => {
+      const name = sheetNamesMapping.get(key);
+      return name && allSheetNames.includes(name);
     });
 
-    const valueRanges = response.data.valueRanges || [];
+    const ranges = validKeys.map(key => `'${sheetNamesMapping.get(key)}'!A:AC`);
     
-    keys.forEach((key, idx) => {
-       const rows = valueRanges[idx]?.values || [];
-       const defaultValue = (key === 'apartments' ? {} : []);
-       const gridCols = GRID_COLUMNS[key];
+    // Set defaults first
+    keys.forEach(key => {
+      hotelData[key] = (key === 'apartments' ? {} : []);
+    });
 
-       if (!rows || rows.length === 0) {
-         hotelData[key] = defaultValue;
-         return;
-       }
+    if (ranges.length > 0) {
+      // Use batchGet to minimize round trips and quota usage
+      const response = await sheets.spreadsheets.values.batchGet({
+        spreadsheetId: SPREADSHEET_ID,
+        ranges,
+      });
 
-       if (key === 'config') {
-         const config: any = {};
-         rows.forEach(row => {
-           if (row[0] && row[1] !== undefined) {
-             let val = row[1];
-             const trimmed = typeof val === 'string' ? val.trim() : '';
-             if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
-               try { val = JSON.parse(trimmed); } catch (e) {}
-             } else if (val === 'TRUE' || val === 'true') val = true;
-             else if (val === 'FALSE' || val === 'false') val = false;
-             config[row[0]] = val;
-           }
-         });
-         hotelData[key] = config;
-         return;
-       }
+      const valueRanges = response.data.valueRanges || [];
+      
+      validKeys.forEach((key, idx) => {
+         const rows = valueRanges[idx]?.values || [];
+         const defaultValue = (key === 'apartments' ? {} : []);
+         const gridCols = GRID_COLUMNS[key];
 
-       const firstCell = rows[0][0];
+         if (!rows || rows.length === 0) {
+           hotelData[key] = defaultValue;
+           return;
+         }
+
+         if (key === 'config') {
+           const config: any = {};
+           rows.forEach(row => {
+             if (row[0] && row[1] !== undefined) {
+               let val = row[1];
+               const trimmed = typeof val === 'string' ? val.trim() : '';
+               if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
+                 try { val = JSON.parse(trimmed); } catch (e) {}
+               } else if (val === 'TRUE' || val === 'true') val = true;
+               else if (val === 'FALSE' || val === 'false') val = false;
+               config[row[0]] = val;
+             }
+           });
+           hotelData[key] = config;
+           return;
+         }
+
+         const firstCell = rows[0][0];
        const isJsonInA1 = rows.length === 1 && rows[0].length === 1 && typeof firstCell === 'string' && (firstCell.startsWith('[') || firstCell.startsWith('{'));
 
        if (isJsonInA1) {
@@ -664,7 +719,8 @@ async function getSheetsOnlyData(hotel: string) {
 
          if (key === 'apartments') {
            const aptMap: any = {};
-           parsedRows.forEach(apt => {
+           parsedRows.forEach(aptRaw => {
+             const apt = normalizeApartment(aptRaw);
              // Robust ID resolution: prefer roomNumber if it looks like a number, or id
              const id = String(apt.id || apt.roomNumber);
              if (id) aptMap[id] = { ...apt, id };
@@ -682,6 +738,8 @@ async function getSheetsOnlyData(hotel: string) {
          hotelData[key] = defaultValue;
        }
     });
+
+    }
 
     console.log(`[Batch Sheets Fetch] Success for hotel "${hotel}". Total tables populated: ${Object.keys(hotelData).length}`);
     dataCache[hotel] = { data: hotelData, timestamp: Date.now() };
@@ -740,7 +798,7 @@ async function saveSheetData(hotel: string, dataType: string, data: any, options
         const apartmentArray = isSingle ? [data] : Object.values(data);
         
         records = apartmentArray.map((v: any) => {
-          const originalId = v.id || `${v.floor}-${v.roomNumber}`;
+          const originalId = v.id || String(v.roomNumber || `${v.floor}-${v.roomNumber}`);
           return { 
             id: `${hotel}_${originalId}`, 
             hotel_name: hotel, 
@@ -753,32 +811,54 @@ async function saveSheetData(hotel: string, dataType: string, data: any, options
           hotel_name: hotel, 
           data: { ...v, id: String(v.id) }
         }));
+      } else if (data && typeof data === 'object') {
+        records = [{
+          id: `${hotel}_${data.id}`,
+          hotel_name: hotel,
+          data: { ...data, id: String(data.id) }
+        }];
       }
 
       if (records.length > 0) {
-        console.log(`[Supabase Save] ${dataType} for "${hotel}": Upserting ${records.length} records...`);
+        console.log(`[Supabase Save] ${dataType} for "${hotel}": Upserting ${records.length} records into ${tableName}...`);
+        
+        // Find duplicates in records
+        const ids = records.map(r => r.id);
+        const dupIds = ids.filter((id, i) => ids.indexOf(id) !== i);
+        if (dupIds.length > 0) {
+           console.log(`[Supabase Save Warning] Duplicate IDs in batch:`, dupIds);
+           // Deduplicate keeping last
+           records = [...new Map(records.map(r => [r.id, r])).values()];
+           console.log(`[Supabase Save] Deduplicated to ${records.length} records.`);
+        }
+
         const { error: upsertError } = await supabase
           .from(tableName)
           .upsert(records, { onConflict: 'id' });
         
         if (upsertError) {
-          console.error(`[Supabase Save Error] ${dataType}:`, upsertError.message);
+          console.error(`[Supabase Save Error] ${dataType} (${tableName}):`, upsertError.message, JSON.stringify(upsertError));
+        } else {
+          console.log(`[Supabase Save Success] ${dataType} to ${tableName}`);
         }
 
         // DANGEROUS: Deletion of orphans. ONLY do this if we are 100% sure it's a full sync.
         const shouldDeleteOrphans = options.isFullSync === true || (Array.isArray(data) && data.length > 0 && !isSingle);
         
         if (key !== 'config' && shouldDeleteOrphans && records.length > 0) {
-          const currentIds = records.map(r => r.id);
-          console.log(`[Supabase Cleanup] Deleting orphans for ${tableName} (kept ${currentIds.length} ids)`);
-          const { error: deleteError } = await supabase
-            .from(tableName)
-            .delete()
-            .eq('hotel_name', hotel)
-            .not('id', 'in', currentIds);
+          const currentIds = new Set(records.map(r => r.id));
+          const { data: existingIds } = await supabase.from(tableName).select('id').eq('hotel_name', hotel);
           
-          if (deleteError) {
-            console.error(`[Supabase Cleanup Error] ${dataType}:`, deleteError.message);
+          if (existingIds) {
+            const idsToDelete = existingIds.map((r: any) => r.id).filter((id: string) => !currentIds.has(id));
+            if (idsToDelete.length > 0) {
+               console.log(`[Supabase Cleanup] Deleting ${idsToDelete.length} orphans for ${tableName} (kept ${currentIds.size} ids)`);
+               for (let i = 0; i < idsToDelete.length; i += 50) {
+                 const chunk = idsToDelete.slice(i, i + 50);
+                 const { error: deleteError } = await supabase.from(tableName).delete().in('id', chunk);
+                 if (deleteError) console.error(`[Supabase Cleanup Error] ${dataType} (chunk):`, deleteError.message);
+               }
+            }
           }
         }
       } else if (records.length === 0 && options.isFullSync) {
@@ -805,7 +885,8 @@ async function saveSheetData(hotel: string, dataType: string, data: any, options
       
       // If NOT a full sync, we probably shouldn't be clearing the whole sheet
       const isFullSync = options.isFullSync || Array.isArray(data) || (!isSingle && Object.keys(data).length > 2);
-      values = dataArray.map(item => gridCols.map(col => {
+      
+      const rows = dataArray.map(item => gridCols.map(col => {
         const val = item[col];
         if (['timestamp', 'lastUpdate', 'createdAt', 'startDate', 'check_out_date', 'check_in_date', 'trip_start'].includes(col) && typeof val === 'number') {
           return new Date(val).toISOString();
@@ -813,17 +894,19 @@ async function saveSheetData(hotel: string, dataType: string, data: any, options
         return typeof val === 'object' ? JSON.stringify(val) : (val ?? '');
       }));
       
+      values = [gridCols, ...rows]; // Always include headers at row 1
+      
       await sheets.spreadsheets.values.clear({
         spreadsheetId: SPREADSHEET_ID,
-        range: `${sheetName}!A1:AZ`,
+        range: `'${sheetName}'!A1:AZ`,
       });
     } else {
-      values = [[JSON.stringify(data)]];
+      values = [[...gridCols], [JSON.stringify(data)]];
     }
 
     await sheets.spreadsheets.values.update({
       spreadsheetId: SPREADSHEET_ID,
-      range: `${sheetName}!A1`,
+      range: `'${sheetName}'!A1`,
       valueInputOption: 'USER_ENTERED',
       requestBody: {
         values: values,
@@ -857,21 +940,26 @@ async function saveSheetData(hotel: string, dataType: string, data: any, options
 
 // API Routes
 app.get('/api/sheets/load', async (req, res) => {
+  console.log(`[API /load] Request received: ${req.url}`);
   const { hotel, nocache, forceSheets } = req.query;
   if (!hotel) return res.status(400).json({ status: 'error', message: 'Hotel not specified' });
 
+  // Reset logs for new request
+  currentLogs = [];
+  
   try {
     if (nocache || forceSheets) {
-      console.log(`[Load] Bypassing cache for hotel: ${hotel}`);
+      log(`Bypassing cache for hotel: ${hotel}`);
       delete dataCache[hotel as string];
     }
-    const data = await getSheetData(hotel as string, forceSheets === 'true');
-    res.json({ status: 'success', data: data || {} });
+    const result = await getSheetData(hotel as string, forceSheets === 'true');
+    res.json({ status: 'success', data: result || {} });
   } catch (error: any) {
-    console.error(`[Load Error] Hotel: ${hotel} -`, error);
+    log(`Load Error for hotel ${hotel}: ${error.message}`);
     res.status(500).json({ 
       status: 'error', 
-      message: `Erro ao carregar dados: ${error.message || 'Erro desconhecido'}` 
+      message: `Erro ao carregar dados: ${error.message || 'Erro desconhecido'}`,
+      _logs: currentLogs
     });
   }
 });
@@ -929,8 +1017,10 @@ app.post('/api/sheets/action', async (req, res) => {
         currentData.inventoryHistory.push(payload);
         
         // Auto-update inventory balance
+        let debugQty = null;
+        res.locals.invLength = Array.isArray(currentData.inventory) ? currentData.inventory.length : 0;
         if (Array.isArray(currentData.inventory)) {
-          const item = currentData.inventory.find((i: any) => i.id === payload.itemId);
+          const item = currentData.inventory.find((i: any) => i.id === payload.itemId || String(i.id) === String(payload.itemId));
           if (item) {
             const qty = Number(payload.quantity) || 0;
             if (payload.type === 'Entrada') {
@@ -939,8 +1029,10 @@ app.post('/api/sheets/action', async (req, res) => {
               item.quantity = (Number(item.quantity) || 0) - qty;
             }
             item.lastUpdate = Date.now();
+            debugQty = item.quantity;
           }
         }
+        res.locals.debugQty = debugQty;
         break;
       case 'SUPPLIER':
         if (!Array.isArray(currentData.suppliers)) currentData.suppliers = [];
@@ -994,19 +1086,18 @@ app.post('/api/sheets/action', async (req, res) => {
     }
 
     // Persist to Google Sheets and Supabase
-    // isFullSync should be true if it's a delete or if we explicitly passed it
-    const shouldSyncAll = isFullSync || dataType === 'DELETE' || dataType === 'INVENTORY_OP';
-    
+    // We always want to sync with Supabase if it's available
     const keyToSave = INTERNAL_KEY_MAP[targetDataType];
     if (keyToSave) {
-        // IMPORTANT: For single item updates (not full sync), we pass only the payload
-        // to saveSheetData. This ensures the isSingle logic correctly triggers
-        // a partial update instead of overwriting the entire collection.
-        const dataToSave = (shouldSyncAll || dataType === 'CONFIG') ? currentData[keyToSave] : payload;
+        // If it's a delete, we already handled Supabase above.
+        // If it's not a delete, let's make sure we sync the item/collection.
+        const dataToSave = (isFullSync || dataType === 'DELETE' || dataType === 'INVENTORY_OP' || dataType === 'CONFIG') 
+          ? currentData[keyToSave] 
+          : payload;
         
-        await saveSheetData(hotel, targetDataType, dataToSave, { isFullSync: shouldSyncAll });
+        await saveSheetData(hotel, targetDataType, dataToSave, { isFullSync: (isFullSync || dataType === 'DELETE' || dataType === 'INVENTORY_OP') });
 
-        // If it was an inventory op, also save final inventory state as a full sync
+        // If it was an inventory op, also save final inventory state
         if (dataType === 'INVENTORY_OP') {
             await saveSheetData(hotel, 'INVENTORY', currentData.inventory, { isFullSync: true });
         }
@@ -1015,7 +1106,7 @@ app.post('/api/sheets/action', async (req, res) => {
     // Clear cache after any change
     delete dataCache[hotel];
 
-    res.json({ status: 'success' });
+    res.json({ status: 'success', debugQty: res.locals.debugQty, invLength: res.locals.invLength, payloadItemId: payload.itemId });
   } catch (error: any) {
     console.error(`[Action Error] Hotel: ${hotel} -`, error);
     res.status(500).json({ status: 'error', message: error.message || 'Erro ao processar ação' });

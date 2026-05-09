@@ -12,16 +12,63 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            colors: {
+              primary: '#26A6A6',
+            }
+          }
+        }
+      }
+    </script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
         body {
             font-family: 'Inter', sans-serif;
             background-color: #f8fafc;
+            transition: background-color 0.3s ease;
         }
-        /* Force all input/select text to be visible (black/slate-800) and white background */
-        input, select, textarea {
+        
+        /* Global Dark Mode Refinements */
+        .dark body { 
+            background-color: #0f172a; /* bg-slate-900 */
+        }
+        
+        .dark .bg-white {
+            background-color: #1e293b !important; /* bg-slate-800 */
+            color: #f1f5f9 !important;
+        }
+        
+        .dark .text-slate-800, .dark .text-slate-900 {
+            color: #f1f5f9 !important;
+        }
+
+        .dark .text-slate-600, .dark .text-slate-500 {
+            color: #94a3b8 !important; /* text-slate-400 */
+        }
+
+        .dark .border-slate-50, .dark .border-slate-100 {
+            border-color: #334155 !important; /* border-slate-700 */
+        }
+
+        .dark select, .dark input {
+            background-color: #0f172a !important; /* bg-slate-900 */
+            color: #f8fafc !important;
+            border-color: #334155 !important;
+        }
+        /* Force all input/select text to be visible (black/slate-800) and white background in light mode */
+        body:not(.dark) input, body:not(.dark) select, body:not(.dark) textarea {
             color: #1e293b !important;
             background-color: #ffffff !important;
+        }
+        
+        .dark input, .dark select, .dark textarea {
+            color: #f8fafc !important;
+            background-color: #0f172a !important;
+            border-color: #334155 !important;
         }
         input::placeholder, textarea::placeholder {
             color: #94a3b8 !important;

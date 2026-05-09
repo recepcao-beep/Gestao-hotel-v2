@@ -7,6 +7,7 @@ interface IntegrationsViewProps {
   integrations: Integration[];
   theme: HotelTheme;
   onUpdate: (integration: Integration) => void;
+  compactOnly?: boolean;
 }
 
 const APPS_SCRIPT_CODE = `/**
@@ -709,15 +710,50 @@ END $$;`;
   );
 };
 
-const IntegrationsView: React.FC<IntegrationsViewProps> = ({ integrations, theme, onUpdate }) => {
+const IntegrationsView: React.FC<IntegrationsViewProps> = ({ integrations, theme, onUpdate, compactOnly }) => {
   const [showScriptModal, setShowScriptModal] = useState(false);
   const globalInt = integrations[0];
   const [url, setUrl] = useState(globalInt?.url || '');
 
   const saveUrl = () => {
     onUpdate({ ...globalInt, url, status: url ? 'Connected' : 'Disconnected', lastSync: Date.now() });
-    alert('Conexão Global V47 configurada! Atualize o Apps Script para ativar o suporte a cargos por setor.');
+    alert('Conexão Global V47 configurada!');
   };
+
+  if (compactOnly) {
+    return (
+      <div className="space-y-4">
+        <button 
+          onClick={() => setShowScriptModal(true)} 
+          className="w-full flex items-center justify-center gap-2 py-3 bg-slate-900 dark:bg-slate-700 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all active:scale-95 shadow-md"
+        >
+          <Copy size={14} />
+          Copiar Código V47
+        </button>
+        
+        {showScriptModal && (
+          <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[300] flex items-center justify-center p-4">
+            <div className="bg-white w-full max-w-4xl rounded-[3rem] shadow-2xl max-h-[85vh] overflow-hidden flex flex-col animate-in zoom-in duration-300">
+              <div className="p-8 border-b border-slate-50 flex justify-between items-center bg-slate-50/30">
+                <h3 className="text-xl font-black text-slate-800">Apps Script V47</h3>
+                <button onClick={() => setShowScriptModal(false)} className="p-3 hover:bg-slate-100 rounded-full transition-colors text-slate-400"><XCircle size={32} /></button>
+              </div>
+              <div className="p-8 overflow-y-auto flex-1">
+                <div className="relative">
+                  <button onClick={() => { navigator.clipboard.writeText(APPS_SCRIPT_CODE); alert('Código V47 copiado!'); }} className="absolute top-4 right-4 p-3 bg-slate-900 text-white rounded-2xl shadow-xl flex items-center space-x-2 text-[10px] font-black uppercase">
+                    <Copy size={16} /> <span>Copiar V47</span>
+                  </button>
+                  <pre className="bg-slate-950 text-emerald-400 p-10 rounded-[2.5rem] overflow-x-auto text-[10px] leading-relaxed font-mono shadow-inner border border-slate-800">
+                    {APPS_SCRIPT_CODE}
+                  </pre>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -727,52 +763,15 @@ const IntegrationsView: React.FC<IntegrationsViewProps> = ({ integrations, theme
         <FileSpreadsheet className="absolute right-[-20px] bottom-[-20px] text-white/10" size={160} />
       </div>
 
-      <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm space-y-6">
-        <input type="text" value={url} onChange={e => setUrl(e.target.value)} placeholder="Link do Apps Script Web App..." className="w-full px-4 py-3 rounded-xl border-2 border-slate-50 focus:border-blue-400 outline-none text-sm font-bold bg-slate-50" />
+      <div className="bg-white dark:bg-slate-800 p-8 rounded-[2.5rem] border border-slate-100 dark:border-slate-700 shadow-sm space-y-6">
+        <input type="text" value={url} onChange={e => setUrl(e.target.value)} placeholder="Link do Apps Script Web App..." className="w-full px-4 py-3 rounded-xl border-2 border-slate-50 dark:border-slate-700 outline-none text-sm font-bold bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100" />
         <button onClick={saveUrl} className="w-full py-4 text-white rounded-xl font-black text-xs uppercase tracking-widest shadow-lg active:scale-95 transition-all" style={{ backgroundColor: theme.primary }}>Atualizar Conexão Global</button>
-        <div className="p-5 bg-amber-50 rounded-2xl border border-amber-100">
-           <button onClick={() => setShowScriptModal(true)} className="text-[9px] font-black text-blue-600 underline uppercase tracking-widest mt-2 hover:text-blue-800 transition-colors">Copiar Código V47</button>
+        <div className="p-5 bg-amber-50 dark:bg-amber-500/10 rounded-2xl border border-amber-100 dark:border-amber-900/50">
+           <button onClick={() => setShowScriptModal(true)} className="text-[9px] font-black text-blue-600 dark:text-sky-400 underline uppercase tracking-widest mt-2 hover:text-blue-800 transition-colors">Copiar Código V47</button>
         </div>
-      </div>
-
-      <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm space-y-4">
-        <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">Manutenção</h3>
-        <p className="text-xs text-slate-500 font-medium">Se o aplicativo não estiver carregando os dados corretamente (especialmente no iPhone), tente limpar o cache local.</p>
-        <button 
-          onClick={() => {
-            if(window.confirm('Isso irá limpar os dados salvos localmente e forçar um novo carregamento. Deseja continuar?')) {
-              localStorage.clear();
-              window.location.reload();
-            }
-          }}
-          className="w-full py-3 bg-red-50 text-red-600 border border-red-100 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-red-100 transition-all"
-        >
-          Limpar Cache Local e Reiniciar
-        </button>
       </div>
 
       <SupabaseMigrationSection theme={theme} />
-
-      {showScriptModal && (
-        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[300] flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-4xl rounded-[3rem] shadow-2xl max-h-[85vh] overflow-hidden flex flex-col animate-in zoom-in duration-300">
-            <div className="p-8 border-b border-slate-50 flex justify-between items-center bg-slate-50/30">
-              <h3 className="text-xl font-black text-slate-800">Apps Script V47</h3>
-              <button onClick={() => setShowScriptModal(false)} className="p-3 hover:bg-slate-100 rounded-full transition-colors text-slate-400"><XCircle size={32} /></button>
-            </div>
-            <div className="p-8 overflow-y-auto flex-1">
-              <div className="relative">
-                <button onClick={() => { navigator.clipboard.writeText(APPS_SCRIPT_CODE); alert('Código V47 copiado! Cole no editor do Google Apps Script e faça uma Nova Implantação.'); }} className="absolute top-4 right-4 p-3 bg-slate-900 text-white rounded-2xl shadow-xl flex items-center space-x-2 text-[10px] font-black uppercase">
-                  <Copy size={16} /> <span>Copiar V47</span>
-                </button>
-                <pre className="bg-slate-950 text-emerald-400 p-10 rounded-[2.5rem] overflow-x-auto text-[10px] leading-relaxed font-mono shadow-inner border border-slate-800">
-                  {APPS_SCRIPT_CODE}
-                </pre>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

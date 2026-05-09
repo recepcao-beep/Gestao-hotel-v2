@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { HotelTheme, Vehicle, VehicleHistory, ParkingLocation, User as AppUser } from '../types';
-import { Car, LayoutDashboard, History, Plus, Search, MapPin, Calendar, User, CreditCard, CheckCircle2, AlertTriangle, X, KeySquare, Palette, Edit, LogOut, Trash2, DollarSign, Camera, Image as ImageIcon } from 'lucide-react';
+import { Car, LayoutDashboard, History, Plus, Search, MapPin, Calendar, User, CreditCard, CheckCircle2, AlertTriangle, X, KeySquare, Palette, Edit, LogOut, Trash2, DollarSign, Camera, Image as ImageIcon, Settings } from 'lucide-react';
 
 interface ParkingViewProps {
   theme: HotelTheme;
@@ -10,6 +10,8 @@ interface ParkingViewProps {
   onSaveVehicle: (vehicle: Vehicle, newFiles?: any[]) => void;
   onDeleteVehicle: (id: string) => void;
   onCheckoutVehicle: (id: string, history?: any[]) => void;
+  onSaveParkingLocation?: (location: ParkingLocation) => void;
+  onDeleteParkingLocation?: (id: string) => void;
   onRefresh?: () => void;
   isRefreshing?: boolean;
 }
@@ -59,8 +61,8 @@ const MOCK_VEHICLES: Vehicle[] = [
   }
 ];
 
-const ParkingView: React.FC<ParkingViewProps> = ({ theme, parkingLocations = [], vehicles, currentUser, onSaveVehicle, onDeleteVehicle, onCheckoutVehicle, onRefresh, isRefreshing }) => {
-  const [activeTab, setActiveTab] = useState<'VEHICLES' | 'DASHBOARD' | 'HISTORY'>('VEHICLES');
+const ParkingView: React.FC<ParkingViewProps> = ({ theme, parkingLocations = [], vehicles, currentUser, onSaveVehicle, onDeleteVehicle, onCheckoutVehicle, onSaveParkingLocation, onDeleteParkingLocation, onRefresh, isRefreshing }) => {
+  const [activeTab, setActiveTab] = useState<'VEHICLES' | 'DASHBOARD' | 'HISTORY' | 'LOCATIONS'>('VEHICLES');
   const [searchTerm, setSearchTerm] = useState('');
   const [filter, setFilter] = useState<'ALL' | 'ON_TRIP' | 'CHECKED_OUT_TODAY'>('ALL');
   
@@ -92,9 +94,37 @@ const ParkingView: React.FC<ParkingViewProps> = ({ theme, parkingLocations = [],
 
   const tabs = [
     { id: 'VEHICLES', label: 'Veículos', icon: Car },
-    { id: 'DASHBOARD', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'HISTORY', label: 'Histórico', icon: History },
+    { id: 'LOCATIONS', label: 'Pátios', icon: Settings },
   ];
+
+  // Parking Locations management state
+  const [isAddingParkingLocation, setIsAddingParkingLocation] = useState(false);
+  const [editingParkingLocation, setEditingParkingLocation] = useState<ParkingLocation | null>(null);
+  const [parkingName, setParkingName] = useState('');
+  const [parkingSpots, setParkingSpots] = useState('');
+
+  const handleSaveParkingLocationSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!onSaveParkingLocation) return;
+    const newLocation: ParkingLocation = {
+      id: editingParkingLocation?.id || `parking_${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+      name: parkingName,
+      totalSpots: parseInt(parkingSpots, 10) || 0
+    };
+    onSaveParkingLocation(newLocation);
+    setIsAddingParkingLocation(false);
+    setEditingParkingLocation(null);
+    setParkingName('');
+    setParkingSpots('');
+  };
+
+  const handleEditParkingLocation = (loc: ParkingLocation) => {
+    setEditingParkingLocation(loc);
+    setParkingName(loc.name);
+    setParkingSpots(loc.totalSpots.toString());
+    setIsAddingParkingLocation(true);
+  };
 
   const createHistoryLog = (vehicleId: string, plate: string, action: string, details?: string): VehicleHistory => {
     return {
@@ -397,7 +427,7 @@ const ParkingView: React.FC<ParkingViewProps> = ({ theme, parkingLocations = [],
 
             <div className="pb-4">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
-                {filteredVehicles.map(vehicle => {
+                {filteredVehicles.map((vehicle, index) => {
                   const isDuplicated = vehicles.filter(v => v.plate === vehicle.plate && v.is_active).length > 1;
                   const isPending = vehicle.payment_pending;
                   
@@ -439,7 +469,7 @@ const ParkingView: React.FC<ParkingViewProps> = ({ theme, parkingLocations = [],
 
                   return (
                     <div 
-                      key={vehicle.id} 
+                      key={vehicle.id ? `${vehicle.id}-${index}` : `veh-${index}`} 
                       className={`rounded-2xl border shadow-sm p-4 md:p-5 flex flex-col space-y-3 md:space-y-4 transition-colors ${cardBg} ${cardBorder}`}
                     >
                       {/* Header: Name and Pend Badge */}
@@ -590,13 +620,6 @@ const ParkingView: React.FC<ParkingViewProps> = ({ theme, parkingLocations = [],
             </div>
           </div>
         )}
-        {activeTab === 'DASHBOARD' && (
-          <div className="w-full h-full flex flex-col items-center justify-center text-center p-8">
-             <div className="p-6 bg-slate-50 rounded-full text-slate-300 mb-4"><LayoutDashboard size={48} /></div>
-             <h3 className="text-xl font-black text-slate-800 uppercase tracking-tighter">Dashboard em Desenvolvimento</h3>
-             <p className="text-slate-400 text-sm max-w-sm mt-2 font-medium">As métricas e gráficos do estacionamento estarão disponíveis em breve.</p>
-          </div>
-        )}
         {activeTab === 'HISTORY' && (
           <div className="flex-1 flex flex-col p-6 overflow-hidden bg-slate-50/50">
             <h3 className="text-xl font-black text-slate-800 uppercase tracking-tighter mb-6">Histórico Geral</h3>
@@ -623,6 +646,47 @@ const ParkingView: React.FC<ParkingViewProps> = ({ theme, parkingLocations = [],
                   <p className="text-slate-400 font-bold italic">Nenhum registro no histórico.</p>
                 </div>
               )}
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'LOCATIONS' && (
+          <div className="flex-1 flex flex-col p-6 overflow-hidden bg-slate-50/50">
+            <div className="bg-white p-8 rounded-[3rem] border border-slate-100 shadow-sm space-y-6 animate-in slide-in-from-top-4 flex-1 overflow-y-auto scrollbar-hide">
+              <div className="flex justify-between items-center">
+                <div>
+                  <h3 className="text-lg font-black text-slate-800 uppercase tracking-tighter">Configuração de Vagas</h3>
+                  <p className="text-xs font-bold text-slate-400 mt-1">Cadastre os locais de estacionamento e a quantidade de vagas.</p>
+                </div>
+                <button 
+                  onClick={() => setIsAddingParkingLocation(true)}
+                  className="bg-slate-900 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center space-x-2 active:scale-95 transition-all shadow-lg"
+                >
+                  <Plus size={14} />
+                  <span>Adicionar Local</span>
+                </button>
+              </div>
+
+              <div className="space-y-3">
+                {parkingLocations.map((loc) => (
+                  <div key={loc.id} className="p-4 bg-slate-50 rounded-[1.5rem] border border-slate-100 flex items-center justify-between group flex-col sm:flex-row space-y-3 sm:space-y-0 text-center sm:text-left">
+                    <div className="flex flex-col sm:flex-row items-center sm:space-x-4">
+                      <div className="p-3 bg-white rounded-xl text-slate-600 shadow-sm mb-2 sm:mb-0"><Car size={20} /></div>
+                      <div>
+                        <p className="font-black text-slate-800">{loc.name}</p>
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Total de Vagas: {loc.totalSpots}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center space-x-2 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                      <button onClick={() => handleEditParkingLocation(loc)} className="p-2 text-slate-400 hover:text-sky-500 hover:bg-sky-50 rounded-lg transition-colors"><Settings size={16}/></button>
+                      <button onClick={() => onDeleteParkingLocation && onDeleteParkingLocation(loc.id)} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={16}/></button>
+                    </div>
+                  </div>
+                ))}
+                {parkingLocations.length === 0 && (
+                  <div className="text-center py-8 text-slate-400 font-bold text-sm">Nenhum local cadastrado.</div>
+                )}
+              </div>
             </div>
           </div>
         )}
@@ -912,6 +976,31 @@ const ParkingView: React.FC<ParkingViewProps> = ({ theme, parkingLocations = [],
               </button>
             </div>
           </div>
+        </div>
+      )}
+      {isAddingParkingLocation && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[300] flex items-center justify-center p-4">
+           <div className="bg-white w-[95%] md:w-full md:max-w-lg rounded-2xl md:rounded-[2.5rem] shadow-2xl animate-in zoom-in duration-200 overflow-hidden flex flex-col max-h-[90dvh]">
+              <div className="p-6 md:p-8 border-b border-slate-50 flex justify-between items-center shrink-0">
+                 <h2 className="text-xl font-black text-slate-800">{editingParkingLocation ? 'Editar Local' : 'Novo Local de Vagas'}</h2>
+                 <button onClick={() => { setIsAddingParkingLocation(false); setEditingParkingLocation(null); setParkingName(''); setParkingSpots(''); }} className="text-slate-300 hover:text-slate-500 transition-colors"><X size={24}/></button>
+              </div>
+              <form onSubmit={handleSaveParkingLocationSubmit} className="p-6 md:p-8 space-y-4 overflow-y-auto scrollbar-hide">
+                 <div className="space-y-4">
+                    <div>
+                       <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1">Nome do Local</label>
+                       <input type="text" value={parkingName} onChange={e => setParkingName(e.target.value)} className="w-full px-4 py-3 rounded-xl border-2 border-slate-50 outline-none font-bold bg-white text-slate-800 uppercase" placeholder="Ex: PÁTIO A" required />
+                    </div>
+                    <div>
+                       <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1">Quantidade de Vagas</label>
+                       <input type="number" value={parkingSpots} onChange={e => setParkingSpots(e.target.value)} className="w-full px-4 py-3 rounded-xl border-2 border-slate-50 outline-none font-bold bg-white text-slate-800" placeholder="Ex: 10" min="1" required />
+                    </div>
+                 </div>
+                 <button type="submit" className="w-full py-4 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl transition-all active:scale-95 mt-4 shrink-0" style={{ backgroundColor: theme.primary }}>
+                   {editingParkingLocation ? 'Atualizar Local' : 'Cadastrar Local'}
+                 </button>
+              </form>
+           </div>
         </div>
       )}
     </div>

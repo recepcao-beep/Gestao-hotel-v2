@@ -1,6 +1,6 @@
 
 import React, { useMemo } from 'react';
-import { Apartment, Employee, HotelTheme, InventoryItem, Sector } from '../types';
+import { Apartment, Employee, HotelTheme, InventoryItem, Sector, ViewType } from '../types';
 import { 
   BarChart, 
   Bar, 
@@ -25,6 +25,8 @@ interface DashboardProps {
   lastSync?: number;
   onRefresh?: () => void;
   isRefreshing?: boolean;
+  onNavigate?: (view: ViewType) => void;
+  onOpenApartment?: (id: string) => void;
 }
 
 const Dashboard: React.FC<DashboardProps> = ({ 
@@ -35,8 +37,13 @@ const Dashboard: React.FC<DashboardProps> = ({
   theme, 
   lastSync, 
   onRefresh, 
-  isRefreshing 
+  isRefreshing,
+  onNavigate,
+  onOpenApartment
 }) => {
+  const [selectedFloorForMaintenance, setSelectedFloorForMaintenance] = React.useState<any>(null);
+  const [showDamagedUnitsModal, setShowDamagedUnitsModal] = React.useState(false);
+
   const aptList: Apartment[] = Object.values(apartments);
   const totalDefects = aptList.reduce((acc, curr) => acc + (curr.defects?.length || 0), 0);
   const apartmentsWithIssues = aptList.filter(a => (a.defects?.length || 0) > 0).length;
@@ -65,10 +72,15 @@ const Dashboard: React.FC<DashboardProps> = ({
       ? Array.from(floorSet).sort((a, b) => a - b)
       : [200, 300, 400, 500, 600, 700];
 
-    return floors.map(floor => ({
-      name: `${floor}`,
-      defects: aptList.filter(a => Number(a.floor) === floor).reduce((acc, curr) => acc + (curr.defects?.length || 0), 0)
-    }));
+    return floors.map(floor => {
+      const aptsOnFloor = aptList.filter(a => Number(a.floor) === floor);
+      const defectiveApts = aptsOnFloor.filter(a => (a.defects?.length || 0) > 0);
+      return {
+        name: `${floor}`,
+        defects: aptsOnFloor.reduce((acc, curr) => acc + (curr.defects?.length || 0), 0),
+        apts: defectiveApts
+      };
+    });
   }, [aptList]);
 
   const pieData = [
@@ -188,7 +200,16 @@ const Dashboard: React.FC<DashboardProps> = ({
                 <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 10, fontWeight: 700}} />
                 <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 10, fontWeight: 700}} />
                 <Tooltip cursor={{fill: '#f8fafc'}} content={<CustomTooltip />} />
-                <Bar dataKey="defects" fill={theme.primary} radius={[8, 8, 0, 0]} barSize={40} />
+                <Bar 
+                  dataKey="defects" 
+                  fill={theme.primary} 
+                  radius={[8, 8, 0, 0]} 
+                  barSize={40} 
+                  onClick={(data: any) => {
+                     if (data && data.payload) setSelectedFloorForMaintenance(data.payload);
+                  }}
+                  className="cursor-pointer"
+                />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -212,6 +233,10 @@ const Dashboard: React.FC<DashboardProps> = ({
                     outerRadius={80}
                     paddingAngle={5}
                     dataKey="value"
+                    onClick={(data: any) => {
+                        if (data && data.name === 'Com Avarias') setShowDamagedUnitsModal(true);
+                    }}
+                    className="cursor-pointer"
                   >
                     {pieData.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={entry.color} stroke="none" />
@@ -288,7 +313,11 @@ const Dashboard: React.FC<DashboardProps> = ({
             ) : (
                <div className="h-64 space-y-4 overflow-y-auto">
                   {lowStockItems.map((item, idx) => (
-                     <div key={idx} className="relative">
+                     <div 
+                        key={idx} 
+                        className="relative cursor-pointer hover:bg-slate-50 p-2 -mx-2 rounded-xl transition-colors"
+                        onClick={() => onNavigate && onNavigate('INVENTORY' as any)}
+                     >
                         <div className="flex justify-between items-end mb-1">
                            <span className="text-[10px] font-black text-slate-600 uppercase truncate max-w-[200px]">{item.name}</span>
                            <span className="text-[10px] font-black text-rose-500">{item.current} / {item.target}</span>
@@ -306,6 +335,75 @@ const Dashboard: React.FC<DashboardProps> = ({
          </div>
 
       </div>
+
+      {selectedFloorForMaintenance && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-300">
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+              <div className="flex items-center space-x-3 text-slate-800">
+                <AlertCircle size={24} className="text-amber-500" />
+                <h3 className="text-xl font-black uppercase tracking-tighter">Andar {selectedFloorForMaintenance.name}</h3>
+              </div>
+              <button onClick={() => setSelectedFloorForMaintenance(null)} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-200 rounded-xl transition-colors">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+              </button>
+            </div>
+            <div className="p-6 max-h-[60vh] overflow-y-auto space-y-3">
+              {selectedFloorForMaintenance.apts && selectedFloorForMaintenance.apts.length > 0 ? (
+                 selectedFloorForMaintenance.apts.map((apt: Apartment) => (
+                    <div key={apt.id} className="flex flex-col p-4 bg-slate-50 rounded-2xl border border-slate-100 hover:border-amber-200 transition-colors cursor-pointer" onClick={() => {
+                        setSelectedFloorForMaintenance(null);
+                        if (onOpenApartment) onOpenApartment(apt.id);
+                    }}>
+                       <div className="flex justify-between items-center mb-2">
+                          <span className="font-black text-lg text-slate-800">Apto {apt.roomNumber}</span>
+                          <span className="text-[10px] font-black text-white bg-amber-500 px-2 py-1 rounded-lg uppercase">{apt.defects?.length || 0} Avarias</span>
+                       </div>
+                       <p className="text-xs font-bold text-slate-500 truncate">{apt.defects?.map(d => d.description).join(', ')}</p>
+                    </div>
+                 ))
+              ) : (
+                 <p className="text-center text-slate-400 font-bold py-8">Nenhuma manutenção neste andar.</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showDamagedUnitsModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-300">
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+              <div className="flex items-center space-x-3 text-slate-800">
+                <ClipboardList size={24} className="text-rose-500" />
+                <h3 className="text-xl font-black uppercase tracking-tighter">Avarias Identificadas</h3>
+              </div>
+              <button onClick={() => setShowDamagedUnitsModal(false)} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-200 rounded-xl transition-colors">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+              </button>
+            </div>
+            <div className="p-6 max-h-[60vh] overflow-y-auto space-y-3">
+              {aptList.filter(a => (a.defects?.length || 0) > 0).length > 0 ? (
+                 aptList.filter(a => (a.defects?.length || 0) > 0).map((apt: Apartment) => (
+                    <div key={apt.id} className="flex flex-col p-4 bg-slate-50 rounded-2xl border border-slate-100 hover:border-rose-200 transition-colors cursor-pointer" onClick={() => {
+                        setShowDamagedUnitsModal(false);
+                        if (onOpenApartment) onOpenApartment(apt.id);
+                    }}>
+                       <div className="flex justify-between items-center mb-2">
+                          <span className="font-black text-lg text-slate-800">Apto {apt.roomNumber}</span>
+                          <span className="text-[10px] font-black text-white bg-rose-500 px-2 py-1 rounded-lg uppercase">{apt.defects?.length || 0} Avarias</span>
+                       </div>
+                       <p className="text-xs font-bold text-slate-500 truncate">{apt.defects?.map(d => d.description).join(', ')}</p>
+                    </div>
+                 ))
+              ) : (
+                 <p className="text-center text-slate-400 font-bold py-8">Nenhuma avaria registrada.</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };

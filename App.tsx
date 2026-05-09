@@ -13,6 +13,7 @@ import InventoryView from './components/InventoryView';
 import ReportsView from './components/ReportsView';
 import SettingsView from './components/SettingsView';
 import ParkingView from './components/ParkingView';
+import TodayScheduleView from './components/TodayScheduleView';
 import Login from './components/Login';
 import Logo from './components/Logo';
 
@@ -89,12 +90,15 @@ const App: React.FC = () => {
   const initialSyncRef = useRef(false);
   
   const [state, setState] = useState<AppState>(() => {
-    // Incrementado para V45 para garantir limpeza de cache e compatibilidade
     const saved = localStorage.getItem('hotel_village_state_v45');
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        return { ...parsed, currentUser: null };
+        return { 
+          ...parsed, 
+          currentUser: null,
+          lastDataSource: parsed.lastDataSource || 'CACHE'
+        };
       } catch (e) {
         console.error("Erro ao carregar estado salvo:", e);
       }
@@ -189,12 +193,28 @@ const App: React.FC = () => {
         throw lastError || new Error(`Falha após ${maxRetries + 1} tentativas`);
       }
 
-      const result = await response.json();
+      const textResult = await response.text();
+      let result;
+      try {
+        result = JSON.parse(textResult);
+      } catch (e: any) {
+        console.error(`Fetch JSON parse error! URL: ${fetchUrl}, Status: ${response.status}, Body Start: ${textResult.substring(0, 100)}`);
+        throw new Error(`Invalid JSON response: ${e.message}`);
+      }
       
       if (result && result.status === 'success') {
         const incomingData = result.data;
         
-        // Helper para garantir IDs únicos e evitar erros de chave duplicada no React
+        // Detect source from logs
+        let source: 'SUPABASE' | 'SHEETS' = 'SHEETS';
+        if (incomingData._logs && Array.isArray(incomingData._logs)) {
+          const joinedLogs = incomingData._logs.join(' ');
+          if (joinedLogs.includes('Supabase Load Success')) {
+            source = 'SUPABASE';
+          }
+        }
+
+        // Helper para garantir IDs únicos
         const dedupe = (arr: any[]) => {
           const map = new Map();
           arr.forEach(item => {
@@ -305,34 +325,34 @@ const App: React.FC = () => {
         })));
 
         const rawVehicles = Array.isArray(incomingData.vehicles) ? incomingData.vehicles : [];
-        const normalizedVehicles = rawVehicles.map((v: any) => ({
+        const normalizedVehicles = dedupe(rawVehicles.map((v: any, idx: number) => ({
             ...v,
-            id: v.id?.toString(),
+            id: v.id?.toString() || `veh-${Date.now()}-${idx}-${Math.random().toString(36).substr(2, 5)}`,
             is_on_trip: v.is_on_trip === true || v.is_on_trip === 'true',
             payment_pending: v.payment_pending === true || v.payment_pending === 'true',
             is_active: v.is_active === true || v.is_active === 'true',
             photos: safeJSONParse(v.photos, [])
-        }));
+        })));
 
         const rawUsers = Array.isArray(incomingData.users) ? incomingData.users : [];
-        const normalizedUsers = rawUsers.map((u: any) => ({
+        const normalizedUsers = dedupe(rawUsers.map((u: any, idx: number) => ({
             ...u,
-            id: u.id?.toString(),
+            id: u.id?.toString() || `user_${Date.now()}-${idx}-${Math.random().toString(36).substr(2, 5)}`,
             name: u.name?.toString() || '',
             password: u.password?.toString() || '',
             allowedTabs: safeJSONParse(u.allowedTabs, []),
             email: u.email?.toString() || '',
             status: u.status?.toString() || 'APPROVED',
             hotel: targetHotel
-        }));
+        })));
         console.log("Normalized users:", normalizedUsers);
 
         const rawParkingLocations = Array.isArray(incomingData.parkingLocations) ? incomingData.parkingLocations : [];
-        const normalizedParkingLocations = rawParkingLocations.map((l: any) => ({
+        const normalizedParkingLocations = dedupe(rawParkingLocations.map((l: any, idx: number) => ({
             ...l,
-            id: l.id?.toString(),
+            id: l.id?.toString() || `pk-${Date.now()}-${idx}-${Math.random().toString(36).substr(2, 5)}`,
             totalSpots: parseInt(l.totalSpots) || 0
-        }));
+        })));
 
         let normalizedConfig = incomingData.config;
         if (typeof normalizedConfig === 'string') {
@@ -365,8 +385,8 @@ const App: React.FC = () => {
             floor = Math.floor(roomNumber / 100) * 100;
           }
           
-          // Use floor-roomNumber as the definitive ID if available
-          const normalizedId = (floor > 0 && roomNumber > 0) ? `${floor}-${roomNumber}` : String(apt.id || id);
+          // Prefer just the roomNumber as the ID to maintain consistency with existing data
+          const normalizedId = roomNumber > 0 ? String(roomNumber) : String(apt.id || id);
           
           // Map possible Portuguese translations back to expected English keys
           let bedsVal = apt.beds !== undefined ? apt.beds : (apt.cama !== undefined ? apt.cama : apt.camas);
@@ -434,6 +454,7 @@ const App: React.FC = () => {
 
           return {
             ...prev,
+            lastDataSource: source,
             hotels: {
               ...prev.hotels,
               [targetHotel]: finalData
@@ -471,6 +492,13 @@ const App: React.FC = () => {
   useEffect(() => { 
     try {
       localStorage.setItem('hotel_village_state_v45', JSON.stringify(state)); 
+      
+      // Apply dark mode
+      if (state.isDarkMode) {
+        document.documentElement.classList.add('dark');
+      } else {
+        document.documentElement.classList.remove('dark');
+      }
     } catch (e) {
       console.warn("Falha ao salvar no localStorage (provavelmente limite excedido):", e);
     }
@@ -918,13 +946,23 @@ const App: React.FC = () => {
     if (state.selectedApartmentId) {
       let apt = currentHotelData.apartments[state.selectedApartmentId];
       if (!apt) {
+        // Safe parsing for both formats: "203" or "200-203"
         const parts = state.selectedApartmentId.split('-');
-        const floor = parseInt(parts[0]);
-        const roomNumber = parseInt(parts[1]);
+        let roomNumberRes = 0;
+        let floorRes = 0;
+        
+        if (parts.length === 2) {
+          floorRes = parseInt(parts[0]);
+          roomNumberRes = parseInt(parts[1]);
+        } else {
+          roomNumberRes = parseInt(state.selectedApartmentId);
+          floorRes = Math.floor(roomNumberRes / 100) * 100;
+        }
+
         apt = {
           id: state.selectedApartmentId,
-          floor,
-          roomNumber,
+          floor: floorRes,
+          roomNumber: roomNumberRes,
           defects: [],
           beds: [],
           moveisDetalhes: []
@@ -965,6 +1003,10 @@ const App: React.FC = () => {
             lastSync={state.integrations[0].lastSync} 
             onRefresh={() => loadDataFromSheet()} 
             isRefreshing={isRefreshing} 
+            onNavigate={(view) => setState(prev => ({ ...prev, currentView: view }))}
+            onOpenApartment={(id) => {
+               setState(prev => ({ ...prev, currentView: ViewType.APARTMENTS, selectedApartmentId: id }));
+            }}
           />
         );
       case ViewType.APARTMENTS:
@@ -1022,6 +1064,8 @@ const App: React.FC = () => {
         );
       case ViewType.REPORTS:
         return <ReportsView apartments={currentHotelData.apartments} theme={theme} onSelectApartment={(id) => setState(prev => ({ ...prev, selectedApartmentId: id }))} />;
+      case ViewType.TODAY_SCHEDULE:
+        return <TodayScheduleView employees={currentHotelData.employees} theme={theme} />;
       case ViewType.SETTINGS:
         return (
           <SettingsView 
@@ -1041,6 +1085,8 @@ const App: React.FC = () => {
             onSaveParkingLocation={handleSaveParkingLocation}
             onDeleteParkingLocation={handleDeleteParkingLocation}
             onForceSyncFromSheets={() => loadDataFromSheet(state.currentHotel, true)}
+            isDarkMode={state.isDarkMode || false}
+            onToggleDarkMode={(val) => setState(prev => ({ ...prev, isDarkMode: val }))}
           />
         );
       case ViewType.PARKING:
@@ -1053,6 +1099,8 @@ const App: React.FC = () => {
             onSaveVehicle={handleSaveVehicle}
             onDeleteVehicle={handleDeleteVehicle}
             onCheckoutVehicle={handleCheckoutVehicle}
+            onSaveParkingLocation={handleSaveParkingLocation}
+            onDeleteParkingLocation={handleDeleteParkingLocation}
             onRefresh={() => loadDataFromSheet()}
             isRefreshing={isRefreshing}
           />
@@ -1099,30 +1147,58 @@ const App: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row">
-      <Sidebar 
-        currentView={state.currentView} 
-        onViewChange={handleViewChange} 
-        currentHotel={state.currentHotel} 
-        onHotelChange={handleHotelChange} 
-        onLogout={handleLogout} 
-        theme={theme} 
-        user={state.currentUser} 
-      />
-      
-      <main className="flex-1 p-4 md:p-8 md:ml-64 mb-20 md:mb-0 transition-all duration-300">
-        <header className="flex justify-between items-center mb-8 md:hidden">
-          <Logo className="h-10" themeColor={theme.primary} />
-          <div className="px-3 py-1 bg-white rounded-full border text-[10px] font-bold text-slate-400 uppercase tracking-widest">{state.currentHotel}</div>
-        </header>
-        {renderContent()}
-      </main>
+      <div className={`min-h-screen flex flex-col md:flex-row transition-colors duration-300 ${state.isDarkMode ? 'bg-slate-900 text-slate-100' : 'bg-slate-50 text-slate-900'}`}>
+        <Sidebar 
+          currentView={state.currentView} 
+          onViewChange={handleViewChange} 
+          currentHotel={state.currentHotel} 
+          onHotelChange={handleHotelChange} 
+          onLogout={handleLogout} 
+          theme={theme} 
+          user={state.currentUser} 
+          lastDataSource={state.lastDataSource}
+          visibleTabs={currentHotelData.config?.visibleTabs}
+        />
+        
+        <main className="flex-1 p-4 md:p-8 md:ml-64 mb-20 md:mb-0 transition-all duration-300">
+          <header className="flex justify-between items-center mb-8 md:hidden">
+            <div className="flex items-center gap-3">
+              <Logo className="h-10" themeColor={theme.primary} />
+              {state.lastDataSource && (
+                <span className={`text-[8px] uppercase px-1.5 py-0.5 rounded-full font-bold tracking-wider shadow-sm flex items-center gap-1 ${
+                  state.lastDataSource === 'SUPABASE' ? 'bg-emerald-500 text-white' : 
+                  state.lastDataSource === 'SHEETS' ? 'bg-sky-500 text-white' : 'bg-amber-500 text-white'
+                }`}>
+                  {state.lastDataSource === 'SUPABASE' ? 'Cloud' : 'Planilha'}
+                </span>
+              )}
+            </div>
+            <div className="px-3 py-1 bg-white dark:bg-slate-800 rounded-full border dark:border-slate-700 text-[10px] font-bold text-slate-400 uppercase tracking-widest">{state.currentHotel}</div>
+          </header>
+          
+          {/* Dashboard Badge for Desktop */}
+          <div className="hidden md:flex justify-end mb-4 px-4 h-0 items-start">
+             {state.lastDataSource && (
+                <div className={`text-[9px] uppercase px-2 py-1 rounded-bl-xl font-black tracking-widest shadow-sm flex items-center gap-2 border-l border-b ${
+                  state.isDarkMode ? 'border-slate-700' : 'border-slate-200'
+                } ${
+                  state.lastDataSource === 'SUPABASE' ? 'text-emerald-500' : 'text-sky-500'
+                }`}>
+                  <div className={`w-1.5 h-1.5 rounded-full animate-pulse ${state.lastDataSource === 'SUPABASE' ? 'bg-emerald-500' : 'bg-sky-500'}`}></div>
+                  FONTE: {state.lastDataSource === 'SUPABASE' ? 'SUPABASE CLOUD' : 'GOOGLE SHEETS'}
+                </div>
+             )}
+          </div>
+
+          {renderContent()}
+        </main>
 
       <BottomNav 
         currentView={state.currentView} 
         onViewChange={handleViewChange} 
         theme={theme} 
         user={state.currentUser} 
+        visibleTabs={currentHotelData.config?.visibleTabs}
       />
     </div>
   );

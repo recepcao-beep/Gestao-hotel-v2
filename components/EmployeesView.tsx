@@ -287,7 +287,9 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
   const [workingHours, setWorkingHours] = useState('08:00 - 16:20');
   const [fixedDayOff, setFixedDayOff] = useState('Segunda-feira');
   const [sundayOffs, setSundayOffs] = useState<number[]>([]);
-  const [vacationStatus, setVacationStatus] = useState<'Pendente' | 'Concedida'>('Pendente');
+  const [vacationStatus, setVacationStatus] = useState<'Pendente' | 'Concedida' | 'Férias Atuais'>('Pendente');
+  const [vacationStart, setVacationStart] = useState('');
+  const [vacationEnd, setVacationEnd] = useState('');
   
   // Uniforms State (Employee)
   const [uniforms, setUniforms] = useState<UniformItem[]>([]);
@@ -347,6 +349,7 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
     setUniforms([]); setScheduleType('6x1'); setShiftType('Par');
     setWorkingHours('08:00 - 16:20'); setFixedDayOff('Segunda-feira');
     setSundayOffs([]); setVacationStatus('Pendente');
+    setVacationStart(''); setVacationEnd('');
     setPhotoPreview(null); setNewPhotoFile(null); setIsPhotoRemoved(false);
     setIsAddingEmployee(false); setEditingEmployee(null); setActiveFormTab('DADOS');
   };
@@ -391,6 +394,8 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
     setShiftType(emp.shiftType || 'Par'); setWorkingHours(emp.workingHours || '08:00 - 16:20');
     setFixedDayOff(emp.fixedDayOff || 'Segunda-feira');
     setSundayOffs(emp.sundayOffs || []); setVacationStatus(emp.vacationStatus || 'Pendente');
+    setVacationStart(emp.vacationStart || '');
+    setVacationEnd(emp.vacationEnd || '');
     setPhotoPreview(emp.photo || null);
     setNewPhotoFile(null);
     setIsPhotoRemoved(false);
@@ -508,6 +513,8 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
       weeklyDayOff: scheduleType === '6x1' ? fixedDayOff : '', 
       monthlySundayOff: '', 
       vacationStatus, 
+      vacationStart: vacationStatus === 'Concedida' || vacationStatus === 'Férias Atuais' ? vacationStart : undefined,
+      vacationEnd: vacationStatus === 'Concedida' || vacationStatus === 'Férias Atuais' ? vacationEnd : undefined,
       uniforms,
       photo: finalPhoto
     };
@@ -556,7 +563,16 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
   }, [scaleDate]);
 
   const getShiftStatus = (emp: Employee, dayInfo: typeof scaleData[0]) => {
-    if (emp.vacationStatus === 'Concedida') return 'FÉRIAS';
+    if (emp.vacationStatus === 'Concedida' || emp.vacationStatus === 'Férias Atuais') {
+        const date = new Date(scaleDate.getFullYear(), scaleDate.getMonth(), dayInfo.date);
+        if (emp.vacationStart && emp.vacationEnd) {
+             const vStart = new Date(emp.vacationStart + 'T00:00:00');
+             const vEnd = new Date(emp.vacationEnd + 'T23:59:59');
+             if (date >= vStart && date <= vEnd) return 'FÉRIAS';
+        } else {
+             return 'FÉRIAS'; 
+        }
+    }
     if (emp.scheduleType === '6x1') {
       const dayName = dayInfo.weekdayFull.toLowerCase().split('-')[0];
       const empOffDay = (emp.fixedDayOff || '').toLowerCase().split('-')[0];
@@ -668,18 +684,6 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
         <div className="flex flex-col md:flex-row justify-between items-center gap-4">
           <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Painel de Equipe</p>
           <div className="flex gap-2">
-            <button 
-              onClick={() => setViewMode('TODAY')} 
-              className="bg-white border-2 border-slate-100 text-slate-600 px-6 py-3 rounded-xl font-bold flex items-center space-x-2 shadow-sm hover:border-blue-200 transition-all"
-            >
-              <CalendarDays size={18} /> <span>Escalados Hoje</span>
-            </button>
-            <button 
-              onClick={() => setViewMode('ORDERS')} 
-              className="bg-white border-2 border-slate-100 text-slate-600 px-6 py-3 rounded-xl font-bold flex items-center space-x-2 shadow-sm hover:border-blue-200 transition-all"
-            >
-              <ShoppingCart size={18} /> <span>Pedidos</span>
-            </button>
             <button 
               onClick={() => { resetSectorForm(); setIsSectorModalOpen(true); }} 
               className="text-white px-6 py-3 rounded-xl font-bold flex items-center space-x-2 shadow-lg" 
@@ -913,16 +917,11 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
           <button onClick={() => setViewMode('SCALE')} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all whitespace-nowrap ${viewMode === 'SCALE' ? 'bg-white shadow-md text-slate-900' : 'text-slate-400'}`}>Escala Mensal</button>
           <button onClick={() => setViewMode('WEEKLY_SCALE')} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all whitespace-nowrap ${viewMode === 'WEEKLY_SCALE' ? 'bg-white shadow-md text-slate-900' : 'text-slate-400'}`}>Escala Semanal</button>
           <button onClick={() => setViewMode('EXTRAS')} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all whitespace-nowrap ${viewMode === 'EXTRAS' ? 'bg-white shadow-md text-slate-900' : 'text-slate-400'}`}>Extras</button>
-          <button onClick={() => setViewMode('ORDERS')} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all whitespace-nowrap ${viewMode === 'ORDERS' ? 'bg-white shadow-md text-slate-900' : 'text-slate-400'}`}>Pedidos</button>
         </div>
 
         {viewMode === 'EXTRAS' ? (
             <button onClick={() => setIsAddingExtra(true)} className="text-white px-6 py-3 rounded-xl font-bold flex items-center space-x-2 shadow-lg" style={{ backgroundColor: theme.primary }}>
                 <UserPlus size={18} /> <span className="hidden sm:inline">Cadastrar Extra</span>
-            </button>
-        ) : viewMode === 'ORDERS' ? (
-            <button onClick={() => window.print()} className="bg-slate-900 text-white px-6 py-3 rounded-xl font-bold flex items-center space-x-2 shadow-lg">
-                <Printer size={18} /> <span className="hidden sm:inline">Imprimir</span>
             </button>
         ) : (
             <button onClick={() => setIsAddingEmployee(true)} className="text-white px-6 py-3 rounded-xl font-bold flex items-center space-x-2 shadow-lg" style={{ backgroundColor: theme.primary }}>
@@ -931,59 +930,7 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
         )}
       </div>
 
-      {viewMode === 'ORDERS' && (
-         <div className="space-y-8 animate-in slide-in-from-right-4 print:hidden">
-            {Object.keys(ordersBySector).length === 0 ? (
-               <div className="py-20 text-center border-2 border-dashed border-slate-200 rounded-[3rem]">
-                  <CheckCircle2 size={48} className="mx-auto text-slate-200 mb-4" />
-                  <p className="text-slate-400 font-bold italic">Todos os funcionários estão com uniformes em dia.</p>
-               </div>
-            ) : (
-               Object.entries(ordersBySector).map(([secName, emps]) => (
-                  <div key={secName} className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden">
-                     <div className="bg-slate-50 px-8 py-4 border-b border-slate-100 flex items-center space-x-3">
-                        <Building2 size={20} className="text-slate-400"/>
-                        <h3 className="font-black text-slate-800 uppercase tracking-wide">{secName}</h3>
-                     </div>
-                     <div className="divide-y divide-slate-50">
-                        {(emps as Employee[]).map(emp => (
-                           <div key={emp.id} className="p-6 md:p-8 hover:bg-slate-50/50 transition-colors">
-                              <div className="flex flex-col md:flex-row md:items-start gap-6">
-                                 <div className="flex items-center space-x-4 md:w-1/3">
-                                    <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-sm text-white font-black ${emp.gender === 'F' ? 'bg-rose-400' : 'bg-blue-400'}`}>
-                                       {emp.name[0]}
-                                    </div>
-                                    <div>
-                                       <h4 className="font-black text-slate-800 text-lg leading-none mb-1">{emp.name}</h4>
-                                       <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{emp.role}</p>
-                                    </div>
-                                 </div>
-                                 <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                                    {(emp.uniforms || []).filter(u => (u.required || 0) - u.quantity > 0).map((u, idx) => (
-                                       <div key={idx} className="flex items-center justify-between p-3 bg-red-50 border border-red-100 rounded-xl">
-                                          <div className="flex items-center space-x-3">
-                                             <Shirt size={16} className="text-red-400"/>
-                                             <div>
-                                                <p className="text-xs font-black text-slate-700">{u.name}</p>
-                                                <p className="text-[9px] font-bold text-slate-400 uppercase">Tam: {u.size || 'ND'}</p>
-                                             </div>
-                                          </div>
-                                          <div className="text-right">
-                                             <span className="block text-lg font-black text-red-500 leading-none">{(u.required || 0) - u.quantity}</span>
-                                             <span className="text-[8px] font-bold text-red-300 uppercase">Faltam</span>
-                                          </div>
-                                       </div>
-                                    ))}
-                                 </div>
-                              </div>
-                           </div>
-                        ))}
-                     </div>
-                  </div>
-               ))
-            )}
-         </div>
-      )}
+
 
       {viewMode === 'LIST' && (
         <div className="space-y-4 animate-in slide-in-from-bottom-2 print:hidden">
@@ -1086,20 +1033,39 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
                            <td className="sticky left-[350px] bg-white z-10 px-2 py-1 border border-slate-300 text-[10px] font-bold text-slate-700 text-center uppercase">
                               {emp.fixedDayOff || '-'}
                           </td>
-                          {scaleData.map((d, i) => {
-                             const status = getShiftStatus(emp, d);
-                             let text = "";
-                             
-                             if (status === 'FÉRIAS') { text = "F"; }
-                             else if (status.startsWith('D')) { text = status; }
-                             else if (status === 'F') { text = "F"; }
-                             
-                             return (
-                                <td key={i} className={`text-center p-0 border border-slate-300 text-xs font-bold ${text ? 'text-slate-800' : ''} ${d.isSunday ? 'bg-slate-100' : ''}`}>
-                                   {text}
-                                </td>
-                             );
-                          })}
+                          {(() => {
+                             const dayStatuses = scaleData.map(d => ({ ...d, status: getShiftStatus(emp, d) }));
+                             const cells = [];
+                             let i = 0;
+                             while (i < dayStatuses.length) {
+                                 if (dayStatuses[i].status === 'FÉRIAS') {
+                                     let j = i;
+                                     while (j < dayStatuses.length && dayStatuses[j].status === 'FÉRIAS') { j++; }
+                                     const span = j - i;
+                                     cells.push(
+                                        <td key={`vacation-${i}`} colSpan={span} className="text-center p-0 border border-slate-300 text-[10px] sm:text-xs font-black bg-amber-100 text-amber-600 tracking-widest relative overflow-hidden group">
+                                           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">FÉRIAS</div>
+                                           <span className="opacity-0">F</span>
+                                        </td>
+                                     );
+                                     i = j;
+                                 } else {
+                                     const d = dayStatuses[i];
+                                     const status = d.status;
+                                     let text = "";
+                                     if (status.startsWith('D')) { text = status; }
+                                     else if (status === 'F') { text = "F"; }
+                                     
+                                     cells.push(
+                                        <td key={`day-${i}`} className={`text-center p-0 border border-slate-300 text-xs font-bold ${text ? 'text-slate-800' : ''} ${d.isSunday ? 'bg-slate-100' : ''}`}>
+                                           {text}
+                                        </td>
+                                     );
+                                     i++;
+                                 }
+                             }
+                             return cells;
+                          })()}
                        </tr>
                     ))}
                  </tbody>
@@ -1421,10 +1387,22 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
 
                        <div>
                           <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Status de Férias</label>
-                          <div className="flex bg-slate-50 p-1 rounded-xl">
+                          <div className="flex bg-slate-50 p-1 rounded-xl mb-4">
                              <button type="button" onClick={() => setVacationStatus('Pendente')} className={`flex-1 py-2 rounded-lg text-xs font-black uppercase transition-all ${vacationStatus === 'Pendente' ? 'bg-white shadow-sm text-slate-800' : 'text-slate-400'}`}>Trabalhando</button>
-                             <button type="button" onClick={() => setVacationStatus('Concedida')} className={`flex-1 py-2 rounded-lg text-xs font-black uppercase transition-all ${vacationStatus === 'Concedida' ? 'bg-amber-100 text-amber-600' : 'text-slate-400'}`}>Em Férias</button>
+                             <button type="button" onClick={() => setVacationStatus('Concedida')} className={`flex-1 py-2 rounded-lg text-xs font-black uppercase transition-all ${vacationStatus === 'Concedida' || vacationStatus === 'Férias Atuais' ? 'bg-amber-100 text-amber-600' : 'text-slate-400'}`}>Em Férias</button>
                           </div>
+                          {(vacationStatus === 'Concedida' || vacationStatus === 'Férias Atuais') && (
+                            <div className="grid grid-cols-2 gap-4 animate-in slide-in-from-top-2">
+                               <div>
+                                  <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Início</label>
+                                  <input type="date" value={vacationStart} onChange={e => setVacationStart(e.target.value)} className="w-full px-4 py-3 rounded-xl border-2 font-bold text-slate-800 focus:border-amber-500" required />
+                               </div>
+                               <div>
+                                  <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Fim</label>
+                                  <input type="date" value={vacationEnd} onChange={e => setVacationEnd(e.target.value)} className="w-full px-4 py-3 rounded-xl border-2 font-bold text-slate-800 focus:border-amber-500" required />
+                               </div>
+                            </div>
+                          )}
                        </div>
                     </div>
                  )}

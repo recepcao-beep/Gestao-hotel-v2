@@ -25,6 +25,8 @@ interface SidebarProps {
   onLogout: () => void;
   theme: HotelTheme;
   user: User;
+  lastDataSource?: 'SUPABASE' | 'SHEETS' | 'CACHE';
+  visibleTabs?: Record<string, boolean>;
 }
 
 const HotelLogo = ({ type }: { type: HotelType }) => {
@@ -57,17 +59,25 @@ const HotelLogo = ({ type }: { type: HotelType }) => {
   );
 };
 
-const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange, currentHotel, onHotelChange, onLogout, theme, user }) => {
+const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange, currentHotel, onHotelChange, onLogout, theme, user, lastDataSource, visibleTabs }) => {
   const [isHotelOpen, setIsHotelOpen] = useState(true);
   const role = user.role;
 
+  const isTabVisible = (viewId: string) => {
+    // Gestores follow the global config, or if not gestor, check allowedTabs AND global config
+    const globalVisibility = visibleTabs?.[viewId] !== false;
+    if (role === 'GESTOR') return globalVisibility;
+    return user.allowedTabs?.includes(viewId as ViewType) && globalVisibility;
+  };
+
   const menuItems = [
-    { id: ViewType.DASHBOARD, label: 'Dashboard', icon: LayoutDashboard, visible: role === 'GESTOR' || user.allowedTabs?.includes(ViewType.DASHBOARD) },
-    { id: ViewType.APARTMENTS, label: 'Apartamentos', icon: Hotel, visible: role === 'GESTOR' || user.allowedTabs?.includes(ViewType.APARTMENTS) },
-    { id: ViewType.PARKING, label: 'Estacionamento', icon: Car, visible: role === 'GESTOR' || user.allowedTabs?.includes(ViewType.PARKING) },
-    { id: ViewType.BUDGETS, label: 'Orçamentos', icon: ReceiptPoundSterling, visible: role === 'GESTOR' || user.allowedTabs?.includes(ViewType.BUDGETS) },
-    { id: ViewType.INVENTORY, label: 'Estoque', icon: Package, visible: role === 'GESTOR' || user.allowedTabs?.includes(ViewType.INVENTORY) },
-    { id: ViewType.EMPLOYEES, label: 'Funcionários', icon: Users, visible: role === 'GESTOR' || user.allowedTabs?.includes(ViewType.EMPLOYEES) },
+    { id: ViewType.DASHBOARD, label: 'Dashboard', icon: LayoutDashboard, visible: isTabVisible(ViewType.DASHBOARD) },
+    { id: ViewType.APARTMENTS, label: 'Apartamentos', icon: Hotel, visible: isTabVisible(ViewType.APARTMENTS) },
+    { id: ViewType.TODAY_SCHEDULE, label: 'Pauta do Dia', icon: FileBarChart, visible: isTabVisible(ViewType.TODAY_SCHEDULE) },
+    { id: ViewType.PARKING, label: 'Estacionamento', icon: Car, visible: isTabVisible(ViewType.PARKING) },
+    { id: ViewType.BUDGETS, label: 'Orçamentos', icon: ReceiptPoundSterling, visible: isTabVisible(ViewType.BUDGETS) },
+    { id: ViewType.INVENTORY, label: 'Estoque', icon: Package, visible: isTabVisible(ViewType.INVENTORY) },
+    { id: ViewType.EMPLOYEES, label: 'Funcionários', icon: Users, visible: isTabVisible(ViewType.EMPLOYEES) },
   ];
 
   const hotels: { id: HotelType; label: string }[] = [
@@ -172,8 +182,18 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange, currentHot
           <span className="text-sm font-bold">Encerrar Sessão</span>
         </button>
 
-        <div className="pt-6 flex justify-center opacity-40 hover:opacity-100 transition-opacity">
-          <Logo className="h-6" themeColor={theme.primary} showText={true} />
+        <div className="pt-6 flex flex-col items-center gap-3">
+          {lastDataSource && (
+            <div className={`px-2 py-1 rounded-lg border text-[8px] font-black tracking-widest flex items-center gap-2 ${
+               lastDataSource === 'SUPABASE' ? 'border-emerald-500/30 text-emerald-500' : 'border-sky-500/30 text-sky-500'
+            }`}>
+               <div className={`w-1.5 h-1.5 rounded-full animate-pulse ${lastDataSource === 'SUPABASE' ? 'bg-emerald-500' : 'bg-sky-500'}`}></div>
+               MODO: {lastDataSource === 'SUPABASE' ? 'SUPABASE CLOUD' : 'PLANILHA'}
+            </div>
+          )}
+          <div className="opacity-40 hover:opacity-100 transition-opacity">
+            <Logo className="h-6" themeColor={theme.primary} showText={true} />
+          </div>
         </div>
       </div>
     </aside>
