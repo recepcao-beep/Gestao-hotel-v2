@@ -860,6 +860,16 @@ async function saveSheetData(hotel: string, dataType: string, data: any, options
     }
   }
 
+  // Supabase é a fonte principal de dados.
+  // IMPORTANTE:
+  // Se o Supabase estiver configurado, edições normais do app NÃO devem escrever no Google Sheets.
+  // Isso evita apagar/limpar a aba Apartamentos_VILLAGE em salvamentos individuais.
+  // A planilha deve ser usada apenas como backup/importação manual ou via rota de migração controlada.
+  if (supabase) {
+    console.log(`[saveSheetData] Supabase configured. Skipping Google Sheets write for ${dataType}.`);
+    return true;
+  }
+
   const SPREADSHEET_ID = process.env.GOOGLE_SHEET_ID;
   const sheetPrefix = DATA_MAP[key];
   const sheetName = await discoverSheetName(sheetPrefix, hotel);
