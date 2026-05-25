@@ -1,10 +1,9 @@
-
 import React, { useMemo } from 'react';
 import { Apartment, HotelTheme } from '../types';
-import { 
-  ChevronLeft, 
-  AlertCircle, 
-  CheckCircle2, 
+import {
+  ChevronLeft,
+  AlertCircle,
+  CheckCircle2,
   AlertTriangle,
 } from 'lucide-react';
 
@@ -16,23 +15,44 @@ interface FloorDetailViewProps {
   onSelectApartment: (id: string) => void;
 }
 
+function resolveRoomNumber(apt: Apartment, fallbackId?: string): number | null {
+  const direct = Number((apt as any).roomNumber ?? (apt as any).numero ?? (apt as any).quarto);
+  if (Number.isFinite(direct) && direct > 0) return direct;
+
+  const raw = String((apt as any).id ?? fallbackId ?? '');
+  const matches = raw.match(/\d+/g);
+  if (!matches || matches.length === 0) return null;
+
+  const lastNumber = Number(matches[matches.length - 1]);
+  return Number.isFinite(lastNumber) && lastNumber > 0 ? lastNumber : null;
+}
+
+function resolveFloor(apt: Apartment, fallbackId?: string): number | null {
+  const direct = Number((apt as any).floor ?? (apt as any).andar ?? (apt as any).chao ?? (apt as any)['chão']);
+  if (Number.isFinite(direct) && direct >= 100) return direct;
+
+  const roomNumber = resolveRoomNumber(apt, fallbackId);
+  if (roomNumber && roomNumber >= 100) return Math.floor(roomNumber / 100) * 100;
+
+  return null;
+}
+
 const FloorDetailView: React.FC<FloorDetailViewProps> = ({ floor, theme, apartments, onBack, onSelectApartment }) => {
-  // Dynamically determine room numbers for this floor
   const filteredApartmentNumbers = useMemo(() => {
     const nums = new Set<number>();
-    
-    // Baseline: Generate standard rooms for this floor (e.g. 200..234)
-    Array.from({ length: 35 }, (_, i) => floor + i)
-      .filter(num => num !== 234 && num !== 417)
-      .forEach(num => nums.add(num));
 
-    // Also include any rooms we found in data for this floor just in case
-    (Object.values(apartments) as Apartment[]).forEach(apt => {
-      if (Number(apt.floor) === floor && apt.roomNumber) {
-        nums.add(Number(apt.roomNumber));
-      }
+    Object.entries(apartments || {}).forEach(([id, apt]) => {
+      const aptFloor = resolveFloor(apt, id);
+      const roomNumber = resolveRoomNumber(apt, id);
+      if (aptFloor === floor && roomNumber) nums.add(roomNumber);
     });
-    
+
+    if (nums.size === 0) {
+      Array.from({ length: 35 }, (_, i) => floor + i)
+        .filter((num) => num !== 234 && num !== 417)
+        .forEach((num) => nums.add(num));
+    }
+
     return Array.from(nums).sort((a, b) => a - b);
   }, [apartments, floor]);
 
@@ -40,7 +60,7 @@ const FloorDetailView: React.FC<FloorDetailViewProps> = ({ floor, theme, apartme
     <div className="space-y-4 md:space-y-6">
       <div className="flex flex-row items-center justify-between gap-2 mb-4">
         <div className="flex items-center space-x-2">
-          <button 
+          <button
             onClick={onBack}
             className="p-2 hover:bg-slate-200 rounded-xl transition-colors text-slate-600 bg-white shadow-sm md:shadow-none"
           >
@@ -53,34 +73,28 @@ const FloorDetailView: React.FC<FloorDetailViewProps> = ({ floor, theme, apartme
         </div>
       </div>
 
-      {/* Apartment Grid */}
       <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-7 gap-3 md:gap-4 pb-20">
         {filteredApartmentNumbers.map((num) => {
-          const finalId = num.toString();
-          // Robust lookup: try number first, then composite as fallback
-          const aptData = apartments[finalId] || 
-                          apartments[`${floor}-${num}`] || 
-                          (Object.values(apartments) as Apartment[]).find(a => Number(a.roomNumber) === num && Number(a.floor) === floor);
+          const finalId = String(num);
+          const aptData = apartments[finalId]
+            || apartments[`${floor}-${num}`]
+            || (Object.values(apartments || {}) as Apartment[]).find((a) => resolveRoomNumber(a) === num && resolveFloor(a) === floor);
+
           const isInitialized = !!aptData;
-          
-          // Lógica de Alerta Visual
-          const hasDefects = isInitialized && (aptData.defects || []).length > 0;
+          const hasDefects = isInitialized && ((aptData.defects || []).length > 0);
           const isUrgent = isInitialized && (
-            aptData.pisoStatus === 'Reparo urgente' || 
-            aptData.pisoStatus === 'Avaria identificada' ||
-            aptData.banheiroStatus === 'Reparo urgente' ||
-            aptData.banheiroStatus === 'Avaria identificada'
-          );
-          
-          // Consider checking completed status if needed (e.g. if any field is filled)
-          // For now, let's stick to the color logic the user mentioned (green if filled)
-          const isFilled = isInitialized && (
-            aptData.pisoStatus || 
-            aptData.banheiroStatus || 
-            (aptData.defects && aptData.defects.length > 0)
+            aptData.pisoStatus === 'Reparo urgente'
+            || aptData.pisoStatus === 'Avaria identificada'
+            || aptData.banheiroStatus === 'Reparo urgente'
+            || aptData.banheiroStatus === 'Avaria identificada'
           );
 
-          // Prioridade: Não Preenchido ou Com Avaria (Vermelho) > Normal (Verde)
+          const isFilled = isInitialized && (
+            aptData.pisoStatus
+            || aptData.banheiroStatus
+            || ((aptData.defects || []).length > 0)
+          );
+
           const needsAttention = !isFilled || hasDefects || isUrgent;
 
           return (
@@ -88,14 +102,14 @@ const FloorDetailView: React.FC<FloorDetailViewProps> = ({ floor, theme, apartme
               key={num}
               onClick={() => onSelectApartment(finalId)}
               className={`relative h-28 md:h-32 rounded-2xl border-2 flex flex-col items-center justify-center transition-all duration-200 active:scale-95 shadow-sm ${
-                needsAttention 
-                ? 'bg-red-50 border-red-400 text-red-800' 
-                : 'bg-green-50 border-green-500 text-green-800'
+                needsAttention
+                  ? 'bg-red-50 border-red-400 text-red-800'
+                  : 'bg-green-50 border-green-500 text-green-800'
               }`}
             >
               <span className="text-[8px] font-black opacity-60 uppercase tracking-tighter mb-0.5">Apto</span>
               <span className="text-xl md:text-2xl font-black">{num}</span>
-              
+
               <div className="mt-1">
                 {!isInitialized ? (
                   <div className="w-3.5 h-3.5 rounded-full border-2 border-slate-200 opacity-50" />
@@ -110,18 +124,16 @@ const FloorDetailView: React.FC<FloorDetailViewProps> = ({ floor, theme, apartme
                 <span className="absolute bottom-2 text-[6px] font-black uppercase opacity-40">Pendente</span>
               )}
 
-              {/* Badges de Contagem */}
               {hasDefects && (
                 <span className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-600 text-white text-[9px] font-black flex items-center justify-center rounded-full border-2 border-white shadow-sm z-10">
                   {aptData.defects.length}
                 </span>
               )}
-              
-              {/* Badge de Urgente se não tiver defeitos mas tiver urgência */}
+
               {!hasDefects && isUrgent && (
-                 <span className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-600 text-white text-[9px] font-black flex items-center justify-center rounded-full border-2 border-white shadow-sm z-10">
-                   !
-                 </span>
+                <span className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-600 text-white text-[9px] font-black flex items-center justify-center rounded-full border-2 border-white shadow-sm z-10">
+                  !
+                </span>
               )}
             </button>
           );
