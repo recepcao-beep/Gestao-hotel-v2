@@ -6,20 +6,9 @@ import session from 'express-session';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { createClient } from '@supabase/supabase-js';
-import fs from 'fs';
 
-// Intercept console.log and console.error
-const logStream = fs.createWriteStream(path.join(process.cwd(), 'server_debug.log'), { flags: 'a' });
-const origLog = console.log;
-const origError = console.error;
-console.log = (...args) => {
-  logStream.write(`[LOG] ${args.map(a => typeof a === 'object' ? JSON.stringify(a) : a).join(' ')}\n`);
-  origLog(...args);
-};
-console.error = (...args) => {
-  logStream.write(`[ERR] ${args.map(a => typeof a === 'object' ? JSON.stringify(a) : a).join(' ')}\n`);
-  origError(...args);
-};
+// Vercel captures console.log/console.error automatically.
+// Do not write local log files here: Vercel serverless filesystem is read-only.
 
 dotenv.config();
 
