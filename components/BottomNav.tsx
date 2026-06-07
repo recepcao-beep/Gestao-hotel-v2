@@ -10,6 +10,7 @@ import {
   FileBarChart,
   CalendarDays,
   Car,
+  BedDouble,
   Settings
 } from 'lucide-react';
 
@@ -36,6 +37,7 @@ const BottomNav: React.FC<BottomNavProps> = ({ currentView, onViewChange, theme,
     { id: ViewType.PARKING, label: 'Vagas', icon: Car, visible: isTabVisible(ViewType.PARKING) },
     { id: ViewType.BUDGETS, label: 'Orças', icon: ReceiptPoundSterling, visible: isTabVisible(ViewType.BUDGETS) },
     { id: ViewType.INVENTORY, label: 'Itens', icon: Package, visible: isTabVisible(ViewType.INVENTORY) },
+    { id: ViewType.LINEN, label: 'Enxoval', icon: BedDouble, visible: isTabVisible(ViewType.LINEN) },
     { id: ViewType.EMPLOYEES, label: 'Equipe', icon: Users, visible: isTabVisible(ViewType.EMPLOYEES) },
     { id: ViewType.SETTINGS, label: 'Ajuste', icon: Settings, visible: role === 'GESTOR' || user.role === 'GESTOR' }, // Settings always visible for gestor on mobile too
   ];

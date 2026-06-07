@@ -58,6 +58,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({
     [ViewType.BUDGETS]: 'Gerenciamento de Orçamentos',
     [ViewType.EMPLOYEES]: 'Pessoas / Funcionários',
     [ViewType.INVENTORY]: 'Controle de Estoque',
+    [ViewType.LINEN]: 'Controle de Enxoval',
     [ViewType.REPORTS]: 'Relatórios e BI',
     [ViewType.TODAY_SCHEDULE]: 'Pauta do Dia',
     [ViewType.PARKING]: 'Estacionamento / Vagas',

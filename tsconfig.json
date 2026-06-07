@@ -26,5 +26,9 @@
     },
     "allowImportingTsExtensions": true,
     "noEmit": true
-  }
+  },
+  "exclude": [
+    "utils/components",
+    "utils/api"
+  ]
 }

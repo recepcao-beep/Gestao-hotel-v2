@@ -137,6 +137,8 @@ const DATA_MAP: Record<string, string> = {
   inventory: 'Estoque',
   inventoryHistory: 'Historico_Estoque',
   suppliers: 'Fornecedores',
+  linenItems: 'Enxoval',
+  linenHistory: 'Historico_Enxoval',
   config: 'Config',
   users: 'Users',
   parkingLocations: 'Patios',
@@ -152,6 +154,8 @@ const INTERNAL_KEY_MAP: Record<string, string> = {
   'INVENTORY': 'inventory',
   'INVENTORY_OP': 'inventoryHistory',
   'SUPPLIER': 'suppliers',
+  'LINEN': 'linenItems',
+  'LINEN_OP': 'linenHistory',
   'CONFIG': 'config',
   'USER': 'users',
   'PARKING_LOCATION': 'parkingLocations',
@@ -168,6 +172,8 @@ const GRID_COLUMNS: Record<string, string[]> = {
   inventory: ['id', 'ean', 'name', 'category', 'quantity', 'minQuantity', 'unit', 'price', 'supplierId', 'lastUpdate', 'sectorId'],
   inventoryHistory: ['id', 'itemId', 'itemName', 'type', 'quantity', 'timestamp', 'user', 'reason', 'recipientId', 'recipientName'],
   suppliers: ['id', 'name', 'contact', 'category'],
+  linenItems: ['id', 'name', 'category', 'unit', 'minCleanQuantity', 'quantityClean', 'quantityInUse', 'quantityDirty', 'quantityLaundry', 'quantityDamaged', 'quantityLost', 'lastUpdate'],
+  linenHistory: ['id', 'itemId', 'itemName', 'type', 'fromStatus', 'toStatus', 'quantity', 'timestamp', 'user', 'location', 'reason'],
   users: ['id', 'name', 'password', 'role', 'allowedTabs', 'email', 'status'],
   parkingLocations: ['id', 'name', 'totalSpots'],
   vehicles: ['id', 'guest_name', 'plate', 'identifier', 'location', 'trip_start', 'model', 'color', 'is_on_trip', 'payment_pending', 'deleted_date', 'check_in_date', 'is_active', 'check_out_date', 'photos', 'history']
@@ -175,7 +181,7 @@ const GRID_COLUMNS: Record<string, string[]> = {
 
 function parseValue(val: any, fieldName: string) {
   if (val === undefined || val === null || val === '') {
-    if (['quantity', 'minQuantity', 'price', 'value', 'laborCost', 'totalSpots', 'floor', 'roomNumber', 'serviceQuality', 'cabideQuantity'].includes(fieldName)) return 0;
+    if (['quantity', 'minQuantity', 'price', 'value', 'laborCost', 'totalSpots', 'floor', 'roomNumber', 'serviceQuality', 'cabideQuantity', 'minCleanQuantity', 'quantityClean', 'quantityInUse', 'quantityDirty', 'quantityLaundry', 'quantityDamaged', 'quantityLost'].includes(fieldName)) return 0;
     if (['defects', 'beds', 'moveisDetalhes', 'items', 'quotes', 'files', 'standardUniform', 'roles', 'availability', 'sundayOffs', 'uniforms', 'photos', 'history', 'allowedTabs'].includes(fieldName)) return [];
     if (['customAnswers'].includes(fieldName)) return {};
     if (fieldName.startsWith('tem') || ['temCofre', 'temCortina', 'temEspelhoCorpo', 'temPortaControle', 'temCabide', 'temSuportePapel', 'temSuporteShampoo'].includes(fieldName)) return false;
@@ -195,7 +201,7 @@ function parseValue(val: any, fieldName: string) {
     return val;
   }
 
-  if (['quantity', 'minQuantity', 'price', 'value', 'laborCost', 'totalSpots', 'floor', 'roomNumber', 'serviceQuality', 'cabideQuantity', 'salary'].includes(fieldName)) {
+  if (['quantity', 'minQuantity', 'price', 'value', 'laborCost', 'totalSpots', 'floor', 'roomNumber', 'serviceQuality', 'cabideQuantity', 'salary', 'minCleanQuantity', 'quantityClean', 'quantityInUse', 'quantityDirty', 'quantityLaundry', 'quantityDamaged', 'quantityLost'].includes(fieldName)) {
     if (typeof val === 'string') {
       val = val.replace(/\./g, '').replace(',', '.');
     }
@@ -764,17 +770,14 @@ async function saveSheetData(hotel: string, dataType: string, data: any, options
       
       let tableName = ptTableNameExact;
       
-      // Let's first check which table actually has data/exists
-      let check = await supabase.from(ptTableNameExact).select('id', { count: 'exact', head: true });
-      if (check.error || check.count === null || check.count === 0) {
-        let checkLower = await supabase.from(ptTableNameLower).select('id', { count: 'exact', head: true });
-        if (!checkLower.error && checkLower.count !== null && checkLower.count > 0) {
-            tableName = ptTableNameLower;
-        } else {
-            let checkEn = await supabase.from(englishTableName).select('id', { count: 'exact', head: true });
-            if (!checkEn.error && checkEn.count !== null && checkEn.count > 0) {
-                tableName = englishTableName;
-            }
+      // Select the first table that exists, even when it is still empty.
+      // This is important for newly-created modules such as linen control.
+      const candidateTables = [ptTableNameExact, ptTableNameLower, englishTableName];
+      for (const candidate of candidateTables) {
+        const check = await supabase.from(candidate).select('id', { count: 'exact', head: true });
+        if (!check.error) {
+          tableName = candidate;
+          break;
         }
       }
       
@@ -1039,6 +1042,38 @@ app.post('/api/sheets/action', async (req, res) => {
         if (supIndex > -1) currentData.suppliers[supIndex] = payload;
         else currentData.suppliers.push(payload);
         break;
+      case 'LINEN':
+        if (!Array.isArray(currentData.linenItems)) currentData.linenItems = [];
+        const linenIndex = currentData.linenItems.findIndex((item: any) => item.id === payload.id);
+        if (linenIndex > -1) currentData.linenItems[linenIndex] = payload;
+        else currentData.linenItems.push(payload);
+        break;
+      case 'LINEN_OP':
+        if (!Array.isArray(currentData.linenHistory)) currentData.linenHistory = [];
+        if (!Array.isArray(currentData.linenItems)) currentData.linenItems = [];
+        currentData.linenHistory.push(payload);
+
+        const linenItem = currentData.linenItems.find((item: any) => item.id === payload.itemId || String(item.id) === String(payload.itemId));
+        if (linenItem) {
+          const quantity = Number(payload.quantity) || 0;
+          const statusField = (status: string) => {
+            switch (status) {
+              case 'Limpo': return 'quantityClean';
+              case 'Em uso': return 'quantityInUse';
+              case 'Sujo': return 'quantityDirty';
+              case 'Lavanderia': return 'quantityLaundry';
+              case 'Danificado': return 'quantityDamaged';
+              case 'Extraviado': return 'quantityLost';
+              default: return null;
+            }
+          };
+          const fromField = statusField(payload.fromStatus);
+          const toField = statusField(payload.toStatus);
+          if (fromField) linenItem[fromField] = Math.max(0, (Number(linenItem[fromField]) || 0) - quantity);
+          if (toField) linenItem[toField] = (Number(linenItem[toField]) || 0) + quantity;
+          linenItem.lastUpdate = Date.now();
+        }
+        break;
       case 'USER':
         if (!Array.isArray(currentData.users)) currentData.users = [];
         const uIndex = currentData.users.findIndex((u: any) => u.id === payload.id);
@@ -1090,15 +1125,20 @@ app.post('/api/sheets/action', async (req, res) => {
     if (keyToSave) {
         // If it's a delete, we already handled Supabase above.
         // If it's not a delete, let's make sure we sync the item/collection.
-        const dataToSave = (isFullSync || dataType === 'DELETE' || dataType === 'INVENTORY_OP' || dataType === 'CONFIG') 
+        const dataToSave = (isFullSync || dataType === 'DELETE' || dataType === 'INVENTORY_OP' || dataType === 'LINEN_OP' || dataType === 'CONFIG') 
           ? currentData[keyToSave] 
           : payload;
         
-        await saveSheetData(hotel, targetDataType, dataToSave, { isFullSync: (isFullSync || dataType === 'DELETE' || dataType === 'INVENTORY_OP') });
+        await saveSheetData(hotel, targetDataType, dataToSave, { isFullSync: (isFullSync || dataType === 'DELETE' || dataType === 'INVENTORY_OP' || dataType === 'LINEN_OP') });
 
         // If it was an inventory op, also save final inventory state
         if (dataType === 'INVENTORY_OP') {
             await saveSheetData(hotel, 'INVENTORY', currentData.inventory, { isFullSync: true });
+        }
+
+        // Linen movements also update the current balance of each item.
+        if (dataType === 'LINEN_OP') {
+            await saveSheetData(hotel, 'LINEN', currentData.linenItems, { isFullSync: true });
         }
     }
 

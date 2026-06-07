@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { ViewType, AppState, Apartment, Budget, Employee, Integration, HotelType, HotelData, HotelTheme, User, Sector, InventoryItem, InventoryOperation, Supplier, ExtraLabor, ParkingLocation, Vehicle } from './types';
+import { ViewType, AppState, Apartment, Budget, Employee, Integration, HotelType, HotelData, HotelTheme, User, Sector, InventoryItem, InventoryOperation, Supplier, ExtraLabor, ParkingLocation, Vehicle, LinenItem, LinenOperation, LinenStockStatus } from './types';
 import Sidebar from './components/Sidebar';
 import BottomNav from './components/BottomNav';
 import Dashboard from './components/Dashboard';
@@ -10,6 +10,7 @@ import ApartmentDetailView from './components/ApartmentDetailView';
 import BudgetsView from './components/BudgetsView';
 import EmployeesView from './components/EmployeesView';
 import InventoryView from './components/InventoryView';
+import LinenView from './components/LinenView';
 import ReportsView from './components/ReportsView';
 import SettingsView from './components/SettingsView';
 import ParkingView from './components/ParkingView';
@@ -27,6 +28,8 @@ const getInitialHotelData = (): HotelData => ({
   inventory: [],
   inventoryHistory: [],
   suppliers: [],
+  linenItems: [],
+  linenHistory: [],
   sectors: [
     { id: '1', name: 'Recepção', standardUniform: [{ name: 'Camisa Social', quantity: 2 }, { name: 'Calça Social', quantity: 2 }] },
     { id: '2', name: 'Governança', standardUniform: [{ name: 'Jaleco', quantity: 3 }, { name: 'Calça Branca', quantity: 2 }] },
@@ -95,7 +98,12 @@ const App: React.FC = () => {
       try {
         const parsed = JSON.parse(saved);
         return { 
-          ...parsed, 
+          ...parsed,
+          hotels: {
+            VILLAGE: { ...getInitialHotelData(), ...(parsed.hotels?.VILLAGE || {}) },
+            GOLDEN_PARK: { ...getInitialHotelData(), ...(parsed.hotels?.GOLDEN_PARK || {}) },
+            THERMAL_RESORT: { ...getInitialHotelData(), ...(parsed.hotels?.THERMAL_RESORT || {}) }
+          },
           currentUser: null,
           lastDataSource: parsed.lastDataSource || 'CACHE'
         };
@@ -324,6 +332,34 @@ const App: React.FC = () => {
             id: s.id?.toString() || `sup-${Date.now()}-${idx}-${Math.random().toString(36).substr(2, 5)}`
         })));
 
+        const rawLinenItems = Array.isArray(incomingData.linenItems) ? incomingData.linenItems : [];
+        const normalizedLinenItems = dedupe(rawLinenItems.map((item: any, idx: number) => ({
+            ...item,
+            id: item.id?.toString() || `linen-${Date.now()}-${idx}-${Math.random().toString(36).substr(2, 5)}`,
+            name: item.name?.toString() || 'Item sem nome',
+            category: item.category?.toString() || 'Outros',
+            unit: item.unit?.toString() || 'Peça',
+            minCleanQuantity: parseFloat(item.minCleanQuantity) || 0,
+            quantityClean: parseFloat(item.quantityClean) || 0,
+            quantityInUse: parseFloat(item.quantityInUse) || 0,
+            quantityDirty: parseFloat(item.quantityDirty) || 0,
+            quantityLaundry: parseFloat(item.quantityLaundry) || 0,
+            quantityDamaged: parseFloat(item.quantityDamaged) || 0,
+            quantityLost: parseFloat(item.quantityLost) || 0,
+            lastUpdate: safeGetTime(item.lastUpdate)
+        })));
+
+        const rawLinenHistory = Array.isArray(incomingData.linenHistory) ? incomingData.linenHistory : [];
+        const normalizedLinenHistory = dedupe(rawLinenHistory.map((op: any, idx: number) => ({
+            ...op,
+            id: op.id?.toString() || `linen-op-${Date.now()}-${idx}-${Math.random().toString(36).substr(2, 5)}`,
+            itemId: op.itemId?.toString() || '',
+            itemName: op.itemName?.toString() || 'Item sem nome',
+            quantity: parseFloat(op.quantity) || 0,
+            timestamp: safeGetTime(op.timestamp),
+            user: op.user?.toString() || 'Usuário'
+        }))).sort((a: any, b: any) => b.timestamp - a.timestamp);
+
         const rawVehicles = Array.isArray(incomingData.vehicles) ? incomingData.vehicles : [];
         const normalizedVehicles = dedupe(rawVehicles.map((v: any, idx: number) => ({
             ...v,
@@ -440,6 +476,8 @@ const App: React.FC = () => {
           inventory: normalizedInventory,
           inventoryHistory: normalizedInventoryHistory,
           suppliers: normalizedSuppliers,
+          linenItems: normalizedLinenItems,
+          linenHistory: normalizedLinenHistory,
           vehicles: normalizedVehicles,
           users: normalizedUsers,
           parkingLocations: normalizedParkingLocations
@@ -504,7 +542,7 @@ const App: React.FC = () => {
     }
   }, [state]);
 
-  const syncToSheet = async (dataType: 'APARTMENT' | 'BUDGET' | 'EMPLOYEE' | 'EXTRA' | 'SECTOR' | 'INVENTORY' | 'INVENTORY_OP' | 'SUPPLIER' | 'CONFIG' | 'DELETE' | 'USER' | 'PARKING_LOCATION' | 'VEHICLE' | 'CHECKOUT_VEHICLE', data: any, newFiles?: any[], hotelOverride?: HotelType, isFullSync?: boolean) => {
+  const syncToSheet = async (dataType: 'APARTMENT' | 'BUDGET' | 'EMPLOYEE' | 'EXTRA' | 'SECTOR' | 'INVENTORY' | 'INVENTORY_OP' | 'SUPPLIER' | 'CONFIG' | 'DELETE' | 'USER' | 'PARKING_LOCATION' | 'VEHICLE' | 'CHECKOUT_VEHICLE' | 'LINEN' | 'LINEN_OP', data: any, newFiles?: any[], hotelOverride?: HotelType, isFullSync?: boolean) => {
     try {
       const apiUrl = `${GLOBAL_API_URL}/action`;
       await fetch(apiUrl, {
@@ -739,6 +777,81 @@ const App: React.FC = () => {
       }
     }));
     syncToSheet('INVENTORY_OP', op);
+  };
+
+  const getLinenStatusField = (status?: LinenStockStatus): keyof LinenItem | null => {
+    switch (status) {
+      case 'Limpo': return 'quantityClean';
+      case 'Em uso': return 'quantityInUse';
+      case 'Sujo': return 'quantityDirty';
+      case 'Lavanderia': return 'quantityLaundry';
+      case 'Danificado': return 'quantityDamaged';
+      case 'Extraviado': return 'quantityLost';
+      default: return null;
+    }
+  };
+
+  const handleSaveLinenItem = (item: LinenItem) => {
+    const existing = (currentHotelData.linenItems || []).find(i => i.id === item.id);
+    const newItems = existing
+      ? (currentHotelData.linenItems || []).map(i => i.id === item.id ? item : i)
+      : [...(currentHotelData.linenItems || []), item];
+
+    setState(prev => ({
+      ...prev,
+      hotels: {
+        ...prev.hotels,
+        [prev.currentHotel]: { ...prev.hotels[prev.currentHotel], linenItems: newItems }
+      }
+    }));
+    syncToSheet('LINEN', item);
+  };
+
+  const handleDeleteLinenItem = (id: string) => {
+    setState(prev => ({
+      ...prev,
+      hotels: {
+        ...prev.hotels,
+        [prev.currentHotel]: {
+          ...prev.hotels[prev.currentHotel],
+          linenItems: (prev.hotels[prev.currentHotel].linenItems || []).filter(item => item.id !== id)
+        }
+      }
+    }));
+    syncToSheet('DELETE', { id, targetType: 'LINEN' });
+  };
+
+  const handleLinenOperation = (operation: LinenOperation) => {
+    const item = (currentHotelData.linenItems || []).find(i => i.id === operation.itemId);
+    if (!item) return;
+
+    const updatedItem: LinenItem = { ...item, lastUpdate: Date.now() };
+    const originField = getLinenStatusField(operation.fromStatus);
+    const destinationField = getLinenStatusField(operation.toStatus);
+    const quantity = Number(operation.quantity) || 0;
+
+    if (originField) {
+      const current = Number(updatedItem[originField]) || 0;
+      if (current < quantity) return;
+      (updatedItem[originField] as number) = current - quantity;
+    }
+    if (destinationField) {
+      const current = Number(updatedItem[destinationField]) || 0;
+      (updatedItem[destinationField] as number) = current + quantity;
+    }
+
+    setState(prev => ({
+      ...prev,
+      hotels: {
+        ...prev.hotels,
+        [prev.currentHotel]: {
+          ...prev.hotels[prev.currentHotel],
+          linenItems: (prev.hotels[prev.currentHotel].linenItems || []).map(i => i.id === operation.itemId ? updatedItem : i),
+          linenHistory: [operation, ...(prev.hotels[prev.currentHotel].linenHistory || [])].slice(0, 500)
+        }
+      }
+    }));
+    syncToSheet('LINEN_OP', operation);
   };
 
   const handleSaveSupplier = (sup: Supplier) => {
@@ -1060,6 +1173,18 @@ const App: React.FC = () => {
             onSaveExtra={handleSaveExtra}
             role={state.currentUser?.role} 
             currentUser={state.currentUser?.name} 
+          />
+        );
+      case ViewType.LINEN:
+        return (
+          <LinenView
+            items={currentHotelData.linenItems || []}
+            history={currentHotelData.linenHistory || []}
+            theme={theme}
+            currentUser={state.currentUser?.name}
+            onSave={handleSaveLinenItem}
+            onDelete={handleDeleteLinenItem}
+            onOperation={handleLinenOperation}
           />
         );
       case ViewType.REPORTS:

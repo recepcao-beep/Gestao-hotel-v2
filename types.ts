@@ -8,7 +8,8 @@ export enum ViewType {
   INVENTORY = 'INVENTORY',
   REPORTS = 'REPORTS',
   TODAY_SCHEDULE = 'TODAY_SCHEDULE',
-  PARKING = 'PARKING'
+  PARKING = 'PARKING',
+  LINEN = 'LINEN'
 }
 
 export type UserRole = 'GESTOR' | 'FUNCIONARIO';
@@ -180,6 +181,38 @@ export interface InventoryOperation {
   withdrawalLocation?: string;
 }
 
+
+export type LinenStockStatus = 'Limpo' | 'Em uso' | 'Sujo' | 'Lavanderia' | 'Danificado' | 'Extraviado';
+
+export interface LinenItem {
+  id: string;
+  name: string;
+  category: string;
+  unit: string;
+  minCleanQuantity: number;
+  quantityClean: number;
+  quantityInUse: number;
+  quantityDirty: number;
+  quantityLaundry: number;
+  quantityDamaged: number;
+  quantityLost: number;
+  lastUpdate: number;
+}
+
+export interface LinenOperation {
+  id: string;
+  itemId: string;
+  itemName: string;
+  type: 'Transferência' | 'Entrada' | 'Baixa';
+  fromStatus?: LinenStockStatus;
+  toStatus?: LinenStockStatus;
+  quantity: number;
+  timestamp: number;
+  user: string;
+  location?: string;
+  reason?: string;
+}
+
 export interface Integration {
   id: string;
   name: string;
@@ -286,6 +319,8 @@ export interface HotelData {
   inventory: InventoryItem[];
   inventoryHistory: InventoryOperation[];
   suppliers: Supplier[];
+  linenItems: LinenItem[];
+  linenHistory: LinenOperation[];
   parkingLocations?: ParkingLocation[];
   vehicles?: Vehicle[];
   users?: User[];

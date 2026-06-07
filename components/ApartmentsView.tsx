@@ -39,7 +39,7 @@ const ApartmentsView: React.FC<ApartmentsViewProps> = ({
 
     DEFAULT_FLOORS.forEach((floor) => map.set(floor, 0));
 
-    Object.values(apartments || {}).forEach((apt) => {
+    Object.values(apartments || {} as Record<string, Apartment>).forEach((apt: Apartment) => {
       const floor = resolveFloor(apt);
       if (!floor) return;
       map.set(floor, (map.get(floor) || 0) + 1);

@@ -41,7 +41,7 @@ const FloorDetailView: React.FC<FloorDetailViewProps> = ({ floor, theme, apartme
   const filteredApartmentNumbers = useMemo(() => {
     const nums = new Set<number>();
 
-    Object.entries(apartments || {}).forEach(([id, apt]) => {
+    Object.entries(apartments || {} as Record<string, Apartment>).forEach(([id, apt]: [string, Apartment]) => {
       const aptFloor = resolveFloor(apt, id);
       const roomNumber = resolveRoomNumber(apt, id);
       if (aptFloor === floor && roomNumber) nums.add(roomNumber);
