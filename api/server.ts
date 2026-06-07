@@ -139,6 +139,7 @@ const DATA_MAP: Record<string, string> = {
   suppliers: 'Fornecedores',
   linenItems: 'Enxoval',
   linenHistory: 'Historico_Enxoval',
+  linenMonthlyInventories: 'Inventario_Mensal_Enxoval',
   config: 'Config',
   users: 'Users',
   parkingLocations: 'Patios',
@@ -156,6 +157,7 @@ const INTERNAL_KEY_MAP: Record<string, string> = {
   'SUPPLIER': 'suppliers',
   'LINEN': 'linenItems',
   'LINEN_OP': 'linenHistory',
+  'LINEN_MONTHLY': 'linenMonthlyInventories',
   'CONFIG': 'config',
   'USER': 'users',
   'PARKING_LOCATION': 'parkingLocations',
@@ -172,8 +174,9 @@ const GRID_COLUMNS: Record<string, string[]> = {
   inventory: ['id', 'ean', 'name', 'category', 'quantity', 'minQuantity', 'unit', 'price', 'supplierId', 'lastUpdate', 'sectorId'],
   inventoryHistory: ['id', 'itemId', 'itemName', 'type', 'quantity', 'timestamp', 'user', 'reason', 'recipientId', 'recipientName'],
   suppliers: ['id', 'name', 'contact', 'category'],
-  linenItems: ['id', 'name', 'category', 'unit', 'minCleanQuantity', 'quantityClean', 'quantityInUse', 'quantityDirty', 'quantityLaundry', 'quantityDamaged', 'quantityLost', 'lastUpdate'],
+  linenItems: ['id', 'name', 'category', 'unit', 'calculationBasis', 'quantityPerBasis', 'idealMultiplier', 'minCleanQuantity', 'quantityClean', 'quantityInUse', 'quantityDirty', 'quantityLaundry', 'quantityStained', 'quantityTorn', 'quantityDamaged', 'quantityLost', 'lastUpdate'],
   linenHistory: ['id', 'itemId', 'itemName', 'type', 'fromStatus', 'toStatus', 'quantity', 'timestamp', 'user', 'location', 'reason'],
+  linenMonthlyInventories: ['id', 'month', 'timestamp', 'user', 'notes', 'totalPhysical', 'totalUsable', 'totalStained', 'totalTorn', 'totalLost', 'totalVariance', 'items'],
   users: ['id', 'name', 'password', 'role', 'allowedTabs', 'email', 'status'],
   parkingLocations: ['id', 'name', 'totalSpots'],
   vehicles: ['id', 'guest_name', 'plate', 'identifier', 'location', 'trip_start', 'model', 'color', 'is_on_trip', 'payment_pending', 'deleted_date', 'check_in_date', 'is_active', 'check_out_date', 'photos', 'history']
@@ -181,7 +184,7 @@ const GRID_COLUMNS: Record<string, string[]> = {
 
 function parseValue(val: any, fieldName: string) {
   if (val === undefined || val === null || val === '') {
-    if (['quantity', 'minQuantity', 'price', 'value', 'laborCost', 'totalSpots', 'floor', 'roomNumber', 'serviceQuality', 'cabideQuantity', 'minCleanQuantity', 'quantityClean', 'quantityInUse', 'quantityDirty', 'quantityLaundry', 'quantityDamaged', 'quantityLost'].includes(fieldName)) return 0;
+    if (['quantity', 'minQuantity', 'price', 'value', 'laborCost', 'totalSpots', 'floor', 'roomNumber', 'serviceQuality', 'cabideQuantity', 'quantityPerBasis', 'idealMultiplier', 'minCleanQuantity', 'quantityClean', 'quantityInUse', 'quantityDirty', 'quantityLaundry', 'quantityStained', 'quantityTorn', 'quantityDamaged', 'quantityLost', 'totalPhysical', 'totalUsable', 'totalStained', 'totalTorn', 'totalLost', 'totalVariance'].includes(fieldName)) return 0;
     if (['defects', 'beds', 'moveisDetalhes', 'items', 'quotes', 'files', 'standardUniform', 'roles', 'availability', 'sundayOffs', 'uniforms', 'photos', 'history', 'allowedTabs'].includes(fieldName)) return [];
     if (['customAnswers'].includes(fieldName)) return {};
     if (fieldName.startsWith('tem') || ['temCofre', 'temCortina', 'temEspelhoCorpo', 'temPortaControle', 'temCabide', 'temSuportePapel', 'temSuporteShampoo'].includes(fieldName)) return false;
@@ -201,7 +204,7 @@ function parseValue(val: any, fieldName: string) {
     return val;
   }
 
-  if (['quantity', 'minQuantity', 'price', 'value', 'laborCost', 'totalSpots', 'floor', 'roomNumber', 'serviceQuality', 'cabideQuantity', 'salary', 'minCleanQuantity', 'quantityClean', 'quantityInUse', 'quantityDirty', 'quantityLaundry', 'quantityDamaged', 'quantityLost'].includes(fieldName)) {
+  if (['quantity', 'minQuantity', 'price', 'value', 'laborCost', 'totalSpots', 'floor', 'roomNumber', 'serviceQuality', 'cabideQuantity', 'salary', 'quantityPerBasis', 'idealMultiplier', 'minCleanQuantity', 'quantityClean', 'quantityInUse', 'quantityDirty', 'quantityLaundry', 'quantityStained', 'quantityTorn', 'quantityDamaged', 'quantityLost', 'totalPhysical', 'totalUsable', 'totalStained', 'totalTorn', 'totalLost', 'totalVariance'].includes(fieldName)) {
     if (typeof val === 'string') {
       val = val.replace(/\./g, '').replace(',', '.');
     }
@@ -1062,6 +1065,8 @@ app.post('/api/sheets/action', async (req, res) => {
               case 'Em uso': return 'quantityInUse';
               case 'Sujo': return 'quantityDirty';
               case 'Lavanderia': return 'quantityLaundry';
+              case 'Manchado': return 'quantityStained';
+              case 'Rasgado': return 'quantityTorn';
               case 'Danificado': return 'quantityDamaged';
               case 'Extraviado': return 'quantityLost';
               default: return null;
@@ -1072,6 +1077,29 @@ app.post('/api/sheets/action', async (req, res) => {
           if (fromField) linenItem[fromField] = Math.max(0, (Number(linenItem[fromField]) || 0) - quantity);
           if (toField) linenItem[toField] = (Number(linenItem[toField]) || 0) + quantity;
           linenItem.lastUpdate = Date.now();
+        }
+        break;
+      case 'LINEN_MONTHLY':
+        if (!Array.isArray(currentData.linenMonthlyInventories)) currentData.linenMonthlyInventories = [];
+        if (!Array.isArray(currentData.linenItems)) currentData.linenItems = [];
+        const monthlyIndex = currentData.linenMonthlyInventories.findIndex((inventory: any) => inventory.id === payload.id);
+        if (monthlyIndex > -1) currentData.linenMonthlyInventories[monthlyIndex] = payload;
+        else currentData.linenMonthlyInventories.push(payload);
+
+        if (Array.isArray(payload.items)) {
+          payload.items.forEach((counted: any) => {
+            const currentItem = currentData.linenItems.find((item: any) => item.id === counted.itemId || String(item.id) === String(counted.itemId));
+            if (!currentItem) return;
+            currentItem.quantityClean = Number(counted.quantityClean) || 0;
+            currentItem.quantityInUse = Number(counted.quantityInUse) || 0;
+            currentItem.quantityDirty = Number(counted.quantityDirty) || 0;
+            currentItem.quantityLaundry = Number(counted.quantityLaundry) || 0;
+            currentItem.quantityStained = Number(counted.quantityStained) || 0;
+            currentItem.quantityTorn = Number(counted.quantityTorn) || 0;
+            currentItem.quantityDamaged = Number(counted.quantityDamaged) || 0;
+            currentItem.quantityLost = Number(counted.quantityLost) || 0;
+            currentItem.lastUpdate = Number(payload.timestamp) || Date.now();
+          });
         }
         break;
       case 'USER':
@@ -1125,11 +1153,11 @@ app.post('/api/sheets/action', async (req, res) => {
     if (keyToSave) {
         // If it's a delete, we already handled Supabase above.
         // If it's not a delete, let's make sure we sync the item/collection.
-        const dataToSave = (isFullSync || dataType === 'DELETE' || dataType === 'INVENTORY_OP' || dataType === 'LINEN_OP' || dataType === 'CONFIG') 
+        const dataToSave = (isFullSync || dataType === 'DELETE' || dataType === 'INVENTORY_OP' || dataType === 'LINEN_OP' || dataType === 'LINEN_MONTHLY' || dataType === 'CONFIG') 
           ? currentData[keyToSave] 
           : payload;
         
-        await saveSheetData(hotel, targetDataType, dataToSave, { isFullSync: (isFullSync || dataType === 'DELETE' || dataType === 'INVENTORY_OP' || dataType === 'LINEN_OP') });
+        await saveSheetData(hotel, targetDataType, dataToSave, { isFullSync: (isFullSync || dataType === 'DELETE' || dataType === 'INVENTORY_OP' || dataType === 'LINEN_OP' || dataType === 'LINEN_MONTHLY') });
 
         // If it was an inventory op, also save final inventory state
         if (dataType === 'INVENTORY_OP') {
@@ -1137,7 +1165,7 @@ app.post('/api/sheets/action', async (req, res) => {
         }
 
         // Linen movements also update the current balance of each item.
-        if (dataType === 'LINEN_OP') {
+        if (dataType === 'LINEN_OP' || dataType === 'LINEN_MONTHLY') {
             await saveSheetData(hotel, 'LINEN', currentData.linenItems, { isFullSync: true });
         }
     }

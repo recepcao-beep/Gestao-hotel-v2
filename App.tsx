@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { ViewType, AppState, Apartment, Budget, Employee, Integration, HotelType, HotelData, HotelTheme, User, Sector, InventoryItem, InventoryOperation, Supplier, ExtraLabor, ParkingLocation, Vehicle, LinenItem, LinenOperation, LinenStockStatus } from './types';
+import { ViewType, AppState, Apartment, Budget, Employee, Integration, HotelType, HotelData, HotelTheme, User, Sector, InventoryItem, InventoryOperation, Supplier, ExtraLabor, ParkingLocation, Vehicle, LinenItem, LinenOperation, LinenStockStatus, LinenHotelSettings, LinenMonthlyInventory } from './types';
 import Sidebar from './components/Sidebar';
 import BottomNav from './components/BottomNav';
 import Dashboard from './components/Dashboard';
@@ -30,13 +30,21 @@ const getInitialHotelData = (): HotelData => ({
   suppliers: [],
   linenItems: [],
   linenHistory: [],
+  linenMonthlyInventories: [],
   sectors: [
     { id: '1', name: 'Recepção', standardUniform: [{ name: 'Camisa Social', quantity: 2 }, { name: 'Calça Social', quantity: 2 }] },
     { id: '2', name: 'Governança', standardUniform: [{ name: 'Jaleco', quantity: 3 }, { name: 'Calça Branca', quantity: 2 }] },
     { id: '3', name: 'Rouparia', standardUniform: [{ name: 'Camiseta Logotipo', quantity: 3 }, { name: 'Bermuda Tactel', quantity: 2 }] },
   ],
   config: {
-    showSuppliersTab: true
+    showSuppliersTab: true,
+    linenSettings: {
+      totalApartments: 0,
+      totalBeds: 0,
+      totalSingleBeds: 0,
+      totalDoubleBeds: 0,
+      idealStockMultiplier: 3
+    }
   }
 });
 
@@ -339,11 +347,16 @@ const App: React.FC = () => {
             name: item.name?.toString() || 'Item sem nome',
             category: item.category?.toString() || 'Outros',
             unit: item.unit?.toString() || 'Peça',
+            calculationBasis: item.calculationBasis || 'Manual',
+            quantityPerBasis: parseFloat(item.quantityPerBasis) || 0,
+            idealMultiplier: parseFloat(item.idealMultiplier) || undefined,
             minCleanQuantity: parseFloat(item.minCleanQuantity) || 0,
             quantityClean: parseFloat(item.quantityClean) || 0,
             quantityInUse: parseFloat(item.quantityInUse) || 0,
             quantityDirty: parseFloat(item.quantityDirty) || 0,
             quantityLaundry: parseFloat(item.quantityLaundry) || 0,
+            quantityStained: parseFloat(item.quantityStained) || 0,
+            quantityTorn: parseFloat(item.quantityTorn) || 0,
             quantityDamaged: parseFloat(item.quantityDamaged) || 0,
             quantityLost: parseFloat(item.quantityLost) || 0,
             lastUpdate: safeGetTime(item.lastUpdate)
@@ -359,6 +372,23 @@ const App: React.FC = () => {
             timestamp: safeGetTime(op.timestamp),
             user: op.user?.toString() || 'Usuário'
         }))).sort((a: any, b: any) => b.timestamp - a.timestamp);
+
+        const rawLinenMonthlyInventories = Array.isArray(incomingData.linenMonthlyInventories) ? incomingData.linenMonthlyInventories : [];
+        const normalizedLinenMonthlyInventories = dedupe(rawLinenMonthlyInventories.map((inventory: any, idx: number) => ({
+            ...inventory,
+            id: inventory.id?.toString() || `linen-month-${Date.now()}-${idx}-${Math.random().toString(36).substr(2, 5)}`,
+            month: inventory.month?.toString() || '',
+            timestamp: safeGetTime(inventory.timestamp),
+            user: inventory.user?.toString() || 'Usuário',
+            notes: inventory.notes?.toString() || '',
+            items: safeJSONParse(inventory.items, []),
+            totalPhysical: parseFloat(inventory.totalPhysical) || 0,
+            totalUsable: parseFloat(inventory.totalUsable) || 0,
+            totalStained: parseFloat(inventory.totalStained) || 0,
+            totalTorn: parseFloat(inventory.totalTorn) || 0,
+            totalLost: parseFloat(inventory.totalLost) || 0,
+            totalVariance: parseFloat(inventory.totalVariance) || 0
+        }))).sort((a: any, b: any) => a.month.localeCompare(b.month));
 
         const rawVehicles = Array.isArray(incomingData.vehicles) ? incomingData.vehicles : [];
         const normalizedVehicles = dedupe(rawVehicles.map((v: any, idx: number) => ({
@@ -398,6 +428,17 @@ const App: React.FC = () => {
             normalizedConfig = { showSuppliersTab: true };
           }
         }
+        if (!normalizedConfig || Array.isArray(normalizedConfig) || typeof normalizedConfig !== 'object') {
+          normalizedConfig = { showSuppliersTab: true };
+        }
+        normalizedConfig.showSuppliersTab = normalizedConfig.showSuppliersTab !== false;
+        normalizedConfig.linenSettings = {
+          totalApartments: parseFloat(normalizedConfig.linenSettings?.totalApartments) || 0,
+          totalBeds: parseFloat(normalizedConfig.linenSettings?.totalBeds) || 0,
+          totalSingleBeds: parseFloat(normalizedConfig.linenSettings?.totalSingleBeds) || 0,
+          totalDoubleBeds: parseFloat(normalizedConfig.linenSettings?.totalDoubleBeds) || 0,
+          idealStockMultiplier: parseFloat(normalizedConfig.linenSettings?.idealStockMultiplier) || 3
+        };
 
         console.log(`[App] Normalizing ${Object.keys(incomingData.apartments || {}).length} apartments for ${targetHotel}`);
         const normalizedApartments: Record<string, Apartment> = {};
@@ -478,6 +519,7 @@ const App: React.FC = () => {
           suppliers: normalizedSuppliers,
           linenItems: normalizedLinenItems,
           linenHistory: normalizedLinenHistory,
+          linenMonthlyInventories: normalizedLinenMonthlyInventories,
           vehicles: normalizedVehicles,
           users: normalizedUsers,
           parkingLocations: normalizedParkingLocations
@@ -542,7 +584,7 @@ const App: React.FC = () => {
     }
   }, [state]);
 
-  const syncToSheet = async (dataType: 'APARTMENT' | 'BUDGET' | 'EMPLOYEE' | 'EXTRA' | 'SECTOR' | 'INVENTORY' | 'INVENTORY_OP' | 'SUPPLIER' | 'CONFIG' | 'DELETE' | 'USER' | 'PARKING_LOCATION' | 'VEHICLE' | 'CHECKOUT_VEHICLE' | 'LINEN' | 'LINEN_OP', data: any, newFiles?: any[], hotelOverride?: HotelType, isFullSync?: boolean) => {
+  const syncToSheet = async (dataType: 'APARTMENT' | 'BUDGET' | 'EMPLOYEE' | 'EXTRA' | 'SECTOR' | 'INVENTORY' | 'INVENTORY_OP' | 'SUPPLIER' | 'CONFIG' | 'DELETE' | 'USER' | 'PARKING_LOCATION' | 'VEHICLE' | 'CHECKOUT_VEHICLE' | 'LINEN' | 'LINEN_OP' | 'LINEN_MONTHLY', data: any, newFiles?: any[], hotelOverride?: HotelType, isFullSync?: boolean) => {
     try {
       const apiUrl = `${GLOBAL_API_URL}/action`;
       await fetch(apiUrl, {
@@ -785,6 +827,8 @@ const App: React.FC = () => {
       case 'Em uso': return 'quantityInUse';
       case 'Sujo': return 'quantityDirty';
       case 'Lavanderia': return 'quantityLaundry';
+      case 'Manchado': return 'quantityStained';
+      case 'Rasgado': return 'quantityTorn';
       case 'Danificado': return 'quantityDamaged';
       case 'Extraviado': return 'quantityLost';
       default: return null;
@@ -805,6 +849,57 @@ const App: React.FC = () => {
       }
     }));
     syncToSheet('LINEN', item);
+  };
+
+  const handleSaveLinenSettings = (linenSettings: LinenHotelSettings) => {
+    const newConfig = {
+      ...(currentHotelData.config || { showSuppliersTab: true }),
+      linenSettings
+    };
+    setState(prev => ({
+      ...prev,
+      hotels: {
+        ...prev.hotels,
+        [prev.currentHotel]: { ...prev.hotels[prev.currentHotel], config: newConfig }
+      }
+    }));
+    syncToSheet('CONFIG', newConfig);
+  };
+
+  const handleSaveLinenMonthlyInventory = (inventory: LinenMonthlyInventory) => {
+    const updatedItems = (currentHotelData.linenItems || []).map(item => {
+      const counted = inventory.items.find(entry => entry.itemId === item.id);
+      if (!counted) return item;
+      return {
+        ...item,
+        quantityClean: counted.quantityClean,
+        quantityInUse: counted.quantityInUse,
+        quantityDirty: counted.quantityDirty,
+        quantityLaundry: counted.quantityLaundry,
+        quantityStained: counted.quantityStained,
+        quantityTorn: counted.quantityTorn,
+        quantityDamaged: counted.quantityDamaged,
+        quantityLost: counted.quantityLost,
+        lastUpdate: inventory.timestamp
+      };
+    });
+    const existing = (currentHotelData.linenMonthlyInventories || []).some(item => item.id === inventory.id);
+    const inventories = existing
+      ? (currentHotelData.linenMonthlyInventories || []).map(item => item.id === inventory.id ? inventory : item)
+      : [...(currentHotelData.linenMonthlyInventories || []), inventory];
+
+    setState(prev => ({
+      ...prev,
+      hotels: {
+        ...prev.hotels,
+        [prev.currentHotel]: {
+          ...prev.hotels[prev.currentHotel],
+          linenItems: updatedItems,
+          linenMonthlyInventories: inventories.sort((a, b) => a.month.localeCompare(b.month))
+        }
+      }
+    }));
+    syncToSheet('LINEN_MONTHLY', inventory);
   };
 
   const handleDeleteLinenItem = (id: string) => {
@@ -1180,11 +1275,16 @@ const App: React.FC = () => {
           <LinenView
             items={currentHotelData.linenItems || []}
             history={currentHotelData.linenHistory || []}
+            monthlyInventories={currentHotelData.linenMonthlyInventories || []}
+            settings={currentHotelData.config?.linenSettings}
+            registeredApartmentsCount={Object.keys(currentHotelData.apartments || {}).length}
             theme={theme}
             currentUser={state.currentUser?.name}
             onSave={handleSaveLinenItem}
             onDelete={handleDeleteLinenItem}
             onOperation={handleLinenOperation}
+            onSaveSettings={handleSaveLinenSettings}
+            onSaveMonthlyInventory={handleSaveLinenMonthlyInventory}
           />
         );
       case ViewType.REPORTS:

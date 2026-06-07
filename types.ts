@@ -182,18 +182,32 @@ export interface InventoryOperation {
 }
 
 
-export type LinenStockStatus = 'Limpo' | 'Em uso' | 'Sujo' | 'Lavanderia' | 'Danificado' | 'Extraviado';
+export type LinenStockStatus = 'Limpo' | 'Em uso' | 'Sujo' | 'Lavanderia' | 'Manchado' | 'Rasgado' | 'Danificado' | 'Extraviado';
+export type LinenCalculationBasis = 'Apartamento' | 'Cama total' | 'Cama solteiro' | 'Cama casal' | 'Manual';
+
+export interface LinenHotelSettings {
+  totalApartments: number;
+  totalBeds: number;
+  totalSingleBeds: number;
+  totalDoubleBeds: number;
+  idealStockMultiplier: number;
+}
 
 export interface LinenItem {
   id: string;
   name: string;
   category: string;
   unit: string;
+  calculationBasis: LinenCalculationBasis;
+  quantityPerBasis: number;
+  idealMultiplier?: number;
   minCleanQuantity: number;
   quantityClean: number;
   quantityInUse: number;
   quantityDirty: number;
   quantityLaundry: number;
+  quantityStained: number;
+  quantityTorn: number;
   quantityDamaged: number;
   quantityLost: number;
   lastUpdate: number;
@@ -211,6 +225,39 @@ export interface LinenOperation {
   user: string;
   location?: string;
   reason?: string;
+}
+
+export interface LinenMonthlyInventoryItem {
+  itemId: string;
+  itemName: string;
+  quantityClean: number;
+  quantityInUse: number;
+  quantityDirty: number;
+  quantityLaundry: number;
+  quantityStained: number;
+  quantityTorn: number;
+  quantityDamaged: number;
+  quantityLost: number;
+  expectedPhysicalTotal: number;
+  countedPhysicalTotal: number;
+  usableTotal: number;
+  variance: number;
+  varianceReason?: string;
+}
+
+export interface LinenMonthlyInventory {
+  id: string;
+  month: string;
+  timestamp: number;
+  user: string;
+  notes?: string;
+  items: LinenMonthlyInventoryItem[];
+  totalPhysical: number;
+  totalUsable: number;
+  totalStained: number;
+  totalTorn: number;
+  totalLost: number;
+  totalVariance: number;
 }
 
 export interface Integration {
@@ -321,6 +368,7 @@ export interface HotelData {
   suppliers: Supplier[];
   linenItems: LinenItem[];
   linenHistory: LinenOperation[];
+  linenMonthlyInventories: LinenMonthlyInventory[];
   parkingLocations?: ParkingLocation[];
   vehicles?: Vehicle[];
   users?: User[];
@@ -328,6 +376,7 @@ export interface HotelData {
     showSuppliersTab: boolean;
     apartmentChecklist?: FormFieldConfig[];
     visibleTabs?: Record<string, boolean>;
+    linenSettings?: LinenHotelSettings;
   };
 }
 
