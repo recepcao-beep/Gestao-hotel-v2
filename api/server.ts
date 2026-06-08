@@ -67,7 +67,7 @@ app.get('/api/supabase/debug', async (req, res) => {
   try {
     const debug: any = {};
     for (const key of Object.keys(DATA_MAP)) {
-      const names = [DATA_MAP[key], DATA_MAP[key].toLowerCase(), key.toLowerCase()];
+      const names = getSupabaseTableCandidates(key);
       for (const tableName of names) {
         if (debug[tableName]) continue;
         const { count, error } = await supabase
@@ -145,6 +145,75 @@ const DATA_MAP: Record<string, string> = {
   parkingLocations: 'Patios',
   vehicles: 'Vehicles'
 };
+
+// Canonical Supabase table names are deliberately separated from Google Sheets tab names.
+// This prevents accidental writes to Portuguese sheet labels such as "Enxoval" or "Config".
+const SUPABASE_TABLE_MAP: Record<string, string> = {
+  apartments: 'apartments',
+  budgets: 'budgets',
+  employees: 'employees',
+  extras: 'extras',
+  sectors: 'sectors',
+  inventory: 'inventory',
+  inventoryHistory: 'inventoryhistory',
+  suppliers: 'suppliers',
+  linenItems: 'linenitems',
+  linenHistory: 'linenhistory',
+  linenMonthlyInventories: 'linenmonthlyinventories',
+  config: 'config',
+  users: 'users',
+  parkingLocations: 'parkinglocations',
+  vehicles: 'vehicles'
+};
+
+// Legacy aliases are kept only for older installations. New writes always prefer the canonical table.
+const SUPABASE_LEGACY_ALIASES: Record<string, string[]> = {
+  apartments: ['Apartamentos', 'apartamentos'],
+  budgets: ['Orcamentos', 'orcamentos'],
+  employees: ['Funcionarios', 'funcionarios'],
+  extras: ['Extras'],
+  sectors: ['Setores', 'setores'],
+  inventory: ['Estoque', 'estoque'],
+  inventoryHistory: ['Historico_Estoque', 'historico_estoque'],
+  suppliers: ['Fornecedores', 'fornecedores'],
+  users: ['Users'],
+  parkingLocations: ['Patios', 'patios'],
+  vehicles: ['Vehicles']
+};
+
+const supabaseTableCache = new Map<string, string>();
+
+function getSupabaseTableCandidates(key: string): string[] {
+  const canonical = SUPABASE_TABLE_MAP[key] || key.toLowerCase();
+  const legacy = SUPABASE_LEGACY_ALIASES[key] || [];
+  return [...new Set([canonical, ...legacy])];
+}
+
+async function resolveSupabaseTable(key: string, required: boolean = false): Promise<string | null> {
+  if (!supabase) return null;
+
+  const cached = supabaseTableCache.get(key);
+  if (cached) return cached;
+
+  const candidates = getSupabaseTableCandidates(key);
+  const errors: string[] = [];
+
+  for (const candidate of candidates) {
+    const { error } = await supabase.from(candidate).select('id', { count: 'exact', head: true });
+    if (!error) {
+      supabaseTableCache.set(key, candidate);
+      return candidate;
+    }
+    errors.push(`${candidate}: ${error.message}`);
+  }
+
+  if (required) {
+    const canonical = SUPABASE_TABLE_MAP[key] || key.toLowerCase();
+    throw new Error(`Tabela do Supabase ausente: public.${canonical}. Execute o arquivo 1_EXECUTAR_NO_SUPABASE.sql antes de usar o aplicativo. Detalhes: ${errors.join(' | ')}`);
+  }
+
+  return null;
+}
 
 const INTERNAL_KEY_MAP: Record<string, string> = {
   'APARTMENT': 'apartments',
@@ -343,7 +412,9 @@ app.post('/api/supabase/migrate', async (req, res) => {
     const results: any = {};
 
     for (const [key, value] of Object.entries(data)) {
-      const tableName = key.toLowerCase(); 
+      if (!DATA_MAP[key]) continue;
+      const tableName = await resolveSupabaseTable(key, true);
+      if (!tableName) throw new Error(`Não foi possível localizar a tabela do Supabase para ${key}.`);
       
       let records: any[] = [];
       if (key === 'apartments' && typeof value === 'object' && value !== null && !Array.isArray(value)) {
@@ -419,11 +490,7 @@ async function getSheetData(hotel: string, forceSheets: boolean = false) {
       console.log(`[Supabase Load] Request for hotel: "${hotel}"`);
       
       for (const key of Object.keys(DATA_MAP)) {
-        const englishTableName = key.toLowerCase();
-        const ptTableNameExact = DATA_MAP[key];
-        const ptTableNameLower = DATA_MAP[key].toLowerCase();
-        
-        let possibleTables = [ptTableNameExact, ptTableNameLower, englishTableName];
+        const possibleTables = getSupabaseTableCandidates(key);
         let tableName = possibleTables[0];
         let result: any = { data: null, error: new Error('Not searched yet') };
         
@@ -790,22 +857,8 @@ async function saveSheetData(hotel: string, dataType: string, data: any, options
   // If Supabase is configured, save there
   if (supabase) {
     try {
-      const englishTableName = key.toLowerCase();
-      const ptTableNameExact = DATA_MAP[key];
-      const ptTableNameLower = DATA_MAP[key].toLowerCase();
-      
-      let tableName = ptTableNameExact;
-      
-      // Select the first table that exists, even when it is still empty.
-      // This is important for newly-created modules such as linen control.
-      const candidateTables = [ptTableNameExact, ptTableNameLower, englishTableName];
-      for (const candidate of candidateTables) {
-        const check = await supabase.from(candidate).select('id', { count: 'exact', head: true });
-        if (!check.error) {
-          tableName = candidate;
-          break;
-        }
-      }
+      const tableName = await resolveSupabaseTable(key, true);
+      if (!tableName) throw new Error(`Não foi possível localizar a tabela do Supabase para ${key}.`);
       
       let records: any[] = [];
       
@@ -856,9 +909,9 @@ async function saveSheetData(hotel: string, dataType: string, data: any, options
         
         if (upsertError) {
           console.error(`[Supabase Save Error] ${dataType} (${tableName}):`, upsertError.message, JSON.stringify(upsertError));
-        } else {
-          console.log(`[Supabase Save Success] ${dataType} to ${tableName}`);
+          throw new Error(`Falha ao salvar ${dataType} em public.${tableName}: ${upsertError.message}`);
         }
+        console.log(`[Supabase Save Success] ${dataType} to ${tableName}`);
 
         // DANGEROUS: Deletion of orphans. ONLY do this if we are 100% sure it's a full sync.
         const shouldDeleteOrphans = options.isFullSync === true || (Array.isArray(data) && data.length > 0 && !isSingle);
@@ -886,6 +939,7 @@ async function saveSheetData(hotel: string, dataType: string, data: any, options
       }
     } catch (error) {
       console.error('[Supabase Save Error]:', error);
+      throw error;
     }
   }
 
@@ -1177,10 +1231,13 @@ app.post('/api/sheets/action', async (req, res) => {
           currentData[deleteKey] = currentData[deleteKey].filter((item: any) => item.id !== targetId);
         }
 
-        // Delete from Supabase immediately if deleting
+        // Delete from Supabase immediately if deleting.
+        // Resolve the actual table instead of assuming that lower-casing the key is enough.
         if (supabase) {
-          const tableName = deleteKey.toLowerCase();
-          await supabase.from(tableName).delete().eq('id', `${hotel}_${targetId}`);
+          const tableName = await resolveSupabaseTable(deleteKey, true);
+          if (!tableName) throw new Error(`Não foi possível localizar a tabela do Supabase para ${deleteKey}.`);
+          const { error: deleteError } = await supabase.from(tableName).delete().eq('id', `${hotel}_${targetId}`);
+          if (deleteError) throw new Error(`Falha ao excluir registro de public.${tableName}: ${deleteError.message}`);
         }
         break;
     }

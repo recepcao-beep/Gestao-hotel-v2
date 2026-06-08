@@ -1,20 +1,28 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# Gestão Hotel V2 — versão corrigida
 
-# Run and deploy your AI Studio app
+Projeto completo para publicação na Vercel.
 
-This contains everything you need to run your app locally.
+## Antes de usar o Controle de Enxoval
 
-View your app in AI Studio: https://ai.studio/apps/52fe83a6-4d3e-4ea8-aa78-77829a3cb549
+Execute no SQL Editor do Supabase o arquivo:
 
-## Run Locally
+`1_EXECUTAR_NO_SUPABASE.sql`
 
-**Prerequisites:**  Node.js
+O script cria ou repara as tabelas necessárias sem apagar registros existentes.
 
+## Publicação
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+1. Instale as dependências localmente, caso precise testar: `npm install`.
+2. Valide o projeto: `npm run lint` e `npm run build`.
+3. Envie todos os arquivos desta pasta ao repositório GitHub conectado à Vercel.
+4. Aguarde o deployment da Vercel ficar com status `Ready`.
+5. Atualize o aplicativo com `Ctrl + F5`.
+
+## Correções incluídas
+
+- Mapeamento separado entre abas do Google Sheets e tabelas do Supabase.
+- Gravação do enxoval exclusivamente nas tabelas corretas: `linenitems`, `linenhistory` e `linenmonthlyinventories`.
+- Gravação das configurações em `config`.
+- Resposta de erro real quando uma tabela estiver ausente; o aplicativo não simula mais um salvamento bem-sucedido.
+- Controle de enxoval simplificado: em uso, manchado, rasgado, recuperado, reciclado, extraviado e baixa definitiva.
+- Inventário mensal com progressão histórica.

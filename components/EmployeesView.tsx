@@ -4,6 +4,7 @@ import * as XLSX from 'xlsx';
 import * as pdfjsLib from 'pdfjs-dist';
 import pdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import { Employee, Sector, HotelTheme, UniformItem, ExtraLabor, InventoryOperation } from '../types';
+import { compressImage } from '../utils/imageUtils';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
 
@@ -415,7 +416,6 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const { compressImage } = await import('../utils/imageUtils');
       const compressedDataUrl = await compressImage(file, 512, 512, 0.7);
       
       const fullBase64 = compressedDataUrl;

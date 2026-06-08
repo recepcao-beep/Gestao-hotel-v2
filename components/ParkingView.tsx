@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { HotelTheme, Vehicle, VehicleHistory, ParkingLocation, User as AppUser } from '../types';
+import { compressImage } from '../utils/imageUtils';
 import { Car, LayoutDashboard, History, Plus, Search, MapPin, Calendar, User, CreditCard, CheckCircle2, AlertTriangle, X, KeySquare, Palette, Edit, LogOut, Trash2, DollarSign, Camera, Image as ImageIcon, Settings } from 'lucide-react';
 
 interface ParkingViewProps {
@@ -249,9 +250,6 @@ const ParkingView: React.FC<ParkingViewProps> = ({ theme, parkingLocations = [],
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
       const files = Array.from(e.target.files) as File[];
-      
-      // Import compressImage dynamically or assume it's imported at the top
-      const { compressImage } = await import('../utils/imageUtils');
       
       const compressedPhotos = await Promise.all(
         files.map(file => compressImage(file, 1024, 1024, 0.7))

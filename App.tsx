@@ -637,7 +637,7 @@ const App: React.FC = () => {
   const syncToSheet = async (dataType: 'APARTMENT' | 'BUDGET' | 'EMPLOYEE' | 'EXTRA' | 'SECTOR' | 'INVENTORY' | 'INVENTORY_OP' | 'SUPPLIER' | 'CONFIG' | 'DELETE' | 'USER' | 'PARKING_LOCATION' | 'VEHICLE' | 'CHECKOUT_VEHICLE' | 'LINEN' | 'LINEN_OP' | 'LINEN_MONTHLY', data: any, newFiles?: any[], hotelOverride?: HotelType, isFullSync?: boolean) => {
     try {
       const apiUrl = `${GLOBAL_API_URL}/action`;
-      await fetch(apiUrl, {
+      const response = await fetch(apiUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -650,8 +650,16 @@ const App: React.FC = () => {
           newFiles
         })
       });
-    } catch (e) {
+
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || result.status === 'error') {
+        throw new Error(result.message || `Falha de sincronização (HTTP ${response.status})`);
+      }
+      return true;
+    } catch (e: any) {
       console.error("Erro na sincronização:", e);
+      window.alert(`A alteração não foi confirmada no banco de dados.\n\n${e?.message || 'Erro desconhecido'}\n\nExecute o arquivo 1_EXECUTAR_NO_SUPABASE.sql caso ainda não tenha preparado o Supabase.`);
+      return false;
     }
   };
 

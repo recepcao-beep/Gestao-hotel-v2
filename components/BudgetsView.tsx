@@ -1,6 +1,7 @@
 
 import React, { useState, useRef, useMemo } from 'react';
 import { Budget, Quote, BudgetFile, HotelTheme, BudgetItem, MaterialItem, MaterialQuote } from '../types';
+import { compressImage } from '../utils/imageUtils';
 import { 
   Plus, 
   Search, 
@@ -90,8 +91,6 @@ const BudgetsView: React.FC<BudgetsViewProps> = ({ budgets, theme, onSave, onDel
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (files) {
-      const { compressImage } = await import('../utils/imageUtils');
-      
       for (const file of Array.from(files) as File[]) {
         if (file.type.startsWith('image/')) {
           try {
