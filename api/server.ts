@@ -174,17 +174,40 @@ const GRID_COLUMNS: Record<string, string[]> = {
   inventory: ['id', 'ean', 'name', 'category', 'quantity', 'minQuantity', 'unit', 'price', 'supplierId', 'lastUpdate', 'sectorId'],
   inventoryHistory: ['id', 'itemId', 'itemName', 'type', 'quantity', 'timestamp', 'user', 'reason', 'recipientId', 'recipientName'],
   suppliers: ['id', 'name', 'contact', 'category'],
-  linenItems: ['id', 'name', 'category', 'unit', 'calculationBasis', 'quantityPerBasis', 'idealMultiplier', 'minCleanQuantity', 'quantityClean', 'quantityInUse', 'quantityDirty', 'quantityLaundry', 'quantityStained', 'quantityTorn', 'quantityDamaged', 'quantityLost', 'lastUpdate'],
-  linenHistory: ['id', 'itemId', 'itemName', 'type', 'fromStatus', 'toStatus', 'quantity', 'timestamp', 'user', 'location', 'reason'],
+  linenItems: ['id', 'name', 'category', 'unit', 'inventoryModelVersion', 'calculationBasis', 'quantityPerBasis', 'idealMultiplier', 'minCleanQuantity', 'quantityClean', 'quantityInUse', 'quantityDirty', 'quantityLaundry', 'quantityStained', 'quantityTorn', 'quantityDamaged', 'quantityLost', 'lastUpdate'],
+  linenHistory: ['id', 'itemId', 'itemName', 'type', 'fromStatus', 'toStatus', 'quantity', 'timestamp', 'user', 'location', 'reason', 'generatedItemId', 'generatedItemName', 'generatedQuantity'],
   linenMonthlyInventories: ['id', 'month', 'timestamp', 'user', 'notes', 'totalPhysical', 'totalUsable', 'totalStained', 'totalTorn', 'totalLost', 'totalVariance', 'items'],
   users: ['id', 'name', 'password', 'role', 'allowedTabs', 'email', 'status'],
   parkingLocations: ['id', 'name', 'totalSpots'],
   vehicles: ['id', 'guest_name', 'plate', 'identifier', 'location', 'trip_start', 'model', 'color', 'is_on_trip', 'payment_pending', 'deleted_date', 'check_in_date', 'is_active', 'check_out_date', 'photos', 'history']
 };
 
+
+function normalizeLinenItemV2(item: any) {
+  const modelVersion = Number(item?.inventoryModelVersion) || 0;
+  const legacyOperationalTotal =
+    (Number(item?.quantityInUse) || 0) +
+    (Number(item?.quantityClean) || 0) +
+    (Number(item?.quantityDirty) || 0) +
+    (Number(item?.quantityLaundry) || 0);
+
+  return {
+    ...item,
+    inventoryModelVersion: 2,
+    quantityClean: 0,
+    quantityInUse: modelVersion >= 2 ? (Number(item?.quantityInUse) || 0) : legacyOperationalTotal,
+    quantityDirty: 0,
+    quantityLaundry: 0,
+    quantityStained: Number(item?.quantityStained) || 0,
+    quantityTorn: Number(item?.quantityTorn) || 0,
+    quantityDamaged: Number(item?.quantityDamaged) || 0,
+    quantityLost: Number(item?.quantityLost) || 0
+  };
+}
+
 function parseValue(val: any, fieldName: string) {
   if (val === undefined || val === null || val === '') {
-    if (['quantity', 'minQuantity', 'price', 'value', 'laborCost', 'totalSpots', 'floor', 'roomNumber', 'serviceQuality', 'cabideQuantity', 'quantityPerBasis', 'idealMultiplier', 'minCleanQuantity', 'quantityClean', 'quantityInUse', 'quantityDirty', 'quantityLaundry', 'quantityStained', 'quantityTorn', 'quantityDamaged', 'quantityLost', 'totalPhysical', 'totalUsable', 'totalStained', 'totalTorn', 'totalLost', 'totalVariance'].includes(fieldName)) return 0;
+    if (['quantity', 'minQuantity', 'price', 'value', 'laborCost', 'totalSpots', 'floor', 'roomNumber', 'serviceQuality', 'cabideQuantity', 'inventoryModelVersion', 'generatedQuantity', 'quantityPerBasis', 'idealMultiplier', 'minCleanQuantity', 'quantityClean', 'quantityInUse', 'quantityDirty', 'quantityLaundry', 'quantityStained', 'quantityTorn', 'quantityDamaged', 'quantityLost', 'totalPhysical', 'totalUsable', 'totalStained', 'totalTorn', 'totalLost', 'totalVariance'].includes(fieldName)) return 0;
     if (['defects', 'beds', 'moveisDetalhes', 'items', 'quotes', 'files', 'standardUniform', 'roles', 'availability', 'sundayOffs', 'uniforms', 'photos', 'history', 'allowedTabs'].includes(fieldName)) return [];
     if (['customAnswers'].includes(fieldName)) return {};
     if (fieldName.startsWith('tem') || ['temCofre', 'temCortina', 'temEspelhoCorpo', 'temPortaControle', 'temCabide', 'temSuportePapel', 'temSuporteShampoo'].includes(fieldName)) return false;
@@ -204,7 +227,7 @@ function parseValue(val: any, fieldName: string) {
     return val;
   }
 
-  if (['quantity', 'minQuantity', 'price', 'value', 'laborCost', 'totalSpots', 'floor', 'roomNumber', 'serviceQuality', 'cabideQuantity', 'salary', 'quantityPerBasis', 'idealMultiplier', 'minCleanQuantity', 'quantityClean', 'quantityInUse', 'quantityDirty', 'quantityLaundry', 'quantityStained', 'quantityTorn', 'quantityDamaged', 'quantityLost', 'totalPhysical', 'totalUsable', 'totalStained', 'totalTorn', 'totalLost', 'totalVariance'].includes(fieldName)) {
+  if (['quantity', 'minQuantity', 'price', 'value', 'laborCost', 'totalSpots', 'floor', 'roomNumber', 'serviceQuality', 'cabideQuantity', 'salary', 'inventoryModelVersion', 'generatedQuantity', 'quantityPerBasis', 'idealMultiplier', 'minCleanQuantity', 'quantityClean', 'quantityInUse', 'quantityDirty', 'quantityLaundry', 'quantityStained', 'quantityTorn', 'quantityDamaged', 'quantityLost', 'totalPhysical', 'totalUsable', 'totalStained', 'totalTorn', 'totalLost', 'totalVariance'].includes(fieldName)) {
     if (typeof val === 'string') {
       val = val.replace(/\./g, '').replace(',', '.');
     }
@@ -1047,13 +1070,15 @@ app.post('/api/sheets/action', async (req, res) => {
         break;
       case 'LINEN':
         if (!Array.isArray(currentData.linenItems)) currentData.linenItems = [];
+        const normalizedLinenPayload = normalizeLinenItemV2(payload);
         const linenIndex = currentData.linenItems.findIndex((item: any) => item.id === payload.id);
-        if (linenIndex > -1) currentData.linenItems[linenIndex] = payload;
-        else currentData.linenItems.push(payload);
+        if (linenIndex > -1) currentData.linenItems[linenIndex] = normalizedLinenPayload;
+        else currentData.linenItems.push(normalizedLinenPayload);
         break;
       case 'LINEN_OP':
         if (!Array.isArray(currentData.linenHistory)) currentData.linenHistory = [];
         if (!Array.isArray(currentData.linenItems)) currentData.linenItems = [];
+        currentData.linenItems = currentData.linenItems.map(normalizeLinenItemV2);
         currentData.linenHistory.push(payload);
 
         const linenItem = currentData.linenItems.find((item: any) => item.id === payload.itemId || String(item.id) === String(payload.itemId));
@@ -1076,12 +1101,24 @@ app.post('/api/sheets/action', async (req, res) => {
           const toField = statusField(payload.toStatus);
           if (fromField) linenItem[fromField] = Math.max(0, (Number(linenItem[fromField]) || 0) - quantity);
           if (toField) linenItem[toField] = (Number(linenItem[toField]) || 0) + quantity;
+          linenItem.inventoryModelVersion = 2;
           linenItem.lastUpdate = Date.now();
+
+          if (payload.type === 'Reciclagem' && payload.generatedItemId) {
+            const generatedItem = currentData.linenItems.find((item: any) => item.id === payload.generatedItemId || String(item.id) === String(payload.generatedItemId));
+            const generatedQuantity = Number(payload.generatedQuantity) || 0;
+            if (generatedItem && generatedQuantity > 0) {
+              generatedItem.quantityInUse = (Number(generatedItem.quantityInUse) || 0) + generatedQuantity;
+              generatedItem.inventoryModelVersion = 2;
+              generatedItem.lastUpdate = Date.now();
+            }
+          }
         }
         break;
       case 'LINEN_MONTHLY':
         if (!Array.isArray(currentData.linenMonthlyInventories)) currentData.linenMonthlyInventories = [];
         if (!Array.isArray(currentData.linenItems)) currentData.linenItems = [];
+        currentData.linenItems = currentData.linenItems.map(normalizeLinenItemV2);
         const monthlyIndex = currentData.linenMonthlyInventories.findIndex((inventory: any) => inventory.id === payload.id);
         if (monthlyIndex > -1) currentData.linenMonthlyInventories[monthlyIndex] = payload;
         else currentData.linenMonthlyInventories.push(payload);
@@ -1090,10 +1127,11 @@ app.post('/api/sheets/action', async (req, res) => {
           payload.items.forEach((counted: any) => {
             const currentItem = currentData.linenItems.find((item: any) => item.id === counted.itemId || String(item.id) === String(counted.itemId));
             if (!currentItem) return;
-            currentItem.quantityClean = Number(counted.quantityClean) || 0;
+            currentItem.inventoryModelVersion = 2;
+            currentItem.quantityClean = 0;
             currentItem.quantityInUse = Number(counted.quantityInUse) || 0;
-            currentItem.quantityDirty = Number(counted.quantityDirty) || 0;
-            currentItem.quantityLaundry = Number(counted.quantityLaundry) || 0;
+            currentItem.quantityDirty = 0;
+            currentItem.quantityLaundry = 0;
             currentItem.quantityStained = Number(counted.quantityStained) || 0;
             currentItem.quantityTorn = Number(counted.quantityTorn) || 0;
             currentItem.quantityDamaged = Number(counted.quantityDamaged) || 0;

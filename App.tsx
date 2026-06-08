@@ -48,6 +48,52 @@ const getInitialHotelData = (): HotelData => ({
   }
 });
 
+
+const normalizeLinenItemV2 = (item: any): LinenItem => {
+  const modelVersion = Number(item?.inventoryModelVersion) || 0;
+  const legacyOperationalTotal =
+    (Number(item?.quantityInUse) || 0) +
+    (Number(item?.quantityClean) || 0) +
+    (Number(item?.quantityDirty) || 0) +
+    (Number(item?.quantityLaundry) || 0);
+
+  return {
+    ...item,
+    inventoryModelVersion: 2,
+    quantityClean: 0,
+    quantityInUse: modelVersion >= 2 ? (Number(item?.quantityInUse) || 0) : legacyOperationalTotal,
+    quantityDirty: 0,
+    quantityLaundry: 0,
+    quantityStained: Number(item?.quantityStained) || 0,
+    quantityTorn: Number(item?.quantityTorn) || 0,
+    quantityDamaged: Number(item?.quantityDamaged) || 0,
+    quantityLost: Number(item?.quantityLost) || 0
+  } as LinenItem;
+};
+
+const normalizeCachedHotelData = (data: Partial<HotelData> | undefined): HotelData => {
+  const initial = getInitialHotelData();
+  const merged = { ...initial, ...(data || {}) } as HotelData;
+  return {
+    ...merged,
+    linenItems: Array.isArray(merged.linenItems) ? merged.linenItems.map(normalizeLinenItemV2) : [],
+    linenHistory: Array.isArray(merged.linenHistory) ? merged.linenHistory : [],
+    linenMonthlyInventories: Array.isArray(merged.linenMonthlyInventories) ? merged.linenMonthlyInventories : [],
+    config: {
+      ...initial.config,
+      ...(merged.config || {}),
+      showSuppliersTab: merged.config?.showSuppliersTab !== false,
+      linenSettings: {
+        totalApartments: Number(merged.config?.linenSettings?.totalApartments) || 0,
+        totalBeds: Number(merged.config?.linenSettings?.totalBeds) || 0,
+        totalSingleBeds: Number(merged.config?.linenSettings?.totalSingleBeds) || 0,
+        totalDoubleBeds: Number(merged.config?.linenSettings?.totalDoubleBeds) || 0,
+        idealStockMultiplier: Number(merged.config?.linenSettings?.idealStockMultiplier) || 3
+      }
+    }
+  };
+};
+
 const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
 
 const safeJSONParse = (value: any, defaultValue: any) => {
@@ -108,9 +154,9 @@ const App: React.FC = () => {
         return { 
           ...parsed,
           hotels: {
-            VILLAGE: { ...getInitialHotelData(), ...(parsed.hotels?.VILLAGE || {}) },
-            GOLDEN_PARK: { ...getInitialHotelData(), ...(parsed.hotels?.GOLDEN_PARK || {}) },
-            THERMAL_RESORT: { ...getInitialHotelData(), ...(parsed.hotels?.THERMAL_RESORT || {}) }
+            VILLAGE: normalizeCachedHotelData(parsed.hotels?.VILLAGE),
+            GOLDEN_PARK: normalizeCachedHotelData(parsed.hotels?.GOLDEN_PARK),
+            THERMAL_RESORT: normalizeCachedHotelData(parsed.hotels?.THERMAL_RESORT)
           },
           currentUser: null,
           lastDataSource: parsed.lastDataSource || 'CACHE'
@@ -341,12 +387,13 @@ const App: React.FC = () => {
         })));
 
         const rawLinenItems = Array.isArray(incomingData.linenItems) ? incomingData.linenItems : [];
-        const normalizedLinenItems = dedupe(rawLinenItems.map((item: any, idx: number) => ({
+        const normalizedLinenItems = dedupe(rawLinenItems.map((item: any, idx: number) => normalizeLinenItemV2({
             ...item,
             id: item.id?.toString() || `linen-${Date.now()}-${idx}-${Math.random().toString(36).substr(2, 5)}`,
             name: item.name?.toString() || 'Item sem nome',
             category: item.category?.toString() || 'Outros',
             unit: item.unit?.toString() || 'Peça',
+            inventoryModelVersion: parseFloat(item.inventoryModelVersion) || 0,
             calculationBasis: item.calculationBasis || 'Manual',
             quantityPerBasis: parseFloat(item.quantityPerBasis) || 0,
             idealMultiplier: parseFloat(item.idealMultiplier) || undefined,
@@ -370,7 +417,10 @@ const App: React.FC = () => {
             itemName: op.itemName?.toString() || 'Item sem nome',
             quantity: parseFloat(op.quantity) || 0,
             timestamp: safeGetTime(op.timestamp),
-            user: op.user?.toString() || 'Usuário'
+            user: op.user?.toString() || 'Usuário',
+            generatedItemId: op.generatedItemId?.toString() || undefined,
+            generatedItemName: op.generatedItemName?.toString() || undefined,
+            generatedQuantity: parseFloat(op.generatedQuantity) || undefined
         }))).sort((a: any, b: any) => b.timestamp - a.timestamp);
 
         const rawLinenMonthlyInventories = Array.isArray(incomingData.linenMonthlyInventories) ? incomingData.linenMonthlyInventories : [];
@@ -872,10 +922,11 @@ const App: React.FC = () => {
       if (!counted) return item;
       return {
         ...item,
-        quantityClean: counted.quantityClean,
+        inventoryModelVersion: 2,
+        quantityClean: 0,
         quantityInUse: counted.quantityInUse,
-        quantityDirty: counted.quantityDirty,
-        quantityLaundry: counted.quantityLaundry,
+        quantityDirty: 0,
+        quantityLaundry: 0,
         quantityStained: counted.quantityStained,
         quantityTorn: counted.quantityTorn,
         quantityDamaged: counted.quantityDamaged,
@@ -917,22 +968,36 @@ const App: React.FC = () => {
   };
 
   const handleLinenOperation = (operation: LinenOperation) => {
-    const item = (currentHotelData.linenItems || []).find(i => i.id === operation.itemId);
-    if (!item) return;
+    const currentItems = (currentHotelData.linenItems || []).map(normalizeLinenItemV2);
+    const sourceItem = currentItems.find(i => i.id === operation.itemId);
+    if (!sourceItem) return;
 
-    const updatedItem: LinenItem = { ...item, lastUpdate: Date.now() };
+    const quantity = Number(operation.quantity) || 0;
+    if (quantity <= 0) return;
+
     const originField = getLinenStatusField(operation.fromStatus);
     const destinationField = getLinenStatusField(operation.toStatus);
-    const quantity = Number(operation.quantity) || 0;
+    const sourceUpdated: LinenItem = { ...sourceItem, inventoryModelVersion: 2, lastUpdate: Date.now() };
 
     if (originField) {
-      const current = Number(updatedItem[originField]) || 0;
+      const current = Number(sourceUpdated[originField]) || 0;
       if (current < quantity) return;
-      (updatedItem[originField] as number) = current - quantity;
+      (sourceUpdated[originField] as number) = current - quantity;
     }
     if (destinationField) {
-      const current = Number(updatedItem[destinationField]) || 0;
-      (updatedItem[destinationField] as number) = current + quantity;
+      const current = Number(sourceUpdated[destinationField]) || 0;
+      (sourceUpdated[destinationField] as number) = current + quantity;
+    }
+
+    let updatedItems = currentItems.map(item => item.id === sourceUpdated.id ? sourceUpdated : item);
+
+    if (operation.type === 'Reciclagem' && operation.generatedItemId) {
+      const generatedQuantity = Number(operation.generatedQuantity) || 0;
+      if (generatedQuantity <= 0) return;
+      updatedItems = updatedItems.map(item => item.id === operation.generatedItemId
+        ? { ...item, inventoryModelVersion: 2, quantityInUse: (Number(item.quantityInUse) || 0) + generatedQuantity, lastUpdate: Date.now() }
+        : item
+      );
     }
 
     setState(prev => ({
@@ -941,7 +1006,7 @@ const App: React.FC = () => {
         ...prev.hotels,
         [prev.currentHotel]: {
           ...prev.hotels[prev.currentHotel],
-          linenItems: (prev.hotels[prev.currentHotel].linenItems || []).map(i => i.id === operation.itemId ? updatedItem : i),
+          linenItems: updatedItems,
           linenHistory: [operation, ...(prev.hotels[prev.currentHotel].linenHistory || [])].slice(0, 500)
         }
       }

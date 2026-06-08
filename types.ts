@@ -198,6 +198,8 @@ export interface LinenItem {
   name: string;
   category: string;
   unit: string;
+  /** Modelo 2: saldo operacional simplificado em uso + manchado + rasgado. */
+  inventoryModelVersion?: number;
   calculationBasis: LinenCalculationBasis;
   quantityPerBasis: number;
   idealMultiplier?: number;
@@ -217,7 +219,7 @@ export interface LinenOperation {
   id: string;
   itemId: string;
   itemName: string;
-  type: 'Transferência' | 'Entrada' | 'Baixa';
+  type: 'Transferência' | 'Entrada' | 'Baixa' | 'Avaria' | 'Recuperação' | 'Reciclagem' | 'Extravio';
   fromStatus?: LinenStockStatus;
   toStatus?: LinenStockStatus;
   quantity: number;
@@ -225,6 +227,10 @@ export interface LinenOperation {
   user: string;
   location?: string;
   reason?: string;
+  /** Item produzido quando uma peça danificada é reciclada. */
+  generatedItemId?: string;
+  generatedItemName?: string;
+  generatedQuantity?: number;
 }
 
 export interface LinenMonthlyInventoryItem {
