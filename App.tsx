@@ -15,6 +15,7 @@ import ReportsView from './components/ReportsView';
 import SettingsView from './components/SettingsView';
 import ParkingView from './components/ParkingView';
 import TodayScheduleView from './components/TodayScheduleView';
+import RobotsView from './components/RobotsView';
 import Login from './components/Login';
 import Logo from './components/Logo';
 
@@ -1364,6 +1365,8 @@ const App: React.FC = () => {
         return <ReportsView apartments={currentHotelData.apartments} theme={theme} onSelectApartment={(id) => setState(prev => ({ ...prev, selectedApartmentId: id }))} />;
       case ViewType.TODAY_SCHEDULE:
         return <TodayScheduleView employees={currentHotelData.employees} theme={theme} />;
+      case ViewType.ROBOTS:
+        return <RobotsView theme={theme} />;
       case ViewType.SETTINGS:
         return (
           <SettingsView 

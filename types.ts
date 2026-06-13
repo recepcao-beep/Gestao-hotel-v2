@@ -9,7 +9,8 @@ export enum ViewType {
   REPORTS = 'REPORTS',
   TODAY_SCHEDULE = 'TODAY_SCHEDULE',
   PARKING = 'PARKING',
-  LINEN = 'LINEN'
+  LINEN = 'LINEN',
+  ROBOTS = 'ROBOTS'
 }
 
 export type UserRole = 'GESTOR' | 'FUNCIONARIO';

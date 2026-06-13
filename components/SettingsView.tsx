@@ -62,6 +62,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({
     [ViewType.REPORTS]: 'Relatórios e BI',
     [ViewType.TODAY_SCHEDULE]: 'Pauta do Dia',
     [ViewType.PARKING]: 'Estacionamento / Vagas',
+    [ViewType.ROBOTS]: 'Robos de Vinculacao',
     [ViewType.SETTINGS]: 'Configurações'
   };
   

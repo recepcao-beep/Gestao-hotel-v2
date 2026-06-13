@@ -97,6 +97,98 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+type VinculacaoRotina = 'verificacao_diaria' | 'vinculacao_semanal' | 'mapa';
+
+const VINCULACAO_ROTINAS = new Set<VinculacaoRotina>([
+  'verificacao_diaria',
+  'vinculacao_semanal',
+  'mapa',
+]);
+
+function getGitHubWorkflowConfig() {
+  const owner = process.env.GITHUB_OWNER || process.env.VERCEL_GIT_REPO_OWNER || '';
+  const repo = process.env.GITHUB_REPO || process.env.VERCEL_GIT_REPO_SLUG || '';
+  const token = process.env.GITHUB_WORKFLOW_TOKEN || '';
+  const ref = process.env.GITHUB_REF || process.env.VERCEL_GIT_COMMIT_REF || 'main';
+  const workflowFile = process.env.GITHUB_VINCULACAO_WORKFLOW || 'vinculacao.yml';
+
+  if (!owner || !repo || !token) {
+    throw new Error('GitHub Actions nao configurado. Defina GITHUB_OWNER, GITHUB_REPO e GITHUB_WORKFLOW_TOKEN no Vercel.');
+  }
+
+  return { owner, repo, token, ref, workflowFile };
+}
+
+function githubHeaders(token: string) {
+  return {
+    Accept: 'application/vnd.github+json',
+    Authorization: `Bearer ${token}`,
+    'X-GitHub-Api-Version': '2022-11-28',
+  };
+}
+
+app.post('/api/robots/vinculacao/run', async (req, res) => {
+  try {
+    const rotina = String(req.body?.rotina || 'verificacao_diaria') as VinculacaoRotina;
+    if (!VINCULACAO_ROTINAS.has(rotina)) {
+      return res.status(400).json({ status: 'error', message: 'Rotina invalida.' });
+    }
+
+    const { owner, repo, token, ref, workflowFile } = getGitHubWorkflowConfig();
+    const response = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/actions/workflows/${workflowFile}/dispatches`,
+      {
+        method: 'POST',
+        headers: githubHeaders(token),
+        body: JSON.stringify({ ref, inputs: { rotina } }),
+      }
+    );
+
+    if (!response.ok) {
+      const detail = await response.text();
+      throw new Error(`Falha ao disparar GitHub Actions (${response.status}): ${detail}`);
+    }
+
+    res.json({ status: 'success', rotina, message: 'Workflow de vinculacao disparado.' });
+  } catch (error: any) {
+    console.error('[Robots Run Error]', error);
+    res.status(500).json({ status: 'error', message: error.message || 'Erro ao disparar robo.' });
+  }
+});
+
+app.get('/api/robots/vinculacao/status', async (req, res) => {
+  try {
+    const { owner, repo, token, workflowFile } = getGitHubWorkflowConfig();
+    const response = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/actions/workflows/${workflowFile}/runs?event=workflow_dispatch&per_page=5`,
+      { headers: githubHeaders(token) }
+    );
+
+    if (!response.ok) {
+      const detail = await response.text();
+      throw new Error(`Falha ao consultar GitHub Actions (${response.status}): ${detail}`);
+    }
+
+    const data: any = await response.json();
+    const latest = data.workflow_runs?.[0] || null;
+    res.json({
+      status: 'success',
+      run: latest ? {
+        id: latest.id,
+        name: latest.name,
+        status: latest.status,
+        conclusion: latest.conclusion,
+        htmlUrl: latest.html_url,
+        createdAt: latest.created_at,
+        updatedAt: latest.updated_at,
+      } : null,
+    });
+  } catch (error: any) {
+    console.error('[Robots Status Error]', error);
+    res.status(500).json({ status: 'error', message: error.message || 'Erro ao consultar robo.' });
+  }
+});
+
 app.use(session({
   secret: process.env.SESSION_SECRET || 'secret-key-gestao-hotel',
   resave: false,

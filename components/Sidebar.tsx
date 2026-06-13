@@ -14,7 +14,8 @@ import {
   Package,
   FileBarChart,
   Car,
-  BedDouble
+  BedDouble,
+  Bot
 } from 'lucide-react';
 import Logo from './Logo';
 
@@ -79,6 +80,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange, currentHot
     { id: ViewType.BUDGETS, label: 'Orçamentos', icon: ReceiptPoundSterling, visible: isTabVisible(ViewType.BUDGETS) },
     { id: ViewType.INVENTORY, label: 'Estoque', icon: Package, visible: isTabVisible(ViewType.INVENTORY) },
     { id: ViewType.LINEN, label: 'Enxoval', icon: BedDouble, visible: isTabVisible(ViewType.LINEN) },
+    { id: ViewType.ROBOTS, label: 'Robos', icon: Bot, visible: isTabVisible(ViewType.ROBOTS) },
     { id: ViewType.EMPLOYEES, label: 'Funcionários', icon: Users, visible: isTabVisible(ViewType.EMPLOYEES) },
   ];
 
