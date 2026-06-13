@@ -29,6 +29,8 @@ O token pode ser um fine-grained token com acesso ao repositorio e permissao de 
 
 Compartilhe a planilha `Controle de ocupantes (mapinha)` com o e-mail definido em `GOOGLE_SERVICE_ACCOUNT_EMAIL`, com permissao de editor. Sem isso, o app nao consegue ler/imprimir o Mapinha nem atualizar os nomes da escala.
 
+O botao `Imprimir` abre um PDF exportado diretamente da aba `Mapinha`. O navegador ainda mostra a janela de impressao/visualizacao do PDF, porque navegadores nao permitem impressao silenciosa direta por seguranca.
+
 ## Celulas dos nomes das camareiras
 
 Por padrao, o app atualiza:

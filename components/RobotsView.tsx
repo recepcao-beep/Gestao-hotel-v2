@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AlertCircle,
   Bot,
+  CalendarCheck2,
+  CalendarRange,
   CheckCircle2,
   Clock3,
   ExternalLink,
@@ -14,7 +16,7 @@ import {
 } from 'lucide-react';
 import { HotelTheme } from '../types';
 
-type Rotina = 'verificacao_diaria' | 'vinculacao_semanal' | 'mapa';
+type Rotina = 'verificacao_diaria' | 'vinculacao_semanal';
 
 interface RobotsViewProps {
   theme: HotelTheme;
@@ -38,13 +40,16 @@ interface MapinhaData {
 const rotinaLabels: Record<Rotina, string> = {
   verificacao_diaria: 'Verificacao diaria',
   vinculacao_semanal: 'Vinculacao semanal',
-  mapa: 'Atualizar mapa',
 };
 
 const rotinaDescriptions: Record<Rotina, string> = {
   verificacao_diaria: 'MR + OBS + vinculacao',
   vinculacao_semanal: 'Limpeza + MR + OBS + vinculacao',
-  mapa: 'Ocupacao, entradas e saidas',
+};
+
+const rotinaIcons: Record<Rotina, React.ElementType> = {
+  verificacao_diaria: CalendarCheck2,
+  vinculacao_semanal: CalendarRange,
 };
 
 const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
@@ -56,10 +61,11 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
   const [running, setRunning] = useState<Rotina | null>(null);
   const [message, setMessage] = useState<string>('');
   const [error, setError] = useState<string>('');
+  const [configWarning, setConfigWarning] = useState<string>('');
 
   const loadStatus = useCallback(async () => {
     setLoadingStatus(true);
-    setError('');
+    setConfigWarning('');
     try {
       const response = await fetch('/api/robots/vinculacao/status');
       const data = await response.json();
@@ -68,7 +74,7 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
       }
       setRun(data.run);
     } catch (err: any) {
-      setError(err.message || 'Falha ao consultar status.');
+      setConfigWarning(err.message || 'Falha ao consultar status.');
     } finally {
       setLoadingStatus(false);
     }
@@ -142,8 +148,7 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
   };
 
   const printMapinha = async () => {
-    if (!mapinha) await loadMapinha();
-    window.setTimeout(() => window.print(), 250);
+    window.open('/api/mapinha/pdf', '_blank', 'noopener,noreferrer');
   };
 
   const statusLabel = run
@@ -259,33 +264,47 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
         </div>
       </div>
 
-      <div className="mapinha-print-hidden grid grid-cols-1 md:grid-cols-3 gap-3">
-        {(Object.keys(rotinaLabels) as Rotina[]).map((rotina) => (
-          <button
-            key={rotina}
-            onClick={() => runRobot(rotina)}
-            disabled={!!running}
-            className="group min-h-28 rounded-lg border border-slate-200 bg-white p-4 text-left hover:border-slate-300 hover:shadow-sm disabled:opacity-60 transition-all"
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <span className="text-sm font-black text-slate-900">{rotinaLabels[rotina]}</span>
-                <div className="mt-1 text-xs font-bold text-slate-500">{rotinaDescriptions[rotina]}</div>
+      <div className="mapinha-print-hidden grid grid-cols-1 md:grid-cols-2 gap-3">
+        {(Object.keys(rotinaLabels) as Rotina[]).map((rotina) => {
+          const RotinaIcon = rotinaIcons[rotina];
+          return (
+            <button
+              key={rotina}
+              onClick={() => runRobot(rotina)}
+              disabled={!!running}
+              className="group min-h-28 rounded-lg border border-slate-200 bg-white p-4 text-left hover:border-slate-300 hover:shadow-sm disabled:opacity-60 transition-all"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-slate-50 group-hover:bg-slate-100">
+                    <RotinaIcon size={18} style={{ color: theme.primary }} />
+                  </div>
+                  <div>
+                    <span className="text-sm font-black text-slate-900">{rotinaLabels[rotina]}</span>
+                    <div className="mt-1 text-xs font-bold text-slate-500">{rotinaDescriptions[rotina]}</div>
+                  </div>
+                </div>
+                <div className="w-8 h-8 rounded-lg flex items-center justify-center border border-slate-100">
+                  <Play size={15} style={{ color: theme.primary }} />
+                </div>
               </div>
-              <div className="w-9 h-9 rounded-lg flex items-center justify-center bg-slate-50 group-hover:bg-slate-100">
-                <Play size={17} style={{ color: theme.primary }} />
+              <div className="mt-4 h-1.5 rounded-full bg-slate-100 overflow-hidden">
+                <div className="h-full rounded-full transition-all" style={{ width: running === rotina ? '70%' : '28%', backgroundColor: theme.primary }} />
               </div>
-            </div>
-            <div className="mt-4 h-1.5 rounded-full bg-slate-100 overflow-hidden">
-              <div className="h-full rounded-full transition-all" style={{ width: running === rotina ? '70%' : '28%', backgroundColor: theme.primary }} />
-            </div>
-          </button>
-        ))}
+            </button>
+          );
+        })}
       </div>
 
-      {(message || error) && (
-        <div className={`mapinha-print-hidden rounded-lg border px-4 py-3 text-sm font-bold ${error ? 'border-red-100 bg-red-50 text-red-700' : 'border-emerald-100 bg-emerald-50 text-emerald-700'}`}>
-          {error || message}
+      {(message || error || configWarning) && (
+        <div className={`mapinha-print-hidden rounded-lg border px-4 py-3 text-sm font-bold ${
+          error
+            ? 'border-red-100 bg-red-50 text-red-700'
+            : configWarning
+              ? 'border-amber-100 bg-amber-50 text-amber-700'
+              : 'border-emerald-100 bg-emerald-50 text-emerald-700'
+        }`}>
+          {error || message || configWarning}
         </div>
       )}
 

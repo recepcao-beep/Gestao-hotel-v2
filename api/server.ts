@@ -202,7 +202,10 @@ const auth = new google.auth.GoogleAuth({
     client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
     private_key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
   },
-  scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+  scopes: [
+    'https://www.googleapis.com/auth/spreadsheets',
+    'https://www.googleapis.com/auth/drive.readonly',
+  ],
 });
 
 // Validate environment variables at startup
@@ -223,6 +226,7 @@ const sheets = google.sheets({ version: 'v4', auth });
 const MAPINHA_SHEET_ID = process.env.MAPINHA_SHEET_ID || '1oMKFu9aobTP5sBuF0jjSR4In3Z6EcWfATCe_9ijNFXA';
 const MAPINHA_PRINT_RANGE = process.env.MAPINHA_PRINT_RANGE || 'Mapinha!A1:K145';
 const MAPINHA_ESCALA_RANGE = process.env.MAPINHA_ESCALA_RANGE || 'ESCALA!A1:H12';
+let mapinhaSheetGidCache: number | null = null;
 const DEFAULT_MAPINHA_NAME_CELLS: Record<string, string> = {
   '200': 'Mapinha!E41',
   '300': 'Mapinha!J41',
@@ -305,6 +309,67 @@ app.get('/api/mapinha/load', async (req, res) => {
   } catch (error: any) {
     console.error('[Mapinha Load Error]', error);
     res.status(500).json({ status: 'error', message: error.message || 'Erro ao carregar Mapinha.' });
+  }
+});
+
+async function getMapinhaSheetGid() {
+  if (mapinhaSheetGidCache !== null) return mapinhaSheetGidCache;
+
+  const response = await sheets.spreadsheets.get({
+    spreadsheetId: MAPINHA_SHEET_ID,
+    fields: 'sheets(properties(title,sheetId))',
+  });
+
+  const sheet = response.data.sheets?.find((item) => item.properties?.title === 'Mapinha');
+  const gid = sheet?.properties?.sheetId;
+  if (typeof gid !== 'number') throw new Error('Aba Mapinha nao encontrada na planilha.');
+
+  mapinhaSheetGidCache = gid;
+  return gid;
+}
+
+app.get('/api/mapinha/pdf', async (req, res) => {
+  try {
+    const gid = await getMapinhaSheetGid();
+    const client: any = await auth.getClient();
+    const tokenResponse = await client.getAccessToken();
+    const token = typeof tokenResponse === 'string' ? tokenResponse : tokenResponse?.token;
+    if (!token) throw new Error('Nao foi possivel gerar token para exportar o Mapinha.');
+
+    const params = new URLSearchParams({
+      format: 'pdf',
+      gid: String(gid),
+      size: 'A4',
+      portrait: 'true',
+      fitw: 'true',
+      sheetnames: 'false',
+      printtitle: 'false',
+      pagenumbers: 'false',
+      gridlines: 'false',
+      fzr: 'false',
+      top_margin: '0.25',
+      bottom_margin: '0.25',
+      left_margin: '0.25',
+      right_margin: '0.25',
+    });
+
+    const exportResponse = await fetch(
+      `https://docs.google.com/spreadsheets/d/${MAPINHA_SHEET_ID}/export?${params.toString()}`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+
+    if (!exportResponse.ok) {
+      const detail = await exportResponse.text();
+      throw new Error(`Falha ao exportar PDF do Mapinha (${exportResponse.status}): ${detail}`);
+    }
+
+    const buffer = Buffer.from(await exportResponse.arrayBuffer());
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'inline; filename="mapinha.pdf"');
+    res.send(buffer);
+  } catch (error: any) {
+    console.error('[Mapinha PDF Error]', error);
+    res.status(500).json({ status: 'error', message: error.message || 'Erro ao gerar PDF do Mapinha.' });
   }
 });
 
