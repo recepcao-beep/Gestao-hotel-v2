@@ -1,4 +1,5 @@
 import os
+import re
 import time
 import gspread
 from google.auth.transport.requests import Request
@@ -33,6 +34,7 @@ def executar_vinculacao_2_0():
         "2CC":  "/html/body/div[1]/div/div/modal-update-grouped-rooms-detail/div[2]/div[1]/button[5]",
         "SP":   "/html/body/div[1]/div/div/modal-update-grouped-rooms-detail/div[2]/div[1]/button[6]"
     }
+    CATEGORIAS_VALIDAS = sorted(XPATH_CATS.keys(), key=len, reverse=True)
 
     chrome_options = Options()
     if os.environ.get("ROBOT_HEADLESS", "1") != "0":
@@ -69,6 +71,121 @@ def executar_vinculacao_2_0():
                 EC.invisibility_of_element_located((By.CLASS_NAME, "block-ui-overlay"))
             )
         except: pass
+
+    def xpath_literal(texto):
+        if "'" not in texto:
+            return f"'{texto}'"
+        if '"' not in texto:
+            return f'"{texto}"'
+        partes = texto.split("'")
+        return "concat(" + ', "\'", '.join(f"'{parte}'" for parte in partes) + ")"
+
+    def normalizar_categoria(texto):
+        texto_upper = (texto or "").upper()
+        for categoria in CATEGORIAS_VALIDAS:
+            if re.search(rf"(?<![A-Z0-9]){re.escape(categoria)}(?![A-Z0-9])", texto_upper):
+                return categoria
+        return ""
+
+    def obter_categoria_bloco(indice_bloco):
+        candidatos_xpath = (
+            "//reservation-edit//*[self::span or self::div]["
+            "contains(translate(normalize-space(.), 'abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'), '1CSS') or "
+            "contains(translate(normalize-space(.), 'abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'), '1CC') or "
+            "contains(translate(normalize-space(.), 'abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'), '2CSS') or "
+            "contains(translate(normalize-space(.), 'abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'), '2CC') or "
+            "contains(translate(normalize-space(.), 'abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'), '3CS') or "
+            "contains(translate(normalize-space(.), 'abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'), 'SP')"
+            "]"
+        )
+
+        categorias = []
+        driver.switch_to.default_content()
+        for elemento in driver.find_elements(By.XPATH, candidatos_xpath):
+            try:
+                if not elemento.is_displayed():
+                    continue
+                texto = elemento.text.strip()
+                if not texto or len(texto) > 80:
+                    continue
+                categoria = normalizar_categoria(texto)
+                if categoria and (not categorias or categorias[-1] != categoria):
+                    categorias.append(categoria)
+            except:
+                continue
+
+        if indice_bloco < len(categorias):
+            return categorias[indice_bloco]
+        return ""
+
+    def clicar_apartamento_no_popup(ap_alvo):
+        ap_literal = xpath_literal(str(ap_alvo).strip())
+        container_xpath = "/html/body/div[1]/div/div/modal-reservation-edit-select-update-grouped-rooms/div[2]/div/div[5]"
+        xpaths_busca = [
+            f"{container_xpath}//button[contains(concat(' ', normalize-space(.), ' '), concat(' ', {ap_literal}, ' '))]",
+            f"{container_xpath}//*[self::span or self::label][normalize-space(.)={ap_literal}]",
+            f"//modal-reservation-edit-select-update-grouped-rooms//button[contains(concat(' ', normalize-space(.), ' '), concat(' ', {ap_literal}, ' '))]",
+            f"//modal-reservation-edit-select-update-grouped-rooms//*[self::span or self::label][normalize-space(.)={ap_literal}]",
+            f"//button[.//span[normalize-space(.)={ap_literal}] or normalize-space(.)={ap_literal}]",
+            f"//span[normalize-space(.)={ap_literal}]",
+        ]
+
+        for xpath_busca in xpaths_busca:
+            try:
+                if not focar_quadro_do_elemento(xpath_busca, 3):
+                    continue
+                for elemento in driver.find_elements(By.XPATH, xpath_busca):
+                    try:
+                        if not elemento.is_displayed():
+                            continue
+
+                        clicavel = elemento
+                        for ancestral_xpath in [
+                            "./ancestor-or-self::button[1]",
+                            "./ancestor::label[1]",
+                            "./ancestor::*[contains(@class, 'btn')][1]",
+                        ]:
+                            try:
+                                ancestral = elemento.find_element(By.XPATH, ancestral_xpath)
+                                if ancestral and ancestral.is_displayed():
+                                    clicavel = ancestral
+                                    break
+                            except:
+                                pass
+
+                        classe = clicavel.get_attribute("class") or ""
+                        if clicavel.get_attribute("disabled") or "disabled" in classe:
+                            continue
+
+                        try:
+                            ActionChains(driver).move_to_element(clicavel).click().perform()
+                        except:
+                            js_click(clicavel)
+                        return True
+                    except:
+                        continue
+            except:
+                continue
+        return False
+
+    def fechar_modal_selecao_apartamento():
+        xpaths_cancelar = [
+            "//button[@ng-click='cancelRooms(reservationRoom)' or @title='Cancelar']",
+            "/html/body/div[1]/div/div/modal-reservation-edit-select-update-grouped-rooms/div[3]/button[2]",
+            "//*[@id='abandonUpdateRooms']"
+        ]
+
+        for xp_fechar in xpaths_cancelar:
+            if focar_quadro_do_elemento(xp_fechar, 3):
+                print("❌ Clicando no botão Cancelar/X...")
+                js_click(driver.find_element(By.XPATH, xp_fechar))
+                time.sleep(1.5)
+                return True
+
+        print("⚠️ Botão X bloqueado! Forçando fechamento com tecla ESC...")
+        ActionChains(driver).send_keys(Keys.ESCAPE).perform()
+        time.sleep(1.5)
+        return False
 
     def fechar_aviso_modificado():
         try:
@@ -233,6 +350,12 @@ def executar_vinculacao_2_0():
                     if btn_c.get_attribute("disabled") or "disabled" in (btn_c.get_attribute("class") or ""):
                         print(f"🔒 Cama {i+1} bloqueada (Provável Check-in realizado). Pulando...")
                         continue
+
+                    cat_bloco_atual = obter_categoria_bloco(i)
+                    if cat_bloco_atual:
+                        print(f"🏷️ Categoria atual do bloco {i+1}: {cat_bloco_atual}")
+                    else:
+                        print(f"⚠️ Não consegui identificar a categoria atual do bloco {i+1}.")
                     
                     js_click(btn_c)
                     focar_quadro_do_elemento("//button[contains(@id, 'btnRoomSelectInEdit')]", 10)
@@ -261,7 +384,8 @@ def executar_vinculacao_2_0():
                             botoes_cama_novos = driver.find_elements(By.XPATH, "//button[contains(@id, 'btnRoomSelectInEdit')]")
                             js_click(botoes_cama_novos[i]); time.sleep(1.5)
 
-                    xpath_alvo_vinc = f"//button[.//span[text()='{ap_alvo}'] | text()='{ap_alvo}'] | //span[text()='{ap_alvo}']"
+                    ap_literal = xpath_literal(str(ap_alvo).strip())
+                    xpath_alvo_vinc = f"//button[.//span[normalize-space(.)={ap_literal}] or normalize-space(.)={ap_literal}] | //span[normalize-space(.)={ap_literal}]"
                     elementos_presentes = driver.find_elements(By.XPATH, xpath_alvo_vinc)
 
                     if elementos_presentes:
@@ -273,27 +397,26 @@ def executar_vinculacao_2_0():
                         time.sleep(1.5)
                         continue 
 
+                    if clicar_apartamento_no_popup(ap_alvo):
+                        print(f"🎯 Selecionando {ap_alvo} no pop-up de apartamentos agrupados...")
+                        time.sleep(1.5)
+                        confirmar_acao(is_overbooking=False)
+                        time.sleep(1.5)
+                        continue
+
+                    if cat_bloco_atual and cat_bloco_atual == cat_alvo:
+                        print(
+                            f"🛑 Overbooking bloqueado: bloco {i+1} já é da categoria {cat_bloco_atual}, "
+                            f"igual à planilha ({cat_alvo}). O AP {ap_alvo} deveria estar no pop-up normal."
+                        )
+                        fechar_modal_selecao_apartamento()
+                        driver.switch_to.default_content()
+                        esperar_loading_sumir()
+                        continue
+
                     print(f"⚠️ AP {ap_alvo} não encontrado. Fechando modal e iniciando OVERBOOKING na Cama {i+1}...")
                     
-                    fechou = False
-                    xpaths_cancelar = [
-                        "//button[@ng-click='cancelRooms(reservationRoom)' or @title='Cancelar']",
-                        "/html/body/div[1]/div/div/modal-reservation-edit-select-update-grouped-rooms/div[3]/button[2]",
-                        "//*[@id='abandonUpdateRooms']"
-                    ]
-                    
-                    for xp_fechar in xpaths_cancelar:
-                        if focar_quadro_do_elemento(xp_fechar, 3):
-                            print("❌ Clicando no botão Cancelar/X...")
-                            js_click(driver.find_element(By.XPATH, xp_fechar))
-                            time.sleep(1.5)
-                            fechou = True
-                            break
-                            
-                    if not fechou:
-                        print("⚠️ Botão X bloqueado! Forçando fechamento com tecla ESC...")
-                        ActionChains(driver).send_keys(Keys.ESCAPE).perform()
-                        time.sleep(1.5)
+                    fechar_modal_selecao_apartamento()
                         
                     driver.switch_to.default_content()
                     esperar_loading_sumir()
