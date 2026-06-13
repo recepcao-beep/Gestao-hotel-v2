@@ -220,6 +220,139 @@ if (missingVars.length > 0) {
 
 const sheets = google.sheets({ version: 'v4', auth });
 
+const MAPINHA_SHEET_ID = process.env.MAPINHA_SHEET_ID || '1oMKFu9aobTP5sBuF0jjSR4In3Z6EcWfATCe_9ijNFXA';
+const MAPINHA_PRINT_RANGE = process.env.MAPINHA_PRINT_RANGE || 'Mapinha!A1:K145';
+const MAPINHA_ESCALA_RANGE = process.env.MAPINHA_ESCALA_RANGE || 'ESCALA!A1:H12';
+const DEFAULT_MAPINHA_NAME_CELLS: Record<string, string> = {
+  '200': 'Mapinha!E41',
+  '300': 'Mapinha!J41',
+  '400': 'Mapinha!E88',
+  '500': 'Mapinha!J88',
+  '600': 'Mapinha!E135',
+  '700': 'Mapinha!J135',
+};
+
+function getMapinhaNameCells() {
+  if (!process.env.MAPINHA_NAME_CELLS_JSON) return DEFAULT_MAPINHA_NAME_CELLS;
+  try {
+    return { ...DEFAULT_MAPINHA_NAME_CELLS, ...JSON.parse(process.env.MAPINHA_NAME_CELLS_JSON) };
+  } catch (error) {
+    console.warn('MAPINHA_NAME_CELLS_JSON invalido. Usando mapeamento padrao.', error);
+    return DEFAULT_MAPINHA_NAME_CELLS;
+  }
+}
+
+function normalizeSheetText(value: any) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^\w\s]/g, '')
+    .toLowerCase()
+    .trim();
+}
+
+function getSaoPauloDayKey() {
+  const date = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
+  return ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sab'][date.getDay()];
+}
+
+function findScaleRow(values: any[][], dayKey: string) {
+  const normalizedDay = normalizeSheetText(dayKey);
+  return values.find((row, index) => index > 0 && normalizeSheetText(row?.[0]).includes(normalizedDay));
+}
+
+function extractScaleNamesByFloor(values: any[][], dayKey: string) {
+  const header = values[0] || [];
+  const row = findScaleRow(values, dayKey);
+  if (!row) return { namesByFloor: {}, matchedDay: dayKey, found: false };
+
+  const namesByFloor: Record<string, string> = {};
+  header.forEach((cell, index) => {
+    const floor = String(cell || '').trim();
+    if (!/^\d{3}$/.test(floor)) return;
+    const names = String(row[index] || '')
+      .split(/\r?\n/)
+      .map((name) => name.trim())
+      .filter(Boolean)
+      .join('\n');
+    if (names) namesByFloor[floor] = names;
+  });
+
+  return { namesByFloor, matchedDay: String(row[0] || dayKey), found: true };
+}
+
+app.get('/api/mapinha/load', async (req, res) => {
+  try {
+    const response = await sheets.spreadsheets.values.batchGet({
+      spreadsheetId: MAPINHA_SHEET_ID,
+      ranges: [MAPINHA_PRINT_RANGE, MAPINHA_ESCALA_RANGE],
+      valueRenderOption: 'FORMATTED_VALUE',
+    });
+
+    const [mapinhaRange, escalaRange] = response.data.valueRanges || [];
+    res.json({
+      status: 'success',
+      mapinha: {
+        range: mapinhaRange?.range || MAPINHA_PRINT_RANGE,
+        values: mapinhaRange?.values || [],
+      },
+      escala: {
+        range: escalaRange?.range || MAPINHA_ESCALA_RANGE,
+        values: escalaRange?.values || [],
+      },
+      updatedAt: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    console.error('[Mapinha Load Error]', error);
+    res.status(500).json({ status: 'error', message: error.message || 'Erro ao carregar Mapinha.' });
+  }
+});
+
+app.post('/api/mapinha/sync-scale', async (req, res) => {
+  try {
+    const dayKey = normalizeSheetText(req.body?.dayKey || getSaoPauloDayKey());
+    const escalaResponse = await sheets.spreadsheets.values.get({
+      spreadsheetId: MAPINHA_SHEET_ID,
+      range: MAPINHA_ESCALA_RANGE,
+      valueRenderOption: 'FORMATTED_VALUE',
+    });
+
+    const values = escalaResponse.data.values || [];
+    const { namesByFloor, matchedDay, found } = extractScaleNamesByFloor(values, dayKey);
+    if (!found) {
+      return res.status(404).json({ status: 'error', message: `Dia ${dayKey} nao encontrado na aba ESCALA.` });
+    }
+
+    const nameCells = getMapinhaNameCells();
+    const data = Object.entries(namesByFloor)
+      .filter(([floor]) => !!nameCells[floor])
+      .map(([floor, names]) => ({
+        range: nameCells[floor],
+        values: [[names]],
+      }));
+
+    if (data.length > 0) {
+      await sheets.spreadsheets.values.batchUpdate({
+        spreadsheetId: MAPINHA_SHEET_ID,
+        requestBody: {
+          valueInputOption: 'USER_ENTERED',
+          data,
+        },
+      });
+    }
+
+    res.json({
+      status: 'success',
+      matchedDay,
+      updatedFloors: data.map((item) => item.range),
+      namesByFloor,
+    });
+  } catch (error: any) {
+    console.error('[Mapinha Sync Error]', error);
+    res.status(500).json({ status: 'error', message: error.message || 'Erro ao atualizar nomes do Mapinha.' });
+  }
+});
+
 const DATA_MAP: Record<string, string> = {
   apartments: 'Apartamentos',
   budgets: 'Orcamentos',

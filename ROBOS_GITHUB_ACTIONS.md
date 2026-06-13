@@ -21,8 +21,30 @@ Em `Project Settings > Environment Variables`, cadastre:
 - `GITHUB_REF`: branch usada no deploy, normalmente `main`.
 - `GITHUB_WORKFLOW_TOKEN`: token do GitHub com permissao para executar Actions.
 - `GITHUB_VINCULACAO_WORKFLOW`: `vinculacao.yml`.
+- `MAPINHA_SHEET_ID`: id da planilha `Controle de ocupantes (mapinha)`.
+- `MAPINHA_PRINT_RANGE`: range de impressao, por padrao `Mapinha!A1:K145`.
+- `MAPINHA_ESCALA_RANGE`: range da escala, por padrao `ESCALA!A1:H12`.
 
 O token pode ser um fine-grained token com acesso ao repositorio e permissao de `Actions: Read and write`.
+
+Compartilhe a planilha `Controle de ocupantes (mapinha)` com o e-mail definido em `GOOGLE_SERVICE_ACCOUNT_EMAIL`, com permissao de editor. Sem isso, o app nao consegue ler/imprimir o Mapinha nem atualizar os nomes da escala.
+
+## Celulas dos nomes das camareiras
+
+Por padrao, o app atualiza:
+
+- 200: `Mapinha!E41`
+- 300: `Mapinha!J41`
+- 400: `Mapinha!E88`
+- 500: `Mapinha!J88`
+- 600: `Mapinha!E135`
+- 700: `Mapinha!J135`
+
+Se alguma celula estiver diferente, cadastre no Vercel:
+
+```txt
+MAPINHA_NAME_CELLS_JSON={"200":"Mapinha!E41","300":"Mapinha!J41","400":"Mapinha!E88","500":"Mapinha!J88","600":"Mapinha!E135","700":"Mapinha!J135"}
+```
 
 ## Rotinas disponiveis
 
