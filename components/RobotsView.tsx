@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AlertCircle,
   Bot,
@@ -7,9 +7,11 @@ import {
   CheckCircle2,
   Clock3,
   ExternalLink,
+  Loader2,
   Play,
   Printer,
   RefreshCw,
+  Terminal,
 } from 'lucide-react';
 import { HotelTheme } from '../types';
 
@@ -29,6 +31,13 @@ interface RobotRun {
   updatedAt: string;
 }
 
+interface RobotLogEntry {
+  id: number;
+  at: string;
+  text: string;
+  tone: 'info' | 'success' | 'error' | 'warning';
+}
+
 const rotinaLabels: Record<Rotina, string> = {
   verificacao_diaria: 'Verificacao diaria',
   vinculacao_semanal: 'Vinculacao semanal',
@@ -45,15 +54,32 @@ const rotinaIcons: Record<Rotina, React.ElementType> = {
 };
 
 const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
+  const lastStatusKeyRef = useRef('');
   const [run, setRun] = useState<RobotRun | null>(null);
   const [loadingStatus, setLoadingStatus] = useState(false);
   const [running, setRunning] = useState<Rotina | null>(null);
+  const [trackingStartedAt, setTrackingStartedAt] = useState<number | null>(null);
+  const [trackedRunId, setTrackedRunId] = useState<number | null>(null);
+  const [isWatchingRun, setIsWatchingRun] = useState(false);
+  const [robotLogs, setRobotLogs] = useState<RobotLogEntry[]>([]);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [configWarning, setConfigWarning] = useState('');
 
-  const loadStatus = useCallback(async () => {
-    setLoadingStatus(true);
+  const addRobotLog = useCallback((text: string, tone: RobotLogEntry['tone'] = 'info') => {
+    setRobotLogs((current) => [
+      ...current.slice(-7),
+      {
+        id: Date.now() + Math.random(),
+        at: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+        text,
+        tone,
+      },
+    ]);
+  }, []);
+
+  const loadStatus = useCallback(async (silent = false) => {
+    if (!silent) setLoadingStatus(true);
     setConfigWarning('');
     try {
       const response = await fetch('/api/robots/vinculacao/status');
@@ -62,10 +88,12 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
         throw new Error(data.message || 'Falha ao consultar status.');
       }
       setRun(data.run);
+      return data.run as RobotRun | null;
     } catch (err: any) {
       setConfigWarning(err.message || 'Falha ao consultar status.');
+      return null;
     } finally {
-      setLoadingStatus(false);
+      if (!silent) setLoadingStatus(false);
     }
   }, []);
 
@@ -73,10 +101,63 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
     loadStatus();
   }, [loadStatus]);
 
+  useEffect(() => {
+    if (!isWatchingRun) return;
+
+    const interval = window.setInterval(async () => {
+      const latestRun = await loadStatus(true);
+      if (!latestRun) return;
+
+      const latestCreatedAt = new Date(latestRun.createdAt).getTime();
+      if (trackingStartedAt && latestCreatedAt < trackingStartedAt - 60000) {
+        addRobotLog('Aguardando o GitHub Actions criar a execucao...', 'warning');
+        return;
+      }
+
+      if (trackedRunId !== latestRun.id) {
+        setTrackedRunId(latestRun.id);
+        addRobotLog(`Execucao encontrada no GitHub: #${latestRun.id}.`, 'info');
+      }
+
+      const statusKey = `${latestRun.id}-${latestRun.status}-${latestRun.conclusion || ''}`;
+      if (lastStatusKeyRef.current === statusKey) return;
+      lastStatusKeyRef.current = statusKey;
+
+      if (latestRun.status === 'queued') {
+        addRobotLog('Workflow na fila do GitHub Actions.', 'warning');
+        return;
+      }
+
+      if (latestRun.status === 'in_progress') {
+        addRobotLog('Robo em execucao. Aguarde a conclusao.', 'info');
+        return;
+      }
+
+      if (latestRun.status === 'completed') {
+        if (latestRun.conclusion === 'success') {
+          addRobotLog('Execucao concluida com sucesso.', 'success');
+          setMessage('Robo concluido com sucesso.');
+        } else {
+          addRobotLog(`Execucao finalizada com status: ${latestRun.conclusion || 'falha'}.`, 'error');
+          setError(`Robo finalizado com status: ${latestRun.conclusion || 'falha'}.`);
+        }
+        setIsWatchingRun(false);
+      }
+    }, 5000);
+
+    return () => window.clearInterval(interval);
+  }, [addRobotLog, isWatchingRun, loadStatus, trackedRunId, trackingStartedAt]);
+
   const runRobot = async (rotina: Rotina) => {
     setRunning(rotina);
+    setIsWatchingRun(false);
+    setTrackedRunId(null);
+    lastStatusKeyRef.current = '';
+    setTrackingStartedAt(Date.now());
+    setRobotLogs([]);
     setMessage('');
     setError('');
+    addRobotLog(`${rotinaLabels[rotina]} solicitada pelo app.`);
     try {
       const response = await fetch('/api/robots/vinculacao/run', {
         method: 'POST',
@@ -88,9 +169,13 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
         throw new Error(data.message || 'Falha ao disparar robo.');
       }
       setMessage(`${rotinaLabels[rotina]} enviada para execucao.`);
-      window.setTimeout(loadStatus, 2500);
+      addRobotLog('Workflow enviado ao GitHub Actions.', 'success');
+      addRobotLog('Aguardando inicio da execucao...', 'warning');
+      setIsWatchingRun(true);
+      window.setTimeout(() => loadStatus(true), 2500);
     } catch (err: any) {
       setError(err.message || 'Falha ao disparar robo.');
+      addRobotLog(err.message || 'Falha ao disparar robo.', 'error');
     } finally {
       setRunning(null);
     }
@@ -113,6 +198,13 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
   const statusColor = run?.status === 'completed'
     ? (run.conclusion === 'success' ? 'text-emerald-600 bg-emerald-50 border-emerald-100' : 'text-red-600 bg-red-50 border-red-100')
     : 'text-amber-600 bg-amber-50 border-amber-100';
+
+  const terminalToneClass: Record<RobotLogEntry['tone'], string> = {
+    info: 'text-slate-600',
+    success: 'text-emerald-700',
+    error: 'text-red-700',
+    warning: 'text-amber-700',
+  };
 
   return (
     <div className="max-w-7xl mx-auto p-4 md:p-8 space-y-5">
@@ -189,6 +281,41 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
           );
         })}
       </div>
+
+      {(robotLogs.length > 0 || isWatchingRun) && (
+        <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
+          <div className="px-4 py-3 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Terminal size={17} style={{ color: theme.primary }} />
+              <span className="text-sm font-black text-slate-900">Acompanhamento do robo</span>
+              {isWatchingRun && (
+                <span className="inline-flex items-center gap-1.5 rounded-lg border border-sky-100 bg-sky-50 px-2 py-1 text-[10px] font-black text-sky-700">
+                  <Loader2 size={12} className="animate-spin" />
+                  Ao vivo
+                </span>
+              )}
+            </div>
+            {run?.htmlUrl && (
+              <a href={run.htmlUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-xs font-black text-slate-500 hover:text-slate-900">
+                <ExternalLink size={13} />
+                Abrir log completo
+              </a>
+            )}
+          </div>
+
+          <div className="bg-slate-50 px-4 py-3 space-y-2">
+            {robotLogs.map((item) => (
+              <div key={item.id} className="flex items-start gap-2 text-xs font-bold">
+                <span className="mt-0.5 min-w-[62px] text-slate-400 font-mono">{item.at}</span>
+                <span className={terminalToneClass[item.tone]}>{item.text}</span>
+              </div>
+            ))}
+            {robotLogs.length === 0 && (
+              <div className="text-xs font-bold text-slate-400">Aguardando primeira atualizacao...</div>
+            )}
+          </div>
+        </div>
+      )}
 
       <div className="rounded-lg border border-slate-200 bg-white p-4">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
