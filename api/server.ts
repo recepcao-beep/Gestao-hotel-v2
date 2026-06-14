@@ -361,7 +361,7 @@ app.get('/api/mapinha/pdf', async (req, res) => {
       attachment: 'false',
       horizontal_alignment: 'CENTER',
       vertical_alignment: 'TOP',
-      top_margin: '0.50',
+      top_margin: '1.00',
       bottom_margin: '0.50',
       left_margin: '0.25',
       right_margin: '0.25',
