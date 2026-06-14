@@ -224,7 +224,7 @@ if (missingVars.length > 0) {
 const sheets = google.sheets({ version: 'v4', auth });
 
 const MAPINHA_SHEET_ID = process.env.MAPINHA_SHEET_ID || '1oMKFu9aobTP5sBuF0jjSR4In3Z6EcWfATCe_9ijNFXA';
-const MAPINHA_PRINT_RANGE = process.env.MAPINHA_PRINT_RANGE || 'Mapinha!A1:L49';
+const MAPINHA_PRINT_RANGE = process.env.MAPINHA_PRINT_RANGE || 'Mapinha!A1:L145';
 const MAPINHA_ESCALA_RANGE = process.env.MAPINHA_ESCALA_RANGE || 'ESCALA!A1:H12';
 let mapinhaSheetGidCache: number | null = null;
 const DEFAULT_MAPINHA_NAME_CELLS: Record<string, string> = {
@@ -344,12 +344,11 @@ app.get('/api/mapinha/pdf', async (req, res) => {
 
     const range = typeof req.query.range === 'string' && req.query.range.trim()
       ? req.query.range.trim()
-      : MAPINHA_PRINT_RANGE;
+      : '';
 
     const params = new URLSearchParams({
       format: 'pdf',
       gid: String(gid),
-      range: getA1RangeOnly(range),
       size: 'A4',
       portrait: 'true',
       fitw: 'true',
@@ -367,6 +366,10 @@ app.get('/api/mapinha/pdf', async (req, res) => {
       left_margin: '0.25',
       right_margin: '0.25',
     });
+
+    if (range) {
+      params.set('range', getA1RangeOnly(range));
+    }
 
     const exportResponse = await fetch(
       `https://docs.google.com/spreadsheets/d/${MAPINHA_SHEET_ID}/export?${params.toString()}`,

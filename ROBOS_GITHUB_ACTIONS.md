@@ -22,14 +22,14 @@ Em `Project Settings > Environment Variables`, cadastre:
 - `GITHUB_WORKFLOW_TOKEN`: token do GitHub com permissao para executar Actions.
 - `GITHUB_VINCULACAO_WORKFLOW`: `vinculacao.yml`.
 - `MAPINHA_SHEET_ID`: id da planilha `Controle de ocupantes (mapinha)`.
-- `MAPINHA_PRINT_RANGE`: range de impressao, por padrao `Mapinha!A1:L49`.
+- `MAPINHA_PRINT_RANGE`: range usado para carregar dados do Mapinha no app, por padrao `Mapinha!A1:L145`.
 - `MAPINHA_ESCALA_RANGE`: range da escala, por padrao `ESCALA!A1:H12`.
 
 O token pode ser um fine-grained token com acesso ao repositorio e permissao de `Actions: Read and write`.
 
 Compartilhe a planilha `Controle de ocupantes (mapinha)` com o e-mail definido em `GOOGLE_SERVICE_ACCOUNT_EMAIL`, com permissao de editor. Sem isso, o app nao consegue ler/imprimir o Mapinha nem atualizar os nomes da escala.
 
-O botao `Imprimir` abre um PDF exportado diretamente da aba `Mapinha`. O navegador ainda mostra a janela de impressao/visualizacao do PDF, porque navegadores nao permitem impressao silenciosa direta por seguranca.
+O botao `Imprimir` abre um PDF exportado diretamente da aba inteira `Mapinha`, preservando a formatacao e a paginacao configuradas no Google Sheets. O navegador ainda mostra a janela de impressao/visualizacao do PDF, porque navegadores nao permitem impressao silenciosa direta por seguranca.
 
 ## Celulas dos nomes das camareiras
 
