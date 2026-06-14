@@ -6,7 +6,6 @@ import session from 'express-session';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { createClient } from '@supabase/supabase-js';
-import { PDFDocument } from 'pdf-lib';
 
 // Vercel captures console.log/console.error automatically.
 // Do not write local log files here: Vercel serverless filesystem is read-only.
@@ -228,7 +227,6 @@ const MAPINHA_SHEET_ID = process.env.MAPINHA_SHEET_ID || '1oMKFu9aobTP5sBuF0jjSR
 const MAPINHA_PRINT_RANGE = process.env.MAPINHA_PRINT_RANGE || 'Mapinha!A1:K145';
 const MAPINHA_ESCALA_RANGE = process.env.MAPINHA_ESCALA_RANGE || 'ESCALA!A1:H12';
 const MAPINHA_PDF_RANGES = process.env.MAPINHA_PDF_RANGES || 'Mapinha!A1:K47,Mapinha!A49:K94,Mapinha!A96:K145';
-const MAPINHA_PDF_SCALE = process.env.MAPINHA_PDF_SCALE || '2';
 let mapinhaSheetGidCache: number | null = null;
 const DEFAULT_MAPINHA_NAME_CELLS: Record<string, string> = {
   '200': 'Mapinha!E41',
@@ -263,66 +261,11 @@ function getSaoPauloDayKey() {
   return ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sab'][date.getDay()];
 }
 
-function getA1RangeOnly(range: string) {
-  return String(range || '')
-    .replace(/^(?:'[^']+'|[^!]+)!/, '')
-    .trim();
-}
-
 function getMapinhaPdfRanges() {
   return String(MAPINHA_PDF_RANGES || MAPINHA_PRINT_RANGE)
     .split(/[|,;]/)
     .map((range) => range.trim())
     .filter(Boolean);
-}
-
-async function exportMapinhaPdfRange(gid: number, token: string, range: string) {
-  const params = new URLSearchParams({
-    format: 'pdf',
-    gid: String(gid),
-    range: getA1RangeOnly(range),
-    size: 'A4',
-    portrait: 'true',
-    fitw: 'true',
-    scale: MAPINHA_PDF_SCALE,
-    sheetnames: 'false',
-    printtitle: 'false',
-    pagenumbers: 'false',
-    gridlines: 'false',
-    fzr: 'false',
-    attachment: 'false',
-    horizontal_alignment: 'CENTER',
-    vertical_alignment: 'TOP',
-    top_margin: '0.25',
-    bottom_margin: '0.25',
-    left_margin: '0.25',
-    right_margin: '0.25',
-  });
-
-  const exportResponse = await fetch(
-    `https://docs.google.com/spreadsheets/d/${MAPINHA_SHEET_ID}/export?${params.toString()}`,
-    { headers: { Authorization: `Bearer ${token}` } }
-  );
-
-  if (!exportResponse.ok) {
-    const detail = await exportResponse.text();
-    throw new Error(`Falha ao exportar PDF do Mapinha (${exportResponse.status}) no range ${range}: ${detail}`);
-  }
-
-  return Buffer.from(await exportResponse.arrayBuffer());
-}
-
-async function mergePdfBuffers(buffers: Buffer[]) {
-  if (buffers.length === 1) return buffers[0];
-
-  const mergedPdf = await PDFDocument.create();
-  for (const buffer of buffers) {
-    const sourcePdf = await PDFDocument.load(buffer);
-    const copiedPages = await mergedPdf.copyPages(sourcePdf, sourcePdf.getPageIndices());
-    copiedPages.forEach((page) => mergedPdf.addPage(page));
-  }
-
-  return Buffer.from(await mergedPdf.save());
 }
 
 function findScaleRow(values: any[][], dayKey: string) {
@@ -393,27 +336,177 @@ async function getMapinhaSheetGid() {
   return gid;
 }
 
-app.get('/api/mapinha/pdf', async (req, res) => {
-  try {
-    const gid = await getMapinhaSheetGid();
-    const client: any = await auth.getClient();
-    const tokenResponse = await client.getAccessToken();
-    const token = typeof tokenResponse === 'string' ? tokenResponse : tokenResponse?.token;
-    if (!token) throw new Error('Nao foi possivel gerar token para exportar o Mapinha.');
+function escapeHtml(value: any) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 
-    const pdfBuffers: Buffer[] = [];
-    for (const range of getMapinhaPdfRanges()) {
-      pdfBuffers.push(await exportMapinhaPdfRange(gid, token, range));
+function getMapinhaCellClass(value: any) {
+  const text = String(value || '').toUpperCase();
+  if (text.includes('CONTROLE DE OCUPANTES')) return 'title';
+  if (['ANDAR:', 'APTO', 'OCUPADO', 'N PESSOAS', 'Nº PESSOAS', 'VAGOS', 'RESERVADO', 'SAIDA', 'SAÍDA'].some((item) => text.includes(item))) return 'header';
+  if (text === 'INTERDITADO') return 'blocked';
+  if (/^\d{3}$/.test(text)) return 'apto';
+  return '';
+}
+
+function renderMapinhaTable(values: any[][], range: string) {
+  const maxCols = Math.max(1, ...values.map((row) => row.length));
+  const rows = values.map((row) => Array.from({ length: maxCols }, (_, index) => row[index] || ''));
+
+  return `
+    <section class="page">
+      <table aria-label="${escapeHtml(range)}">
+        <tbody>
+          ${rows.map((row) => `
+            <tr>
+              ${row.map((cell) => `<td class="${getMapinhaCellClass(cell)}">${escapeHtml(cell).replace(/\n/g, '<br>')}</td>`).join('')}
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </section>
+  `;
+}
+
+function renderMapinhaPrintHtml(valueRanges: any[]) {
+  const printedAt = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+  const pages = valueRanges
+    .map((rangeData) => renderMapinhaTable(rangeData.values || [], rangeData.range || 'Mapinha'))
+    .join('');
+
+  return `<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Imprimir Mapinha</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: #e5e7eb;
+      color: #020617;
+      font-family: Arial, Helvetica, sans-serif;
     }
+    .toolbar {
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 18px;
+      background: #ffffff;
+      border-bottom: 1px solid #cbd5e1;
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .toolbar button {
+      border: 0;
+      border-radius: 8px;
+      background: #0f9f9a;
+      color: #fff;
+      padding: 9px 14px;
+      font: inherit;
+      cursor: pointer;
+    }
+    .page {
+      width: 190mm;
+      min-height: 277mm;
+      margin: 14px auto;
+      padding: 0;
+      background: #ffffff;
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      page-break-after: always;
+      break-after: page;
+    }
+    .page:last-child {
+      page-break-after: auto;
+      break-after: auto;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      background: #ffffff;
+    }
+    td {
+      border: 1px solid #111827;
+      height: 16px;
+      padding: 1px 2px;
+      text-align: center;
+      vertical-align: middle;
+      white-space: pre-line;
+      overflow: hidden;
+      font-size: 9px;
+      line-height: 1.05;
+    }
+    td.title {
+      font-size: 14px;
+      font-weight: 900;
+    }
+    td.header,
+    td.apto {
+      font-weight: 900;
+    }
+    td.blocked {
+      background: #d1d5db;
+      font-weight: 900;
+    }
+    @page {
+      size: A4 portrait;
+      margin: 7mm;
+    }
+    @media print {
+      body { background: #ffffff; }
+      .toolbar { display: none; }
+      .page {
+        width: 100%;
+        min-height: auto;
+        margin: 0;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="toolbar">
+    <span>Mapinha gerado em ${escapeHtml(printedAt)}</span>
+    <button onclick="window.print()">Imprimir</button>
+  </div>
+  ${pages}
+  <script>
+    window.addEventListener('load', () => setTimeout(() => window.print(), 500));
+  </script>
+</body>
+</html>`;
+}
 
-    const buffer = await mergePdfBuffers(pdfBuffers);
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', 'inline; filename="mapinha.pdf"');
-    res.send(buffer);
+app.get('/api/mapinha/print', async (req, res) => {
+  try {
+    const response = await sheets.spreadsheets.values.batchGet({
+      spreadsheetId: MAPINHA_SHEET_ID,
+      ranges: getMapinhaPdfRanges(),
+      valueRenderOption: 'FORMATTED_VALUE',
+    });
+
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(renderMapinhaPrintHtml(response.data.valueRanges || []));
   } catch (error: any) {
-    console.error('[Mapinha PDF Error]', error);
-    res.status(500).json({ status: 'error', message: error.message || 'Erro ao gerar PDF do Mapinha.' });
+    console.error('[Mapinha Print Error]', error);
+    res.status(500).json({ status: 'error', message: error.message || 'Erro ao gerar impressao do Mapinha.' });
   }
+});
+
+app.get('/api/mapinha/pdf', (req, res) => {
+  res.redirect(302, '/api/mapinha/print');
 });
 
 app.post('/api/mapinha/sync-scale', async (req, res) => {
