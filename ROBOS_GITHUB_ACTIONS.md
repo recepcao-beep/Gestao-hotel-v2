@@ -22,9 +22,8 @@ Em `Project Settings > Environment Variables`, cadastre:
 - `GITHUB_WORKFLOW_TOKEN`: token do GitHub com permissao para executar Actions.
 - `GITHUB_VINCULACAO_WORKFLOW`: `vinculacao.yml`.
 - `MAPINHA_SHEET_ID`: id da planilha `Controle de ocupantes (mapinha)`.
-- `MAPINHA_PRINT_RANGE`: range de impressao, por padrao `Mapinha!A1:K145`.
+- `MAPINHA_PRINT_RANGE`: range de impressao, por padrao `Mapinha!A1:L49`.
 - `MAPINHA_ESCALA_RANGE`: range da escala, por padrao `ESCALA!A1:H12`.
-- `MAPINHA_PDF_RANGES`: blocos impressos, um por pagina. Padrao: `Mapinha!A1:K47,Mapinha!A49:K94,Mapinha!A96:K145`.
 
 O token pode ser um fine-grained token com acesso ao repositorio e permissao de `Actions: Read and write`.
 

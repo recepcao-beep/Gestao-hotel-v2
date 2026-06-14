@@ -224,9 +224,8 @@ if (missingVars.length > 0) {
 const sheets = google.sheets({ version: 'v4', auth });
 
 const MAPINHA_SHEET_ID = process.env.MAPINHA_SHEET_ID || '1oMKFu9aobTP5sBuF0jjSR4In3Z6EcWfATCe_9ijNFXA';
-const MAPINHA_PRINT_RANGE = process.env.MAPINHA_PRINT_RANGE || 'Mapinha!A1:K145';
+const MAPINHA_PRINT_RANGE = process.env.MAPINHA_PRINT_RANGE || 'Mapinha!A1:L49';
 const MAPINHA_ESCALA_RANGE = process.env.MAPINHA_ESCALA_RANGE || 'ESCALA!A1:H12';
-const MAPINHA_PDF_RANGES = process.env.MAPINHA_PDF_RANGES || 'Mapinha!A1:K47,Mapinha!A49:K94,Mapinha!A96:K145';
 let mapinhaSheetGidCache: number | null = null;
 const DEFAULT_MAPINHA_NAME_CELLS: Record<string, string> = {
   '200': 'Mapinha!E41',
@@ -261,11 +260,10 @@ function getSaoPauloDayKey() {
   return ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sab'][date.getDay()];
 }
 
-function getMapinhaPdfRanges() {
-  return String(MAPINHA_PDF_RANGES || MAPINHA_PRINT_RANGE)
-    .split(/[|,;]/)
-    .map((range) => range.trim())
-    .filter(Boolean);
+function getA1RangeOnly(range: string) {
+  return String(range || '')
+    .replace(/^(?:'[^']+'|[^!]+)!/, '')
+    .trim();
 }
 
 function findScaleRow(values: any[][], dayKey: string) {
@@ -336,177 +334,62 @@ async function getMapinhaSheetGid() {
   return gid;
 }
 
-function escapeHtml(value: any) {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-function getMapinhaCellClass(value: any) {
-  const text = String(value || '').toUpperCase();
-  if (text.includes('CONTROLE DE OCUPANTES')) return 'title';
-  if (['ANDAR:', 'APTO', 'OCUPADO', 'N PESSOAS', 'Nº PESSOAS', 'VAGOS', 'RESERVADO', 'SAIDA', 'SAÍDA'].some((item) => text.includes(item))) return 'header';
-  if (text === 'INTERDITADO') return 'blocked';
-  if (/^\d{3}$/.test(text)) return 'apto';
-  return '';
-}
-
-function renderMapinhaTable(values: any[][], range: string) {
-  const maxCols = Math.max(1, ...values.map((row) => row.length));
-  const rows = values.map((row) => Array.from({ length: maxCols }, (_, index) => row[index] || ''));
-
-  return `
-    <section class="page">
-      <table aria-label="${escapeHtml(range)}">
-        <tbody>
-          ${rows.map((row) => `
-            <tr>
-              ${row.map((cell) => `<td class="${getMapinhaCellClass(cell)}">${escapeHtml(cell).replace(/\n/g, '<br>')}</td>`).join('')}
-            </tr>
-          `).join('')}
-        </tbody>
-      </table>
-    </section>
-  `;
-}
-
-function renderMapinhaPrintHtml(valueRanges: any[]) {
-  const printedAt = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
-  const pages = valueRanges
-    .map((rangeData) => renderMapinhaTable(rangeData.values || [], rangeData.range || 'Mapinha'))
-    .join('');
-
-  return `<!doctype html>
-<html lang="pt-BR">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Imprimir Mapinha</title>
-  <style>
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      background: #e5e7eb;
-      color: #020617;
-      font-family: Arial, Helvetica, sans-serif;
-    }
-    .toolbar {
-      position: sticky;
-      top: 0;
-      z-index: 2;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 12px;
-      padding: 12px 18px;
-      background: #ffffff;
-      border-bottom: 1px solid #cbd5e1;
-      font-size: 12px;
-      font-weight: 700;
-    }
-    .toolbar button {
-      border: 0;
-      border-radius: 8px;
-      background: #0f9f9a;
-      color: #fff;
-      padding: 9px 14px;
-      font: inherit;
-      cursor: pointer;
-    }
-    .page {
-      width: 190mm;
-      min-height: 277mm;
-      margin: 14px auto;
-      padding: 0;
-      background: #ffffff;
-      display: flex;
-      align-items: flex-start;
-      justify-content: center;
-      page-break-after: always;
-      break-after: page;
-    }
-    .page:last-child {
-      page-break-after: auto;
-      break-after: auto;
-    }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      table-layout: fixed;
-      background: #ffffff;
-    }
-    td {
-      border: 1px solid #111827;
-      height: 16px;
-      padding: 1px 2px;
-      text-align: center;
-      vertical-align: middle;
-      white-space: pre-line;
-      overflow: hidden;
-      font-size: 9px;
-      line-height: 1.05;
-    }
-    td.title {
-      font-size: 14px;
-      font-weight: 900;
-    }
-    td.header,
-    td.apto {
-      font-weight: 900;
-    }
-    td.blocked {
-      background: #d1d5db;
-      font-weight: 900;
-    }
-    @page {
-      size: A4 portrait;
-      margin: 7mm;
-    }
-    @media print {
-      body { background: #ffffff; }
-      .toolbar { display: none; }
-      .page {
-        width: 100%;
-        min-height: auto;
-        margin: 0;
-      }
-    }
-  </style>
-</head>
-<body>
-  <div class="toolbar">
-    <span>Mapinha gerado em ${escapeHtml(printedAt)}</span>
-    <button onclick="window.print()">Imprimir</button>
-  </div>
-  ${pages}
-  <script>
-    window.addEventListener('load', () => setTimeout(() => window.print(), 500));
-  </script>
-</body>
-</html>`;
-}
-
-app.get('/api/mapinha/print', async (req, res) => {
+app.get('/api/mapinha/pdf', async (req, res) => {
   try {
-    const response = await sheets.spreadsheets.values.batchGet({
-      spreadsheetId: MAPINHA_SHEET_ID,
-      ranges: getMapinhaPdfRanges(),
-      valueRenderOption: 'FORMATTED_VALUE',
+    const gid = await getMapinhaSheetGid();
+    const client: any = await auth.getClient();
+    const tokenResponse = await client.getAccessToken();
+    const token = typeof tokenResponse === 'string' ? tokenResponse : tokenResponse?.token;
+    if (!token) throw new Error('Nao foi possivel gerar token para exportar o Mapinha.');
+
+    const range = typeof req.query.range === 'string' && req.query.range.trim()
+      ? req.query.range.trim()
+      : MAPINHA_PRINT_RANGE;
+
+    const params = new URLSearchParams({
+      format: 'pdf',
+      gid: String(gid),
+      range: getA1RangeOnly(range),
+      size: 'A4',
+      portrait: 'true',
+      fitw: 'true',
+      scale: '2',
+      sheetnames: 'false',
+      printtitle: 'false',
+      pagenumbers: 'false',
+      gridlines: 'false',
+      fzr: 'false',
+      attachment: 'false',
+      horizontal_alignment: 'CENTER',
+      vertical_alignment: 'TOP',
+      top_margin: '0.25',
+      bottom_margin: '0.25',
+      left_margin: '0.25',
+      right_margin: '0.25',
     });
 
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.send(renderMapinhaPrintHtml(response.data.valueRanges || []));
+    const exportResponse = await fetch(
+      `https://docs.google.com/spreadsheets/d/${MAPINHA_SHEET_ID}/export?${params.toString()}`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+
+    if (!exportResponse.ok) {
+      const detail = await exportResponse.text();
+      throw new Error(`Falha ao exportar PDF do Mapinha (${exportResponse.status}): ${detail}`);
+    }
+
+    const buffer = Buffer.from(await exportResponse.arrayBuffer());
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'inline; filename="mapinha.pdf"');
+    res.send(buffer);
   } catch (error: any) {
-    console.error('[Mapinha Print Error]', error);
-    res.status(500).json({ status: 'error', message: error.message || 'Erro ao gerar impressao do Mapinha.' });
+    console.error('[Mapinha PDF Error]', error);
+    res.status(500).json({ status: 'error', message: error.message || 'Erro ao gerar PDF do Mapinha.' });
   }
 });
 
-app.get('/api/mapinha/pdf', (req, res) => {
-  res.redirect(302, '/api/mapinha/print');
+app.get('/api/mapinha/print', (req, res) => {
+  res.redirect(302, '/api/mapinha/pdf');
 });
 
 app.post('/api/mapinha/sync-scale', async (req, res) => {
@@ -743,7 +626,7 @@ function parseValue(val: any, fieldName: string) {
   }
 
   if (val === 'TRUE' || val === 'true' || val === 'Sim' || val === 'SIM') return true;
-  if (val === 'FALSE' || val === 'false' || val === 'Não' || val === 'NÃO') return false;
+  if (val === 'FALSE' || val === 'false' || val === 'NÃ£o' || val === 'NÃƒO') return false;
   
   return val;
 }
@@ -840,7 +723,7 @@ app.post('/api/supabase/migrate', async (req, res) => {
     for (const [key, value] of Object.entries(data)) {
       if (!DATA_MAP[key]) continue;
       const tableName = await resolveSupabaseTable(key, true);
-      if (!tableName) throw new Error(`Não foi possível localizar a tabela do Supabase para ${key}.`);
+      if (!tableName) throw new Error(`NÃ£o foi possÃ­vel localizar a tabela do Supabase para ${key}.`);
       
       let records: any[] = [];
       if (key === 'apartments' && typeof value === 'object' && value !== null && !Array.isArray(value)) {
@@ -888,7 +771,7 @@ app.post('/api/supabase/migrate', async (req, res) => {
     }
 
     delete dataCache[hotel];
-    res.json({ status: 'success', results, message: 'Processamento concluído. Verifique os logs para detalhes.' });
+    res.json({ status: 'success', results, message: 'Processamento concluÃ­do. Verifique os logs para detalhes.' });
   } catch (error: any) {
     console.error('[Migration CRITICAL Error]:', error);
     res.status(500).json({ status: 'error', message: error.message });
@@ -1181,7 +1064,7 @@ async function getSheetsOnlyData(hotel: string) {
               let idx = firstRow.indexOf(col.toLowerCase());
               if (idx === -1) {
                   if (col === 'id' || col === 'roomNumber') idx = firstRow.findIndex(c => ['quarto', 'apto', 'numero', 'id', 'roomnumber'].includes(c));
-                  else if (col === 'floor') idx = firstRow.findIndex(c => ['andar', 'chão', 'floor'].includes(c));
+                  else if (col === 'floor') idx = firstRow.findIndex(c => ['andar', 'chÃ£o', 'floor'].includes(c));
                   else if (col === 'pisoType') idx = firstRow.findIndex(c => c.startsWith('pisot'));
                   else if (col === 'pisoStatus') idx = firstRow.findIndex(c => c.startsWith('pisos'));
                   else if (col === 'banheiroType') idx = firstRow.findIndex(c => c.startsWith('banht'));
@@ -1284,7 +1167,7 @@ async function saveSheetData(hotel: string, dataType: string, data: any, options
   if (supabase) {
     try {
       const tableName = await resolveSupabaseTable(key, true);
-      if (!tableName) throw new Error(`Não foi possível localizar a tabela do Supabase para ${key}.`);
+      if (!tableName) throw new Error(`NÃ£o foi possÃ­vel localizar a tabela do Supabase para ${key}.`);
       
       let records: any[] = [];
       
@@ -1369,11 +1252,11 @@ async function saveSheetData(hotel: string, dataType: string, data: any, options
     }
   }
 
-  // Supabase é a fonte principal de dados.
+  // Supabase Ã© a fonte principal de dados.
   // IMPORTANTE:
-  // Se o Supabase estiver configurado, edições normais do app NÃO devem escrever no Google Sheets.
+  // Se o Supabase estiver configurado, ediÃ§Ãµes normais do app NÃƒO devem escrever no Google Sheets.
   // Isso evita apagar/limpar a aba Apartamentos_VILLAGE em salvamentos individuais.
-  // A planilha deve ser usada apenas como backup/importação manual ou via rota de migração controlada.
+  // A planilha deve ser usada apenas como backup/importaÃ§Ã£o manual ou via rota de migraÃ§Ã£o controlada.
   if (supabase) {
     console.log(`[saveSheetData] Supabase configured. Skipping Google Sheets write for ${dataType}.`);
     return true;
@@ -1661,7 +1544,7 @@ app.post('/api/sheets/action', async (req, res) => {
         // Resolve the actual table instead of assuming that lower-casing the key is enough.
         if (supabase) {
           const tableName = await resolveSupabaseTable(deleteKey, true);
-          if (!tableName) throw new Error(`Não foi possível localizar a tabela do Supabase para ${deleteKey}.`);
+          if (!tableName) throw new Error(`NÃ£o foi possÃ­vel localizar a tabela do Supabase para ${deleteKey}.`);
           const { error: deleteError } = await supabase.from(tableName).delete().eq('id', `${hotel}_${targetId}`);
           if (deleteError) throw new Error(`Falha ao excluir registro de public.${tableName}: ${deleteError.message}`);
         }
@@ -1697,7 +1580,7 @@ app.post('/api/sheets/action', async (req, res) => {
     res.json({ status: 'success', debugQty: res.locals.debugQty, invLength: res.locals.invLength, payloadItemId: payload.itemId });
   } catch (error: any) {
     console.error(`[Action Error] Hotel: ${hotel} -`, error);
-    res.status(500).json({ status: 'error', message: error.message || 'Erro ao processar ação' });
+    res.status(500).json({ status: 'error', message: error.message || 'Erro ao processar aÃ§Ã£o' });
   }
 });
 

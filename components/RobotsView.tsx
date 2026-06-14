@@ -97,7 +97,7 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
   };
 
   const printMapinha = () => {
-    window.open('/api/mapinha/print', '_blank', 'noopener,noreferrer');
+    window.open('/api/mapinha/pdf', '_blank', 'noopener,noreferrer');
   };
 
   const statusLabel = run
