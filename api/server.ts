@@ -226,6 +226,7 @@ const sheets = google.sheets({ version: 'v4', auth });
 const MAPINHA_SHEET_ID = process.env.MAPINHA_SHEET_ID || '1oMKFu9aobTP5sBuF0jjSR4In3Z6EcWfATCe_9ijNFXA';
 const MAPINHA_PRINT_RANGE = process.env.MAPINHA_PRINT_RANGE || 'Mapinha!A1:K145';
 const MAPINHA_ESCALA_RANGE = process.env.MAPINHA_ESCALA_RANGE || 'ESCALA!A1:H12';
+const MAPINHA_PDF_SCALE = process.env.MAPINHA_PDF_SCALE || '4';
 let mapinhaSheetGidCache: number | null = null;
 const DEFAULT_MAPINHA_NAME_CELLS: Record<string, string> = {
   '200': 'Mapinha!E41',
@@ -258,6 +259,12 @@ function normalizeSheetText(value: any) {
 function getSaoPauloDayKey() {
   const date = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
   return ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sab'][date.getDay()];
+}
+
+function getA1RangeOnly(range: string) {
+  return String(range || '')
+    .replace(/^(?:'[^']+'|[^!]+)!/, '')
+    .trim();
 }
 
 function findScaleRow(values: any[][], dayKey: string) {
@@ -339,14 +346,19 @@ app.get('/api/mapinha/pdf', async (req, res) => {
     const params = new URLSearchParams({
       format: 'pdf',
       gid: String(gid),
+      range: getA1RangeOnly(MAPINHA_PRINT_RANGE),
       size: 'A4',
       portrait: 'true',
       fitw: 'true',
+      scale: MAPINHA_PDF_SCALE,
       sheetnames: 'false',
       printtitle: 'false',
       pagenumbers: 'false',
       gridlines: 'false',
       fzr: 'false',
+      attachment: 'false',
+      horizontal_alignment: 'CENTER',
+      vertical_alignment: 'TOP',
       top_margin: '0.25',
       bottom_margin: '0.25',
       left_margin: '0.25',

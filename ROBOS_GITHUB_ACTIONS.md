@@ -24,6 +24,7 @@ Em `Project Settings > Environment Variables`, cadastre:
 - `MAPINHA_SHEET_ID`: id da planilha `Controle de ocupantes (mapinha)`.
 - `MAPINHA_PRINT_RANGE`: range de impressao, por padrao `Mapinha!A1:K145`.
 - `MAPINHA_ESCALA_RANGE`: range da escala, por padrao `ESCALA!A1:H12`.
+- `MAPINHA_PDF_SCALE`: escala do PDF. Use `4` para encaixar na pagina; use `2` para encaixar na largura.
 
 O token pode ser um fine-grained token com acesso ao repositorio e permissao de `Actions: Read and write`.
 
