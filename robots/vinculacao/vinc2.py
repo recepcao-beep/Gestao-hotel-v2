@@ -1,6 +1,7 @@
 import os
 import re
 import time
+import hashlib
 import gspread
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -255,20 +256,65 @@ def executar_vinculacao_2_0():
 
         cliente = gspread.authorize(creds)
         aba = cliente.open_by_key(ID_PLANILHA).worksheet(NOME_ABA)
-        
-        linhas = aba.get_all_values()[1:]
-        agrupados = {}
-        
-        for linha in linhas:
-            if len(linha) >= 3:
-                v_s = str(linha[0]).strip() 
-                a_s = str(linha[1]).strip() 
-                c_s = str(linha[2]).strip().upper() 
-                
-                if v_s and a_s and c_s:
-                    if v_s not in agrupados: agrupados[v_s] = []
-                    agrupados[v_s].append({"ap": a_s, "cat": c_s})
-        return agrupados
+
+        def montar_agrupados(linhas):
+            agrupados = {}
+
+            for linha in linhas:
+                if len(linha) >= 3:
+                    v_s = str(linha[0]).strip()
+                    a_s = str(linha[1]).strip()
+                    c_s = str(linha[2]).strip().upper()
+
+                    if v_s and a_s and c_s:
+                        if v_s not in agrupados:
+                            agrupados[v_s] = []
+                        agrupados[v_s].append({"ap": a_s, "cat": c_s})
+
+            return agrupados
+
+        def assinatura_agrupados(agrupados):
+            partes = []
+            for voucher in sorted(agrupados.keys()):
+                for item in agrupados[voucher]:
+                    partes.append(f"{voucher}:{item['ap']}:{item['cat']}")
+            texto = "|".join(partes)
+            return hashlib.sha1(texto.encode("utf-8")).hexdigest()[:12]
+
+        tentativas = int(os.environ.get("VINCULACAO_PLANILHA_TENTATIVAS", "6"))
+        intervalo = int(os.environ.get("VINCULACAO_PLANILHA_INTERVALO", "10"))
+        assinatura_anterior = None
+        agrupados_anterior = {}
+
+        for tentativa in range(1, tentativas + 1):
+            linhas = aba.get_all_values()[1:]
+            agrupados = montar_agrupados(linhas)
+            total_aps = sum(len(lista) for lista in agrupados.values())
+            assinatura = assinatura_agrupados(agrupados)
+            primeiros_vouchers = ", ".join(sorted(agrupados.keys())[:8])
+
+            print(
+                f"📊 Leitura {tentativa}/{tentativas} da VINCULACAO_HOJE: "
+                f"{len(agrupados)} voucher(s), {total_aps} apartamento(s), assinatura {assinatura}"
+            )
+            if primeiros_vouchers:
+                print(f"   Primeiros vouchers lidos: {primeiros_vouchers}")
+
+            if assinatura_anterior == assinatura:
+                print("✅ Aba VINCULACAO_HOJE estabilizada em duas leituras consecutivas. Iniciando vinculação.")
+                return agrupados
+
+            if assinatura_anterior is not None:
+                print("⏳ A aba VINCULACAO_HOJE mudou entre as leituras. Aguardando recalculo da planilha...")
+
+            assinatura_anterior = assinatura
+            agrupados_anterior = agrupados
+
+            if tentativa < tentativas:
+                time.sleep(intervalo)
+
+        print("⚠️ A aba VINCULACAO_HOJE não estabilizou dentro do tempo. Seguindo com a última leitura disponível.")
+        return agrupados_anterior
 
     try:
         dados = obter_dados()
