@@ -8,6 +8,7 @@ import {
   Clock3,
   ExternalLink,
   Loader2,
+  MailCheck,
   Play,
   Printer,
   RefreshCw,
@@ -15,7 +16,7 @@ import {
 } from 'lucide-react';
 import { HotelTheme } from '../types';
 
-type Rotina = 'verificacao_diaria' | 'vinculacao_semanal';
+type Rotina = 'verificacao_diaria' | 'vinculacao_semanal' | 'checkin_email';
 
 interface RobotsViewProps {
   theme: HotelTheme;
@@ -41,16 +42,19 @@ interface RobotLogEntry {
 const rotinaLabels: Record<Rotina, string> = {
   verificacao_diaria: 'Verificacao diaria',
   vinculacao_semanal: 'Vinculacao semanal',
+  checkin_email: 'Check-in por email',
 };
 
 const rotinaDescriptions: Record<Rotina, string> = {
   verificacao_diaria: 'MR + OBS + vinculacao',
   vinculacao_semanal: 'Limpeza + MR + OBS + vinculacao',
+  checkin_email: 'Anexos + cadastro + etiquetas',
 };
 
 const rotinaIcons: Record<Rotina, React.ElementType> = {
   verificacao_diaria: CalendarCheck2,
   vinculacao_semanal: CalendarRange,
+  checkin_email: MailCheck,
 };
 
 const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
@@ -58,6 +62,7 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
   const [run, setRun] = useState<RobotRun | null>(null);
   const [loadingStatus, setLoadingStatus] = useState(false);
   const [running, setRunning] = useState<Rotina | null>(null);
+  const [trackingRotina, setTrackingRotina] = useState<Rotina>('verificacao_diaria');
   const [trackingStartedAt, setTrackingStartedAt] = useState<number | null>(null);
   const [trackedRunId, setTrackedRunId] = useState<number | null>(null);
   const [isWatchingRun, setIsWatchingRun] = useState(false);
@@ -78,11 +83,11 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
     ]);
   }, []);
 
-  const loadStatus = useCallback(async (silent = false) => {
+  const loadStatus = useCallback(async (silent = false, rotina: Rotina = trackingRotina) => {
     if (!silent) setLoadingStatus(true);
     setConfigWarning('');
     try {
-      const response = await fetch('/api/robots/vinculacao/status');
+      const response = await fetch(`/api/robots/vinculacao/status?rotina=${encodeURIComponent(rotina)}`);
       const data = await response.json();
       if (!response.ok || data.status !== 'success') {
         throw new Error(data.message || 'Falha ao consultar status.');
@@ -95,7 +100,7 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
     } finally {
       if (!silent) setLoadingStatus(false);
     }
-  }, []);
+  }, [trackingRotina]);
 
   useEffect(() => {
     loadStatus();
@@ -105,7 +110,7 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
     if (!isWatchingRun) return;
 
     const interval = window.setInterval(async () => {
-      const latestRun = await loadStatus(true);
+      const latestRun = await loadStatus(true, trackingRotina);
       if (!latestRun) return;
 
       const latestCreatedAt = new Date(latestRun.createdAt).getTime();
@@ -146,10 +151,11 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
     }, 5000);
 
     return () => window.clearInterval(interval);
-  }, [addRobotLog, isWatchingRun, loadStatus, trackedRunId, trackingStartedAt]);
+  }, [addRobotLog, isWatchingRun, loadStatus, trackedRunId, trackingRotina, trackingStartedAt]);
 
   const runRobot = async (rotina: Rotina) => {
     setRunning(rotina);
+    setTrackingRotina(rotina);
     setIsWatchingRun(false);
     setTrackedRunId(null);
     lastStatusKeyRef.current = '';
@@ -172,7 +178,7 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
       addRobotLog('Workflow enviado ao GitHub Actions.', 'success');
       addRobotLog('Aguardando inicio da execucao...', 'warning');
       setIsWatchingRun(true);
-      window.setTimeout(() => loadStatus(true), 2500);
+      window.setTimeout(() => loadStatus(true, rotina), 2500);
     } catch (err: any) {
       setError(err.message || 'Falha ao disparar robo.');
       addRobotLog(err.message || 'Falha ao disparar robo.', 'error');
@@ -232,7 +238,7 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
 
         <div className="grid grid-cols-2 md:flex gap-2">
           <button
-            onClick={loadStatus}
+            onClick={() => loadStatus()}
             disabled={loadingStatus}
             className="inline-flex items-center justify-center gap-2 px-3.5 py-2.5 rounded-lg border border-slate-200 bg-white text-xs font-black text-slate-700 hover:bg-slate-50 disabled:opacity-60"
           >
@@ -250,7 +256,7 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         {(Object.keys(rotinaLabels) as Rotina[]).map((rotina) => {
           const RotinaIcon = rotinaIcons[rotina];
           return (

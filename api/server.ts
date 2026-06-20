@@ -97,26 +97,45 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-type VinculacaoRotina = 'verificacao_diaria' | 'vinculacao_semanal' | 'mapa';
+type VinculacaoRotina = 'verificacao_diaria' | 'vinculacao_semanal' | 'mapa' | 'checkin_email';
 
 const VINCULACAO_ROTINAS = new Set<VinculacaoRotina>([
   'verificacao_diaria',
   'vinculacao_semanal',
   'mapa',
+  'checkin_email',
 ]);
 
-function getGitHubWorkflowConfig() {
+function getGitHubWorkflowConfig(rotina: VinculacaoRotina = 'verificacao_diaria') {
+  const isCheckinEmail = rotina === 'checkin_email';
   const owner = process.env.GITHUB_OWNER || process.env.VERCEL_GIT_REPO_OWNER || '';
   const repo = process.env.GITHUB_REPO || process.env.VERCEL_GIT_REPO_SLUG || '';
-  const token = process.env.GITHUB_WORKFLOW_TOKEN || '';
-  const ref = process.env.GITHUB_REF || process.env.VERCEL_GIT_COMMIT_REF || 'main';
-  const workflowFile = process.env.GITHUB_VINCULACAO_WORKFLOW || 'vinculacao.yml';
+  const token = isCheckinEmail
+    ? (process.env.GITHUB_CHECKIN_WORKFLOW_TOKEN || process.env.GITHUB_WORKFLOW_TOKEN || '')
+    : (process.env.GITHUB_WORKFLOW_TOKEN || '');
+  const ref = isCheckinEmail
+    ? (process.env.GITHUB_CHECKIN_REF || process.env.GITHUB_REF || process.env.VERCEL_GIT_COMMIT_REF || 'main')
+    : (process.env.GITHUB_REF || process.env.VERCEL_GIT_COMMIT_REF || 'main');
+  const workflowFile = isCheckinEmail
+    ? (process.env.GITHUB_CHECKIN_WORKFLOW || 'checkin-email-robot.yml')
+    : (process.env.GITHUB_VINCULACAO_WORKFLOW || 'vinculacao.yml');
 
   if (!owner || !repo || !token) {
-    throw new Error('GitHub Actions nao configurado. Defina GITHUB_OWNER, GITHUB_REPO e GITHUB_WORKFLOW_TOKEN no Vercel.');
+    throw new Error(
+      isCheckinEmail
+        ? 'GitHub Actions do check-in nao configurado. Defina GITHUB_WORKFLOW_TOKEN ou GITHUB_CHECKIN_WORKFLOW_TOKEN no Vercel.'
+        : 'GitHub Actions nao configurado. Defina GITHUB_OWNER, GITHUB_REPO e GITHUB_WORKFLOW_TOKEN no Vercel.'
+    );
   }
 
   return { owner, repo, token, ref, workflowFile };
+}
+
+function workflowInputsForRotina(rotina: VinculacaoRotina) {
+  if (rotina === 'checkin_email') {
+    return { max_emails: '30' };
+  }
+  return { rotina };
 }
 
 function githubHeaders(token: string) {
@@ -134,13 +153,13 @@ app.post('/api/robots/vinculacao/run', async (req, res) => {
       return res.status(400).json({ status: 'error', message: 'Rotina invalida.' });
     }
 
-    const { owner, repo, token, ref, workflowFile } = getGitHubWorkflowConfig();
+    const { owner, repo, token, ref, workflowFile } = getGitHubWorkflowConfig(rotina);
     const response = await fetch(
       `https://api.github.com/repos/${owner}/${repo}/actions/workflows/${workflowFile}/dispatches`,
       {
         method: 'POST',
         headers: githubHeaders(token),
-        body: JSON.stringify({ ref, inputs: { rotina } }),
+        body: JSON.stringify({ ref, inputs: workflowInputsForRotina(rotina) }),
       }
     );
 
@@ -149,7 +168,7 @@ app.post('/api/robots/vinculacao/run', async (req, res) => {
       throw new Error(`Falha ao disparar GitHub Actions (${response.status}): ${detail}`);
     }
 
-    res.json({ status: 'success', rotina, message: 'Workflow de vinculacao disparado.' });
+    res.json({ status: 'success', rotina, message: 'Workflow disparado.' });
   } catch (error: any) {
     console.error('[Robots Run Error]', error);
     res.status(500).json({ status: 'error', message: error.message || 'Erro ao disparar robo.' });
@@ -158,7 +177,12 @@ app.post('/api/robots/vinculacao/run', async (req, res) => {
 
 app.get('/api/robots/vinculacao/status', async (req, res) => {
   try {
-    const { owner, repo, token, workflowFile } = getGitHubWorkflowConfig();
+    const rotina = String(req.query?.rotina || 'verificacao_diaria') as VinculacaoRotina;
+    if (!VINCULACAO_ROTINAS.has(rotina)) {
+      return res.status(400).json({ status: 'error', message: 'Rotina invalida.' });
+    }
+
+    const { owner, repo, token, workflowFile } = getGitHubWorkflowConfig(rotina);
     const response = await fetch(
       `https://api.github.com/repos/${owner}/${repo}/actions/workflows/${workflowFile}/runs?event=workflow_dispatch&per_page=5`,
       { headers: githubHeaders(token) }

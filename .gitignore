@@ -11,6 +11,11 @@ node_modules
 dist
 dist-ssr
 *.local
+robot/.credentials.local.json
+robot/token.json
+robot/Downloads_Hospedes/
+robot/debug/
+robot/__pycache__/
 
 # Editor directories and files
 .vscode/*
