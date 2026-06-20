@@ -633,26 +633,34 @@ def baixar_anexos(service, message_id: str, payload: dict[str, Any], pasta: Path
 
 
 def excluir_emails_overbooking(service) -> int:
-    query = env(
-        "OVERBOOKING_DELETE_QUERY",
-        'from:hotel-info@apphotel.one overbooking "Gestor De Canais"',
-    )
-    limite = int(env("OVERBOOKING_DELETE_LIMIT", "1000"))
+    query_configurada = env("OVERBOOKING_DELETE_QUERY")
+    queries = [query_configurada] if query_configurada else [
+        'in:anywhere from:hotel-info@apphotel.one overbooking',
+        'in:anywhere from:hotel-info@apphotel.one subject:overbooking',
+        'in:anywhere from:hotel-info@apphotel.one "Overbooking - Gestor De Canais"',
+    ]
+    limite = int(env("OVERBOOKING_DELETE_LIMIT", "0") or "0")
     excluidos = 0
 
-    while excluidos < limite:
-        response = service.users().messages().list(
-            userId="me",
-            q=query,
-            maxResults=min(100, limite - excluidos),
-        ).execute()
-        messages = response.get("messages", [])
-        if not messages:
-            break
+    for query in queries:
+        while True:
+            if limite and excluidos >= limite:
+                break
 
-        for message in messages:
-            service.users().messages().delete(userId="me", id=message["id"]).execute()
-            excluidos += 1
+            max_results = 100 if not limite else min(100, limite - excluidos)
+            response = service.users().messages().list(
+                userId="me",
+                q=query,
+                maxResults=max_results,
+            ).execute()
+            messages = response.get("messages", [])
+            if not messages:
+                break
+
+            ids = [message["id"] for message in messages]
+            service.users().messages().batchDelete(userId="me", body={"ids": ids}).execute()
+            excluidos += len(ids)
+            log(f"[EMAIL] Lote de overbooking excluido permanentemente: {len(ids)}.")
 
     if excluidos:
         log(f"[EMAIL] Avisos de overbooking excluidos permanentemente: {excluidos}.")
