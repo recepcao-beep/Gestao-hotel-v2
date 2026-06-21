@@ -5,8 +5,12 @@ import {
   CalendarCheck2,
   CalendarRange,
   CheckCircle2,
+  Clipboard,
+  ClipboardCheck,
   Clock3,
   ExternalLink,
+  FileText,
+  Home,
   Loader2,
   MailCheck,
   Play,
@@ -17,6 +21,7 @@ import {
 import { HotelTheme } from '../types';
 
 type Rotina = 'verificacao_diaria' | 'vinculacao_semanal' | 'checkin_email';
+type ObservacaoSetor = 'restaurante' | 'governanca' | 'recepcao';
 
 interface RobotsViewProps {
   theme: HotelTheme;
@@ -39,6 +44,26 @@ interface RobotLogEntry {
   tone: 'info' | 'success' | 'error' | 'warning';
 }
 
+interface ObservacaoItem {
+  date: string;
+  voucher: string;
+  apartment: string;
+  floor: string;
+  linkedVoucher: string;
+  request: string;
+}
+
+interface ObservacaoSection {
+  items: ObservacaoItem[];
+  text: string;
+}
+
+interface ObservacoesPayload {
+  updatedAt: string;
+  exceptions: { date: string; floor: string }[];
+  sections: Record<ObservacaoSetor, ObservacaoSection>;
+}
+
 const rotinaLabels: Record<Rotina, string> = {
   verificacao_diaria: 'Verificacao diaria',
   vinculacao_semanal: 'Vinculacao semanal',
@@ -57,6 +82,21 @@ const rotinaIcons: Record<Rotina, React.ElementType> = {
   checkin_email: MailCheck,
 };
 
+const vinculacaoRotinas: Rotina[] = ['verificacao_diaria', 'vinculacao_semanal'];
+const outrosRobos: Rotina[] = ['checkin_email'];
+
+const observacaoLabels: Record<ObservacaoSetor, string> = {
+  restaurante: 'Restaurante',
+  governanca: 'Governanca',
+  recepcao: 'Recepcao',
+};
+
+const observacaoDescriptions: Record<ObservacaoSetor, string> = {
+  restaurante: 'Alergenicos e mimos',
+  governanca: 'Colchao, berco e arrumacao',
+  recepcao: 'Proximidade e andares',
+};
+
 const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
   const lastStatusKeyRef = useRef('');
   const [run, setRun] = useState<RobotRun | null>(null);
@@ -70,6 +110,11 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [configWarning, setConfigWarning] = useState('');
+  const [observacoes, setObservacoes] = useState<ObservacoesPayload | null>(null);
+  const [loadingObservacoes, setLoadingObservacoes] = useState(false);
+  const [observacoesError, setObservacoesError] = useState('');
+  const [activeObservacao, setActiveObservacao] = useState<ObservacaoSetor>('restaurante');
+  const [copiedObservacao, setCopiedObservacao] = useState<ObservacaoSetor | null>(null);
 
   const addRobotLog = useCallback((text: string, tone: RobotLogEntry['tone'] = 'info') => {
     setRobotLogs((current) => [
@@ -105,6 +150,35 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
   useEffect(() => {
     loadStatus();
   }, [loadStatus]);
+
+  const loadObservacoes = useCallback(async () => {
+    setLoadingObservacoes(true);
+    setObservacoesError('');
+    try {
+      const response = await fetch('/api/robots/observacoes');
+      const data = await response.json();
+      if (!response.ok || data.status !== 'success') {
+        throw new Error(data.message || 'Falha ao carregar observacoes.');
+      }
+      setObservacoes({
+        updatedAt: data.updatedAt,
+        exceptions: data.exceptions || [],
+        sections: data.sections || {
+          restaurante: { items: [], text: '' },
+          governanca: { items: [], text: '' },
+          recepcao: { items: [], text: '' },
+        },
+      });
+    } catch (err: any) {
+      setObservacoesError(err.message || 'Falha ao carregar observacoes.');
+    } finally {
+      setLoadingObservacoes(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadObservacoes();
+  }, [loadObservacoes]);
 
   useEffect(() => {
     if (!isWatchingRun) return;
@@ -191,6 +265,14 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
     window.open('/api/mapinha/pdf', '_blank', 'noopener,noreferrer');
   };
 
+  const copyObservacoes = async (setor: ObservacaoSetor) => {
+    const text = observacoes?.sections?.[setor]?.text || '';
+    if (!text.trim()) return;
+    await navigator.clipboard.writeText(text);
+    setCopiedObservacao(setor);
+    window.setTimeout(() => setCopiedObservacao(null), 1500);
+  };
+
   const statusLabel = run
     ? run.status === 'completed'
       ? (run.conclusion === 'success' ? 'Concluido' : 'Falhou')
@@ -210,6 +292,36 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
     success: 'text-emerald-700',
     error: 'text-red-700',
     warning: 'text-amber-700',
+  };
+
+  const renderRobotCard = (rotina: Rotina) => {
+    const RotinaIcon = rotinaIcons[rotina];
+    return (
+      <button
+        key={rotina}
+        onClick={() => runRobot(rotina)}
+        disabled={!!running}
+        className="group min-h-28 rounded-lg border border-slate-200 bg-white p-4 text-left hover:border-slate-300 hover:shadow-sm disabled:opacity-60 transition-all"
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-slate-50 group-hover:bg-slate-100">
+              <RotinaIcon size={18} style={{ color: theme.primary }} />
+            </div>
+            <div>
+              <span className="text-sm font-black text-slate-900">{rotinaLabels[rotina]}</span>
+              <div className="mt-1 text-xs font-bold text-slate-500">{rotinaDescriptions[rotina]}</div>
+            </div>
+          </div>
+          <div className="w-8 h-8 rounded-lg flex items-center justify-center border border-slate-100">
+            <Play size={15} style={{ color: theme.primary }} />
+          </div>
+        </div>
+        <div className="mt-4 h-1.5 rounded-full bg-slate-100 overflow-hidden">
+          <div className="h-full rounded-full transition-all" style={{ width: running === rotina ? '70%' : '28%', backgroundColor: theme.primary }} />
+        </div>
+      </button>
+    );
   };
 
   return (
@@ -256,36 +368,40 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        {(Object.keys(rotinaLabels) as Rotina[]).map((rotina) => {
-          const RotinaIcon = rotinaIcons[rotina];
-          return (
-            <button
-              key={rotina}
-              onClick={() => runRobot(rotina)}
-              disabled={!!running}
-              className="group min-h-28 rounded-lg border border-slate-200 bg-white p-4 text-left hover:border-slate-300 hover:shadow-sm disabled:opacity-60 transition-all"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex items-start gap-3">
-                  <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-slate-50 group-hover:bg-slate-100">
-                    <RotinaIcon size={18} style={{ color: theme.primary }} />
-                  </div>
-                  <div>
-                    <span className="text-sm font-black text-slate-900">{rotinaLabels[rotina]}</span>
-                    <div className="mt-1 text-xs font-bold text-slate-500">{rotinaDescriptions[rotina]}</div>
-                  </div>
-                </div>
-                <div className="w-8 h-8 rounded-lg flex items-center justify-center border border-slate-100">
-                  <Play size={15} style={{ color: theme.primary }} />
-                </div>
+      <div className="space-y-3">
+        <div className="flex items-center gap-2">
+          <Home size={17} style={{ color: theme.primary }} />
+          <h2 className="text-sm font-black text-slate-900">Vinculacao e Mapinha</h2>
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+          {vinculacaoRotinas.map(renderRobotCard)}
+          <div className="rounded-lg border border-slate-200 bg-white p-4">
+            <div className="flex flex-col md:flex-row lg:flex-col xl:flex-row md:items-center lg:items-start xl:items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-black text-slate-900">Impressao do Mapinha</div>
+                <div className="mt-1 text-xs font-bold text-slate-500">PDF direto da aba Mapinha.</div>
               </div>
-              <div className="mt-4 h-1.5 rounded-full bg-slate-100 overflow-hidden">
-                <div className="h-full rounded-full transition-all" style={{ width: running === rotina ? '70%' : '28%', backgroundColor: theme.primary }} />
-              </div>
-            </button>
-          );
-        })}
+              <button
+                onClick={printMapinha}
+                className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-xs font-black text-white shadow-sm hover:brightness-95"
+                style={{ backgroundColor: theme.primary }}
+              >
+                <Printer size={16} />
+                Abrir PDF
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        <div className="flex items-center gap-2">
+          <Bot size={17} style={{ color: theme.primary }} />
+          <h2 className="text-sm font-black text-slate-900">Outros robos</h2>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+          {outrosRobos.map(renderRobotCard)}
+        </div>
       </div>
 
       {(robotLogs.length > 0 || isWatchingRun) && (
@@ -323,22 +439,102 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
         </div>
       )}
 
-      <div className="rounded-lg border border-slate-200 bg-white p-4">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-          <div>
-            <div className="text-sm font-black text-slate-900">Impressao do Mapinha</div>
-            <div className="mt-1 text-xs font-bold text-slate-500">
-              O botao abre o PDF exportado diretamente da aba Mapinha da planilha.
+      <div className="grid grid-cols-1 xl:grid-cols-[320px_1fr] gap-4">
+        <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
+          <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Home size={17} style={{ color: theme.primary }} />
+              <span className="text-sm font-black text-slate-900">Andares bloqueados</span>
+            </div>
+            <button
+              onClick={loadObservacoes}
+              disabled={loadingObservacoes}
+              className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-60"
+              title="Atualizar"
+            >
+              <RefreshCw size={15} className={loadingObservacoes ? 'animate-spin' : ''} />
+            </button>
+          </div>
+          <div className="p-4 space-y-2">
+            {(observacoes?.exceptions || []).length > 0 ? (
+              observacoes?.exceptions.map((item) => (
+                <div key={`${item.date}-${item.floor}`} className="flex items-center justify-between rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-xs font-black">
+                  <span className="text-slate-600">{item.date}</span>
+                  <span className="text-slate-900">Andar {item.floor}</span>
+                </div>
+              ))
+            ) : (
+              <div className="text-xs font-bold text-slate-400">Nenhuma excecao carregada.</div>
+            )}
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
+          <div className="px-4 py-3 border-b border-slate-100 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <FileText size={17} style={{ color: theme.primary }} />
+              <span className="text-sm font-black text-slate-900">Observacoes da semana</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {(Object.keys(observacaoLabels) as ObservacaoSetor[]).map((setor) => (
+                <button
+                  key={setor}
+                  onClick={() => setActiveObservacao(setor)}
+                  className={`px-3 py-2 rounded-lg text-xs font-black border transition-colors ${
+                    activeObservacao === setor
+                      ? 'text-white border-transparent'
+                      : 'text-slate-600 bg-white border-slate-200 hover:bg-slate-50'
+                  }`}
+                  style={activeObservacao === setor ? { backgroundColor: theme.primary } : undefined}
+                >
+                  {observacaoLabels[setor]}
+                </button>
+              ))}
             </div>
           </div>
-          <button
-            onClick={printMapinha}
-            className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-xs font-black text-white shadow-sm hover:brightness-95"
-            style={{ backgroundColor: theme.primary }}
-          >
-            <Printer size={16} />
-            Abrir PDF para imprimir
-          </button>
+
+          <div className="p-4 space-y-3">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
+              <div>
+                <div className="text-xs font-black text-slate-900">{observacaoDescriptions[activeObservacao]}</div>
+                <div className="mt-1 text-[11px] font-bold text-slate-400">
+                  {(observacoes?.sections?.[activeObservacao]?.items || []).length} solicitacao(oes)
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={loadObservacoes}
+                  disabled={loadingObservacoes}
+                  className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-slate-200 bg-white text-xs font-black text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+                >
+                  <RefreshCw size={15} className={loadingObservacoes ? 'animate-spin' : ''} />
+                  Atualizar
+                </button>
+                <button
+                  onClick={() => copyObservacoes(activeObservacao)}
+                  disabled={!observacoes?.sections?.[activeObservacao]?.text}
+                  className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-black text-white shadow-sm hover:brightness-95 disabled:opacity-60"
+                  style={{ backgroundColor: theme.primary }}
+                >
+                  {copiedObservacao === activeObservacao ? <ClipboardCheck size={15} /> : <Clipboard size={15} />}
+                  {copiedObservacao === activeObservacao ? 'Copiado' : 'Copiar'}
+                </button>
+              </div>
+            </div>
+
+            <textarea
+              readOnly
+              value={observacoes?.sections?.[activeObservacao]?.text || ''}
+              className="w-full min-h-[260px] resize-y rounded-lg border border-slate-200 bg-slate-50 p-3 font-mono text-xs font-bold text-slate-800 outline-none focus:border-slate-300"
+              placeholder="Sem observacoes para este setor."
+            />
+
+            {observacoesError && (
+              <div className="rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-xs font-bold text-red-700">
+                {observacoesError}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 

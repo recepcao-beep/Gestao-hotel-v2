@@ -250,6 +250,8 @@ const sheets = google.sheets({ version: 'v4', auth });
 const MAPINHA_SHEET_ID = process.env.MAPINHA_SHEET_ID || '1oMKFu9aobTP5sBuF0jjSR4In3Z6EcWfATCe_9ijNFXA';
 const MAPINHA_PRINT_RANGE = process.env.MAPINHA_PRINT_RANGE || 'Mapinha!A1:L145';
 const MAPINHA_ESCALA_RANGE = process.env.MAPINHA_ESCALA_RANGE || 'ESCALA!A1:H12';
+const OBSERVACOES_RANGE = process.env.OBSERVACOES_RANGE || 'SOLICITAÇÕES!A1:F2000';
+const DADOS_BRUTOS_HITS_RANGE = process.env.DADOS_BRUTOS_HITS_RANGE || 'DADOS_BRUTOS_HITS!A1:P5000';
 let mapinhaSheetGidCache: number | null = null;
 const DEFAULT_MAPINHA_NAME_CELLS: Record<string, string> = {
   '200': 'Mapinha!E41',
@@ -314,6 +316,146 @@ function extractScaleNamesByFloor(values: any[][], dayKey: string) {
 
   return { namesByFloor, matchedDay: String(row[0] || dayKey), found: true };
 }
+
+function normalizeHeaderText(value: any) {
+  return normalizeSheetText(value).replace(/\s+/g, '');
+}
+
+function findHeaderIndex(headers: any[], aliases: string[]) {
+  const normalizedAliases = aliases.map(normalizeHeaderText);
+  return headers.findIndex((header) => {
+    const normalizedHeader = normalizeHeaderText(header);
+    return normalizedAliases.some((alias) => normalizedHeader === alias || normalizedHeader.includes(alias));
+  });
+}
+
+function getCell(row: any[], index: number) {
+  return index >= 0 ? String(row?.[index] || '').trim() : '';
+}
+
+function classifyObservation(text: string): 'restaurante' | 'governanca' | 'recepcao' {
+  const normalized = normalizeSheetText(text);
+  const restaurante = [
+    'alerg', 'gluten', 'lactose', 'intoler', 'vegetar', 'vegano', 'restricao alimentar',
+    'mimo', 'aniversario', 'bolo', 'champagne', 'restaurante',
+  ];
+  const governanca = [
+    'colchao', 'berco', 'banheira', 'banheiro', 'arrumacao', 'arrumacao especial',
+    'limpeza', 'cama', 'travesseiro', 'toalha', 'cobertor', 'enxoval', 'fronha',
+  ];
+  const recepcao = [
+    'proxim', 'perto', 'junto', 'lado a lado', 'vinculad', 'andar', 'terreo',
+    'elevador', 'recepcao', 'ala', 'alocar', 'mesmo andar',
+  ];
+
+  if (restaurante.some((term) => normalized.includes(term))) return 'restaurante';
+  if (governanca.some((term) => normalized.includes(term))) return 'governanca';
+  if (recepcao.some((term) => normalized.includes(term))) return 'recepcao';
+  return 'recepcao';
+}
+
+function buildApartmentByVoucher(rawValues: any[][]) {
+  const headers = rawValues[0] || [];
+  const voucherIndex = findHeaderIndex(headers, ['voucher', 'reserva', 'numero reserva', 'n reserva', 'localizador']);
+  const apartmentIndex = findHeaderIndex(headers, ['apartamento', 'apto', 'quarto', 'uh', 'ap']);
+  const map = new Map<string, string>();
+
+  rawValues.slice(1).forEach((row) => {
+    const voucherCandidates = voucherIndex >= 0
+      ? [getCell(row, voucherIndex)]
+      : row.map((cell) => String(cell || '').trim()).filter((cell) => /^\d{5,10}$/.test(cell));
+    const apartmentCandidates = apartmentIndex >= 0
+      ? [getCell(row, apartmentIndex)]
+      : row
+          .map((cell, index) => ({ cell: String(cell || '').trim(), index }))
+          .filter(({ cell, index }) => index !== 14 && index !== 15 && /^\d{3}$/.test(cell))
+          .map(({ cell }) => cell);
+    const apartment = apartmentCandidates.find((cell) => /^\d{3}$/.test(cell)) || '';
+
+    voucherCandidates
+      .filter((voucher) => /^\d{5,10}$/.test(voucher))
+      .forEach((voucher) => {
+        if (apartment) map.set(voucher, apartment);
+      });
+  });
+
+  return map;
+}
+
+function extractExceptionFloors(rawValues: any[][]) {
+  const seen = new Set<string>();
+  return rawValues.slice(1)
+    .map((row) => ({
+      date: String(row?.[14] || '').trim(),
+      floor: String(row?.[15] || '').trim(),
+    }))
+    .filter((item) => item.date && item.floor)
+    .filter((item) => {
+      const key = `${item.date}|${item.floor}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
+function formatObservationLines(items: any[]) {
+  return items
+    .map((item) => `${item.voucher || 'sem voucher'} - ${item.apartment || 'sem apto'} - ${item.request}`)
+    .join('\n');
+}
+
+app.get('/api/robots/observacoes', async (req, res) => {
+  try {
+    const response = await sheets.spreadsheets.values.batchGet({
+      spreadsheetId: MAPINHA_SHEET_ID,
+      ranges: [OBSERVACOES_RANGE, DADOS_BRUTOS_HITS_RANGE],
+      valueRenderOption: 'FORMATTED_VALUE',
+    });
+
+    const [observacoesRange, dadosRange] = response.data.valueRanges || [];
+    const observacoesValues = observacoesRange?.values || [];
+    const dadosValues = dadosRange?.values || [];
+    const apartmentByVoucher = buildApartmentByVoucher(dadosValues);
+    const sections: Record<string, any[]> = {
+      restaurante: [],
+      governanca: [],
+      recepcao: [],
+    };
+
+    observacoesValues.slice(1).forEach((row) => {
+      const date = String(row?.[0] || '').trim();
+      const voucher = String(row?.[1] || '').trim();
+      const floor = String(row?.[2] || '').trim();
+      const linkedVoucher = String(row?.[3] || '').trim();
+      const request = String(row?.[5] || '').trim();
+      if (!voucher || !request) return;
+
+      const item = {
+        date,
+        voucher,
+        apartment: apartmentByVoucher.get(voucher) || '',
+        floor,
+        linkedVoucher,
+        request,
+      };
+      sections[classifyObservation(request)].push(item);
+    });
+
+    const payload = Object.fromEntries(
+      Object.entries(sections).map(([key, items]) => [key, { items, text: formatObservationLines(items) }])
+    );
+
+    res.json({
+      status: 'success',
+      updatedAt: new Date().toISOString(),
+      exceptions: extractExceptionFloors(dadosValues),
+      sections: payload,
+    });
+  } catch (error: any) {
+    console.error('[Robots Observacoes Error]', error);
+    res.status(500).json({ status: 'error', message: error.message || 'Erro ao carregar observacoes.' });
+  }
+});
 
 app.get('/api/mapinha/load', async (req, res) => {
   try {
