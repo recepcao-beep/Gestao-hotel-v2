@@ -1,22 +1,31 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AlertCircle,
+  AlertTriangle,
+  BedDouble,
+  BellRing,
   Bot,
+  CalendarDays,
   CalendarCheck2,
   CalendarRange,
   CheckCircle2,
   Clipboard,
   ClipboardCheck,
   Clock3,
+  ConciergeBell,
   ExternalLink,
   FileText,
   Home,
   Loader2,
   MailCheck,
   Play,
+  Plus,
   Printer,
   RefreshCw,
+  Save,
   Terminal,
+  Trash2,
+  Utensils,
 } from 'lucide-react';
 import { HotelTheme } from '../types';
 
@@ -64,6 +73,11 @@ interface ObservacoesPayload {
   sections: Record<ObservacaoSetor, ObservacaoSection>;
 }
 
+interface ExceptionFloor {
+  date: string;
+  floor: string;
+}
+
 const rotinaLabels: Record<Rotina, string> = {
   verificacao_diaria: 'Verificacao diaria',
   vinculacao_semanal: 'Vinculacao semanal',
@@ -97,6 +111,39 @@ const observacaoDescriptions: Record<ObservacaoSetor, string> = {
   recepcao: 'Proximidade e andares',
 };
 
+const observacaoIcons: Record<ObservacaoSetor, React.ElementType> = {
+  restaurante: Utensils,
+  governanca: BedDouble,
+  recepcao: ConciergeBell,
+};
+
+const formatTodayIso = () => new Date().toISOString().slice(0, 10);
+
+const dateToIso = (value: string) => {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+  const match = text.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+  if (!match) return '';
+  const [, rawDay, rawMonth, rawYear] = match;
+  const year = rawYear.length === 2 ? `20${rawYear}` : rawYear;
+  return `${year.padStart(4, '0')}-${rawMonth.padStart(2, '0')}-${rawDay.padStart(2, '0')}`;
+};
+
+const isoToBrDate = (value: string) => {
+  const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return value;
+  return `${match[3]}/${match[2]}/${match[1]}`;
+};
+
+const isSpecialHousekeeping = (text: string) => {
+  const normalized = String(text || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+  return normalized.includes('arrumacao especial');
+};
+
 const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
   const lastStatusKeyRef = useRef('');
   const [run, setRun] = useState<RobotRun | null>(null);
@@ -115,6 +162,11 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
   const [observacoesError, setObservacoesError] = useState('');
   const [activeObservacao, setActiveObservacao] = useState<ObservacaoSetor>('restaurante');
   const [copiedObservacao, setCopiedObservacao] = useState<ObservacaoSetor | null>(null);
+  const [exceptionsDraft, setExceptionsDraft] = useState<ExceptionFloor[]>([]);
+  const [savingExceptions, setSavingExceptions] = useState(false);
+  const [selectedDate, setSelectedDate] = useState('');
+  const [notificationsEnabled, setNotificationsEnabled] = useState(false);
+  const lastNotificationKeyRef = useRef('');
 
   const addRobotLog = useCallback((text: string, tone: RobotLogEntry['tone'] = 'info') => {
     setRobotLogs((current) => [
@@ -160,7 +212,7 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
       if (!response.ok || data.status !== 'success') {
         throw new Error(data.message || 'Falha ao carregar observacoes.');
       }
-      setObservacoes({
+      const nextObservacoes = {
         updatedAt: data.updatedAt,
         exceptions: data.exceptions || [],
         sections: data.sections || {
@@ -168,7 +220,9 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
           governanca: { items: [], text: '' },
           recepcao: { items: [], text: '' },
         },
-      });
+      };
+      setObservacoes(nextObservacoes);
+      setExceptionsDraft(nextObservacoes.exceptions);
     } catch (err: any) {
       setObservacoesError(err.message || 'Falha ao carregar observacoes.');
     } finally {
@@ -266,12 +320,79 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
   };
 
   const copyObservacoes = async (setor: ObservacaoSetor) => {
-    const text = observacoes?.sections?.[setor]?.text || '';
+    const text = filteredObservationText;
     if (!text.trim()) return;
     await navigator.clipboard.writeText(text);
     setCopiedObservacao(setor);
     window.setTimeout(() => setCopiedObservacao(null), 1500);
   };
+
+  const updateExceptionDraft = (index: number, field: keyof ExceptionFloor, value: string) => {
+    setExceptionsDraft((current) => current.map((item, itemIndex) => (
+      itemIndex === index ? { ...item, [field]: value } : item
+    )));
+  };
+
+  const addExceptionDraft = () => {
+    setExceptionsDraft((current) => [...current, { date: isoToBrDate(formatTodayIso()), floor: '' }]);
+  };
+
+  const removeExceptionDraft = (index: number) => {
+    setExceptionsDraft((current) => current.filter((_, itemIndex) => itemIndex !== index));
+  };
+
+  const saveExceptions = async () => {
+    setSavingExceptions(true);
+    setObservacoesError('');
+    try {
+      const response = await fetch('/api/robots/excecoes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ exceptions: exceptionsDraft }),
+      });
+      const data = await response.json();
+      if (!response.ok || data.status !== 'success') {
+        throw new Error(data.message || 'Falha ao salvar excecoes.');
+      }
+      setMessage('Andares bloqueados atualizados na planilha.');
+      await loadObservacoes();
+    } catch (err: any) {
+      setObservacoesError(err.message || 'Falha ao salvar excecoes.');
+    } finally {
+      setSavingExceptions(false);
+    }
+  };
+
+  const enableNotifications = async () => {
+    if (!('Notification' in window)) return;
+    const permission = await Notification.requestPermission();
+    setNotificationsEnabled(permission === 'granted');
+  };
+
+  const currentSectionItems = observacoes?.sections?.[activeObservacao]?.items || [];
+  const availableDates = Array.from(new Set(
+    (Object.values(observacoes?.sections || {}) as ObservacaoSection[])
+      .flatMap((section) => section.items.map((item) => item.date).filter(Boolean))
+  ));
+  const filteredObservationItems = currentSectionItems.filter((item) => {
+    if (!selectedDate) return true;
+    return dateToIso(item.date) === selectedDate;
+  });
+  const filteredObservationText = filteredObservationItems
+    .map((item) => `${item.voucher || 'sem voucher'} - ${item.apartment || 'sem apto'} - ${item.request}`)
+    .join('\n');
+  const specialHousekeepingItems = filteredObservationItems.filter((item) => isSpecialHousekeeping(item.request));
+
+  useEffect(() => {
+    if (!notificationsEnabled || !('Notification' in window) || Notification.permission !== 'granted') return;
+    if (specialHousekeepingItems.length === 0) return;
+    const key = specialHousekeepingItems.map((item) => `${item.voucher}-${item.apartment}-${item.request}`).join('|');
+    if (lastNotificationKeyRef.current === key) return;
+    lastNotificationKeyRef.current = key;
+    new Notification('Arrumacao especial', {
+      body: `${specialHousekeepingItems.length} solicitacao(oes) em destaque na Governanca.`,
+    });
+  }, [notificationsEnabled, specialHousekeepingItems]);
 
   const statusLabel = run
     ? run.status === 'completed'
@@ -456,16 +577,51 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
             </button>
           </div>
           <div className="p-4 space-y-2">
-            {(observacoes?.exceptions || []).length > 0 ? (
-              observacoes?.exceptions.map((item) => (
-                <div key={`${item.date}-${item.floor}`} className="flex items-center justify-between rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-xs font-black">
-                  <span className="text-slate-600">{item.date}</span>
-                  <span className="text-slate-900">Andar {item.floor}</span>
+            {exceptionsDraft.length > 0 ? (
+              exceptionsDraft.map((item, index) => (
+                <div key={`${index}-${item.date}-${item.floor}`} className="grid grid-cols-[1fr_1fr_32px] gap-2 rounded-lg border border-slate-100 bg-slate-50 p-2">
+                  <input
+                    type="date"
+                    value={dateToIso(item.date)}
+                    onChange={(event) => updateExceptionDraft(index, 'date', isoToBrDate(event.target.value))}
+                    className="min-w-0 rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs font-black text-slate-700 outline-none focus:border-slate-300"
+                  />
+                  <input
+                    value={item.floor}
+                    onChange={(event) => updateExceptionDraft(index, 'floor', event.target.value)}
+                    placeholder="500, 300"
+                    className="min-w-0 rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs font-black text-slate-700 outline-none focus:border-slate-300"
+                  />
+                  <button
+                    onClick={() => removeExceptionDraft(index)}
+                    className="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:text-red-600 hover:bg-red-50"
+                    title="Remover"
+                  >
+                    <Trash2 size={14} />
+                  </button>
                 </div>
               ))
             ) : (
               <div className="text-xs font-bold text-slate-400">Nenhuma excecao carregada.</div>
             )}
+            <div className="flex items-center gap-2 pt-2">
+              <button
+                onClick={addExceptionDraft}
+                className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-slate-200 bg-white text-xs font-black text-slate-700 hover:bg-slate-50"
+              >
+                <Plus size={14} />
+                Adicionar
+              </button>
+              <button
+                onClick={saveExceptions}
+                disabled={savingExceptions}
+                className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-black text-white shadow-sm hover:brightness-95 disabled:opacity-60"
+                style={{ backgroundColor: theme.primary }}
+              >
+                <Save size={14} />
+                Salvar
+              </button>
+            </div>
           </div>
         </div>
 
@@ -477,31 +633,76 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
             </div>
             <div className="flex flex-wrap items-center gap-2">
               {(Object.keys(observacaoLabels) as ObservacaoSetor[]).map((setor) => (
-                <button
-                  key={setor}
-                  onClick={() => setActiveObservacao(setor)}
-                  className={`px-3 py-2 rounded-lg text-xs font-black border transition-colors ${
-                    activeObservacao === setor
-                      ? 'text-white border-transparent'
-                      : 'text-slate-600 bg-white border-slate-200 hover:bg-slate-50'
-                  }`}
-                  style={activeObservacao === setor ? { backgroundColor: theme.primary } : undefined}
-                >
-                  {observacaoLabels[setor]}
-                </button>
+                (() => {
+                  const SetorIcon = observacaoIcons[setor];
+                  return (
+                    <button
+                      key={setor}
+                      onClick={() => setActiveObservacao(setor)}
+                      className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-black border transition-colors ${
+                        activeObservacao === setor
+                          ? 'text-white border-transparent'
+                          : 'text-slate-600 bg-white border-slate-200 hover:bg-slate-50'
+                      }`}
+                      style={activeObservacao === setor ? { backgroundColor: theme.primary } : undefined}
+                    >
+                      <SetorIcon size={14} />
+                      {observacaoLabels[setor]}
+                    </button>
+                  );
+                })()
               ))}
             </div>
           </div>
 
           <div className="p-4 space-y-3">
+            {specialHousekeepingItems.length > 0 && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-xs font-black text-amber-800">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle size={16} />
+                  <span>Arrumacao especial em destaque</span>
+                </div>
+                <div className="mt-2 space-y-1 font-bold">
+                  {specialHousekeepingItems.map((item) => (
+                    <div key={`${item.voucher}-${item.apartment}-${item.request}`}>
+                      {item.voucher} - {item.apartment || 'sem apto'} - {item.request}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
               <div>
                 <div className="text-xs font-black text-slate-900">{observacaoDescriptions[activeObservacao]}</div>
                 <div className="mt-1 text-[11px] font-bold text-slate-400">
-                  {(observacoes?.sections?.[activeObservacao]?.items || []).length} solicitacao(oes)
+                  {filteredObservationItems.length} solicitacao(oes)
                 </div>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2">
+                  <CalendarDays size={15} className="text-slate-500" />
+                  <input
+                    type="date"
+                    value={selectedDate}
+                    onChange={(event) => setSelectedDate(event.target.value)}
+                    className="text-xs font-black text-slate-700 outline-none"
+                  />
+                </div>
+                <button
+                  onClick={() => setSelectedDate('')}
+                  className="inline-flex items-center justify-center px-3 py-2 rounded-lg border border-slate-200 bg-white text-xs font-black text-slate-700 hover:bg-slate-50"
+                >
+                  Todos
+                </button>
+                <button
+                  onClick={enableNotifications}
+                  className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-slate-200 bg-white text-xs font-black text-slate-700 hover:bg-slate-50"
+                  title="Ativar notificacoes do navegador"
+                >
+                  <BellRing size={15} />
+                  {notificationsEnabled ? 'Alertas ativos' : 'Alertas'}
+                </button>
                 <button
                   onClick={loadObservacoes}
                   disabled={loadingObservacoes}
@@ -512,7 +713,7 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
                 </button>
                 <button
                   onClick={() => copyObservacoes(activeObservacao)}
-                  disabled={!observacoes?.sections?.[activeObservacao]?.text}
+                  disabled={!filteredObservationText}
                   className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-black text-white shadow-sm hover:brightness-95 disabled:opacity-60"
                   style={{ backgroundColor: theme.primary }}
                 >
@@ -524,10 +725,29 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
 
             <textarea
               readOnly
-              value={observacoes?.sections?.[activeObservacao]?.text || ''}
+              value={filteredObservationText}
               className="w-full min-h-[260px] resize-y rounded-lg border border-slate-200 bg-slate-50 p-3 font-mono text-xs font-bold text-slate-800 outline-none focus:border-slate-300"
               placeholder="Sem observacoes para este setor."
             />
+
+            {availableDates.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {availableDates.map((date) => (
+                  <button
+                    key={date}
+                    onClick={() => setSelectedDate(dateToIso(date))}
+                    className={`px-2.5 py-1.5 rounded-lg border text-[11px] font-black ${
+                      selectedDate && selectedDate === dateToIso(date)
+                        ? 'border-transparent text-white'
+                        : 'border-slate-200 bg-white text-slate-500 hover:bg-slate-50'
+                    }`}
+                    style={selectedDate && selectedDate === dateToIso(date) ? { backgroundColor: theme.primary } : undefined}
+                  >
+                    {date}
+                  </button>
+                ))}
+              </div>
+            )}
 
             {observacoesError && (
               <div className="rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-xs font-bold text-red-700">

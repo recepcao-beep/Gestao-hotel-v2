@@ -457,6 +457,41 @@ app.get('/api/robots/observacoes', async (req, res) => {
   }
 });
 
+app.post('/api/robots/excecoes', async (req, res) => {
+  try {
+    const exceptions = Array.isArray(req.body?.exceptions) ? req.body.exceptions : [];
+    const values = exceptions
+      .map((item: any) => [
+        String(item?.date || '').trim(),
+        String(item?.floor || '').trim(),
+      ])
+      .filter(([date, floor]) => date && floor);
+
+    await sheets.spreadsheets.values.clear({
+      spreadsheetId: MAPINHA_SHEET_ID,
+      range: 'DADOS_BRUTOS_HITS!O2:P5000',
+    });
+
+    if (values.length > 0) {
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: MAPINHA_SHEET_ID,
+        range: 'DADOS_BRUTOS_HITS!O2',
+        valueInputOption: 'USER_ENTERED',
+        requestBody: { values },
+      });
+    }
+
+    res.json({
+      status: 'success',
+      exceptions: values.map(([date, floor]) => ({ date, floor })),
+      updatedAt: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    console.error('[Robots Excecoes Error]', error);
+    res.status(500).json({ status: 'error', message: error.message || 'Erro ao salvar excecoes.' });
+  }
+});
+
 app.get('/api/mapinha/load', async (req, res) => {
   try {
     const response = await sheets.spreadsheets.values.batchGet({
