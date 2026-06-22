@@ -247,6 +247,27 @@ const LinenView: React.FC<LinenViewProps> = ({
     Rasgadas: numberValue(inventory.totalTorn)
   })), [sortedMonthlyInventories]);
 
+  const monthlyComparisonItems = useMemo(() => {
+    if (!selectedAuditInventory) return [];
+    return selectedAuditInventory.items.map(entry => {
+      const item = items.find(currentItem => currentItem.id === entry.itemId);
+      const ideal = item ? getIdealQuantity(item, hotelSettings) : numberValue(entry.expectedPhysicalTotal);
+      const counted = numberValue(entry.countedPhysicalTotal);
+      const deficit = Math.max(ideal - counted, 0);
+      const percent = ideal > 0 ? Math.min(100, Math.round((counted / ideal) * 100)) : 100;
+      return {
+        ...entry,
+        ideal,
+        counted,
+        deficit,
+        percent
+      };
+    }).sort((a, b) => b.deficit - a.deficit);
+  }, [selectedAuditInventory, items, hotelSettings]);
+
+  const monthlyDeficitItems = monthlyComparisonItems.filter(entry => entry.deficit > 0);
+  const monthlyDeficitTotal = monthlyDeficitItems.reduce((sum, entry) => sum + entry.deficit, 0);
+
   const resetItemForm = () => {
     setEditingItem(null);
     setName('');
@@ -562,6 +583,63 @@ const LinenView: React.FC<LinenViewProps> = ({
             </div>
           )}
         </div>
+      </div>
+
+      <div className="rounded-3xl border border-slate-100 bg-white dark:bg-slate-900 dark:border-slate-800 p-5 shadow-sm">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+          <div>
+            <p className="text-xs font-black uppercase tracking-wider text-slate-400">Contagem por competencia</p>
+            <h2 className="font-black text-slate-800 dark:text-white mt-1">Fisico contado x estoque ideal</h2>
+          </div>
+          {sortedMonthlyInventories.length > 0 && (
+            <select value={selectedAuditInventory?.id || ''} onChange={event => setSelectedAuditInventoryId(event.target.value)} className="px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm outline-none">
+              {sortedMonthlyInventories.map(inventory => <option key={inventory.id} value={inventory.id}>{formatMonth(inventory.month)}</option>)}
+            </select>
+          )}
+        </div>
+
+        {selectedAuditInventory ? (
+          <div className="mt-5 space-y-4">
+            <div className="grid sm:grid-cols-3 gap-3">
+              <div className="rounded-2xl bg-slate-50 dark:bg-slate-800 p-4">
+                <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Competencia</p>
+                <p className="text-xl font-black text-slate-800 dark:text-white mt-2">{formatMonth(selectedAuditInventory.month)}</p>
+              </div>
+              <div className="rounded-2xl bg-amber-50 border border-amber-100 p-4">
+                <p className="text-[10px] font-black uppercase tracking-wider text-amber-600">Itens abaixo do ideal</p>
+                <p className="text-xl font-black text-amber-700 mt-2">{monthlyDeficitItems.length}</p>
+              </div>
+              <div className="rounded-2xl bg-red-50 border border-red-100 p-4">
+                <p className="text-[10px] font-black uppercase tracking-wider text-red-600">Deficit total</p>
+                <p className="text-xl font-black text-red-700 mt-2">{monthlyDeficitTotal}</p>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              {monthlyComparisonItems.map(entry => (
+                <div key={entry.itemId} className="rounded-2xl border border-slate-100 dark:border-slate-800 p-3">
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
+                    <div>
+                      <p className="text-sm font-black text-slate-800 dark:text-white">{entry.itemName}</p>
+                      <p className="text-[11px] font-bold text-slate-400">Contado {entry.counted} de ideal {entry.ideal}</p>
+                    </div>
+                    <span className={`text-xs font-black ${entry.deficit > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                      {entry.deficit > 0 ? `Faltam ${entry.deficit}` : 'Dentro do ideal'}
+                    </span>
+                  </div>
+                  <div className="mt-3 h-3 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
+                    <div
+                      className={`h-full rounded-full ${entry.deficit > 0 ? 'bg-red-500' : 'bg-emerald-500'}`}
+                      style={{ width: `${entry.percent}%` }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm text-slate-400 mt-5">Nenhuma contagem mensal registrada.</p>
+        )}
       </div>
 
       <div className="rounded-3xl border border-slate-100 bg-white dark:bg-slate-900 dark:border-slate-800 shadow-sm overflow-hidden">

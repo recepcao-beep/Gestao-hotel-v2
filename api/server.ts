@@ -404,6 +404,20 @@ function formatObservationLines(items: any[]) {
     .join('\n');
 }
 
+function buildSheetsDateValue(value: any) {
+  const text = String(value || '').trim();
+  const isoMatch = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (isoMatch) {
+    return `=DATE(${Number(isoMatch[1])},${Number(isoMatch[2])},${Number(isoMatch[3])})`;
+  }
+  const brMatch = text.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+  if (brMatch) {
+    const year = brMatch[3].length === 2 ? Number(`20${brMatch[3]}`) : Number(brMatch[3]);
+    return `=DATE(${year},${Number(brMatch[2])},${Number(brMatch[1])})`;
+  }
+  return text;
+}
+
 app.get('/api/robots/observacoes', async (req, res) => {
   try {
     const response = await sheets.spreadsheets.values.batchGet({
@@ -462,7 +476,7 @@ app.post('/api/robots/excecoes', async (req, res) => {
     const exceptions = Array.isArray(req.body?.exceptions) ? req.body.exceptions : [];
     const values = exceptions
       .map((item: any) => [
-        String(item?.date || '').trim(),
+        buildSheetsDateValue(item?.date),
         String(item?.floor || '').trim(),
       ])
       .filter(([date, floor]) => date && floor);
