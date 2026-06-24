@@ -198,6 +198,8 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
   const [checkinContactsError, setCheckinContactsError] = useState('');
   const [whatsappTemplate, setWhatsappTemplate] = useState(defaultWhatsappTemplate);
   const [informativeLink, setInformativeLink] = useState(defaultInformativeLink);
+  const [savingWhatsappConfig, setSavingWhatsappConfig] = useState(false);
+  const [whatsappConfigMessage, setWhatsappConfigMessage] = useState('');
   const lastNotificationKeyRef = useRef('');
 
   const addRobotLog = useCallback((text: string, tone: RobotLogEntry['tone'] = 'info') => {
@@ -286,6 +288,24 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
   useEffect(() => {
     loadCheckinContacts();
   }, [loadCheckinContacts]);
+
+  const loadWhatsappConfig = useCallback(async () => {
+    try {
+      const response = await fetch('/api/robots/checkin-whatsapp/config');
+      const data = await response.json();
+      if (!response.ok || data.status !== 'success') {
+        throw new Error(data.message || 'Falha ao carregar mensagem do WhatsApp.');
+      }
+      setWhatsappTemplate(data.template || defaultWhatsappTemplate);
+      setInformativeLink(data.informativeLink || defaultInformativeLink);
+    } catch (err: any) {
+      setCheckinContactsError(err.message || 'Falha ao carregar mensagem do WhatsApp.');
+    }
+  }, []);
+
+  useEffect(() => {
+    loadWhatsappConfig();
+  }, [loadWhatsappConfig]);
 
   useEffect(() => {
     if (!isWatchingRun) return;
@@ -391,17 +411,19 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
   };
 
   const removeExceptionDraft = (index: number) => {
-    setExceptionsDraft((current) => current.filter((_, itemIndex) => itemIndex !== index));
+    const nextExceptions = exceptionsDraft.filter((_, itemIndex) => itemIndex !== index);
+    setExceptionsDraft(nextExceptions);
+    saveExceptions(nextExceptions);
   };
 
-  const saveExceptions = async () => {
+  const saveExceptions = async (exceptionsToSave = exceptionsDraft) => {
     setSavingExceptions(true);
     setObservacoesError('');
     try {
       const response = await fetch('/api/robots/excecoes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ exceptions: exceptionsDraft }),
+        body: JSON.stringify({ exceptions: exceptionsToSave }),
       });
       const data = await response.json();
       if (!response.ok || data.status !== 'success') {
@@ -415,6 +437,30 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
       setObservacoesError(err.message || 'Falha ao salvar exceções.');
     } finally {
       setSavingExceptions(false);
+    }
+  };
+
+  const saveWhatsappConfig = async () => {
+    setSavingWhatsappConfig(true);
+    setWhatsappConfigMessage('');
+    setCheckinContactsError('');
+    try {
+      const response = await fetch('/api/robots/checkin-whatsapp/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ template: whatsappTemplate, informativeLink }),
+      });
+      const data = await response.json();
+      if (!response.ok || data.status !== 'success') {
+        throw new Error(data.message || 'Falha ao salvar mensagem do WhatsApp.');
+      }
+      setWhatsappTemplate(data.template || whatsappTemplate);
+      setInformativeLink(data.informativeLink || informativeLink);
+      setWhatsappConfigMessage('Mensagem salva permanentemente.');
+    } catch (err: any) {
+      setCheckinContactsError(err.message || 'Falha ao salvar mensagem do WhatsApp.');
+    } finally {
+      setSavingWhatsappConfig(false);
     }
   };
 
@@ -623,7 +669,17 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
               />
             </div>
             <div>
-              <label className="text-[11px] font-black uppercase tracking-wider text-slate-400">Mensagem padrao</label>
+              <div className="flex items-center justify-between gap-2">
+                <label className="text-[11px] font-black uppercase tracking-wider text-slate-400">Mensagem padrão</label>
+                <button
+                  onClick={saveWhatsappConfig}
+                  disabled={savingWhatsappConfig}
+                  className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-slate-200 bg-white text-xs font-black text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+                >
+                  <Save size={14} />
+                  {savingWhatsappConfig ? 'Salvando' : 'Salvar mensagem'}
+                </button>
+              </div>
               <textarea
                 value={whatsappTemplate}
                 onChange={(event) => setWhatsappTemplate(event.target.value)}
@@ -632,6 +688,11 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
               <div className="mt-2 text-[11px] font-bold text-slate-400">
                 Variaveis: {'{nome}'}, {'{nome_completo}'}, {'{voucher}'}, {'{telefone}'}, {'{link_informativo}'}
               </div>
+              {whatsappConfigMessage && (
+                <div className="mt-2 rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700">
+                  {whatsappConfigMessage}
+                </div>
+              )}
             </div>
           </div>
 
@@ -743,8 +804,9 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
                   />
                   <button
                     onClick={() => removeExceptionDraft(index)}
+                    disabled={savingExceptions}
                     className="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:text-red-600 hover:bg-red-50"
-                    title="Remover"
+                    title="Remover e salvar"
                   >
                     <Trash2 size={14} />
                   </button>

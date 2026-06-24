@@ -254,6 +254,7 @@ const MAPINHA_ESCALA_RANGE = process.env.MAPINHA_ESCALA_RANGE || 'ESCALA!A1:H12'
 const OBSERVACOES_RANGE = process.env.OBSERVACOES_RANGE || 'SOLICITAÇÕES!A1:F2000';
 const DADOS_BRUTOS_HITS_RANGE = process.env.DADOS_BRUTOS_HITS_RANGE || 'DADOS_BRUTOS_HITS!A1:P5000';
 const CHECKIN_WHATSAPP_RANGE = process.env.CHECKIN_WHATSAPP_RANGE || 'CHECKIN_WHATSAPP!A1:H500';
+const CHECKIN_WHATSAPP_CONFIG_RANGE = process.env.CHECKIN_WHATSAPP_CONFIG_RANGE || 'CHECKIN_WHATSAPP_CONFIG!A1:B20';
 const CHECKIN_WHATSAPP_HEADERS = [
   'Atualizado em',
   'Voucher',
@@ -264,6 +265,16 @@ const CHECKIN_WHATSAPP_HEADERS = [
   'Status',
   'Origem',
 ];
+const CHECKIN_WHATSAPP_CONFIG_HEADERS = ['Chave', 'Valor'];
+const DEFAULT_WHATSAPP_TEMPLATE = `Olá {nome}, seja muito bem-vindo ao Hotel Vilage Inn.
+
+Estamos muito felizes em recebê-lo. Para tornar sua chegada mais rápida e confortável, você pode nos enviar por aqui os dados necessários para adiantar o check-in.
+
+Segue também o link do nosso informativo:
+{link_informativo}
+
+Qualquer dúvida, estamos à disposição. Obrigado e até logo!`;
+const DEFAULT_INFORMATIVE_LINK = 'https://mesquite-hisser-6e8.notion.site/1c0fb9fb7e0280488794ff5b9abbaf4c?v=1c0fb9fb7e0280e5ba6b000ce896f969';
 let mapinhaSheetGidCache: number | null = null;
 const DEFAULT_MAPINHA_NAME_CELLS: Record<string, string> = {
   '200': 'Mapinha!E41',
@@ -569,6 +580,69 @@ app.get('/api/robots/checkin-whatsapp', async (req, res) => {
   } catch (error: any) {
     console.error('[Checkin WhatsApp Error]', error);
     res.status(500).json({ status: 'error', message: error.message || 'Erro ao carregar contatos de check-in.' });
+  }
+});
+
+app.get('/api/robots/checkin-whatsapp/config', async (req, res) => {
+  try {
+    await ensureSheetWithHeaders(getSheetTitleFromRange(CHECKIN_WHATSAPP_CONFIG_RANGE), CHECKIN_WHATSAPP_CONFIG_HEADERS);
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: MAPINHA_SHEET_ID,
+      range: CHECKIN_WHATSAPP_CONFIG_RANGE,
+      valueRenderOption: 'FORMATTED_VALUE',
+    });
+
+    const values = response.data.values || [];
+    const config = Object.fromEntries(
+      values.slice(1)
+        .map((row) => [String(row?.[0] || '').trim(), String(row?.[1] || '')])
+        .filter(([key]) => key)
+    );
+
+    res.json({
+      status: 'success',
+      template: config.template || DEFAULT_WHATSAPP_TEMPLATE,
+      informativeLink: config.informativeLink || DEFAULT_INFORMATIVE_LINK,
+      updatedAt: config.updatedAt || '',
+    });
+  } catch (error: any) {
+    console.error('[Checkin WhatsApp Config Error]', error);
+    res.status(500).json({ status: 'error', message: error.message || 'Erro ao carregar configuração do WhatsApp.' });
+  }
+});
+
+app.post('/api/robots/checkin-whatsapp/config', async (req, res) => {
+  try {
+    await ensureSheetWithHeaders(getSheetTitleFromRange(CHECKIN_WHATSAPP_CONFIG_RANGE), CHECKIN_WHATSAPP_CONFIG_HEADERS);
+    const template = String(req.body?.template || DEFAULT_WHATSAPP_TEMPLATE);
+    const informativeLink = String(req.body?.informativeLink || DEFAULT_INFORMATIVE_LINK).trim();
+    const updatedAt = new Date().toISOString();
+
+    await sheets.spreadsheets.values.clear({
+      spreadsheetId: MAPINHA_SHEET_ID,
+      range: CHECKIN_WHATSAPP_CONFIG_RANGE,
+    });
+
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: MAPINHA_SHEET_ID,
+      range: getA1RangeOnly(CHECKIN_WHATSAPP_CONFIG_RANGE).startsWith('A1')
+        ? `${getSheetTitleFromRange(CHECKIN_WHATSAPP_CONFIG_RANGE)}!A1`
+        : CHECKIN_WHATSAPP_CONFIG_RANGE,
+      valueInputOption: 'USER_ENTERED',
+      requestBody: {
+        values: [
+          CHECKIN_WHATSAPP_CONFIG_HEADERS,
+          ['template', template],
+          ['informativeLink', informativeLink],
+          ['updatedAt', updatedAt],
+        ],
+      },
+    });
+
+    res.json({ status: 'success', template, informativeLink, updatedAt });
+  } catch (error: any) {
+    console.error('[Checkin WhatsApp Config Save Error]', error);
+    res.status(500).json({ status: 'error', message: error.message || 'Erro ao salvar configuração do WhatsApp.' });
   }
 });
 
