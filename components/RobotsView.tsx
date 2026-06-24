@@ -416,14 +416,15 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
     saveExceptions(nextExceptions);
   };
 
-  const saveExceptions = async (exceptionsToSave = exceptionsDraft) => {
+  const saveExceptions = async (exceptionsToSave?: ExceptionFloor[]) => {
+    const nextExceptions = Array.isArray(exceptionsToSave) ? exceptionsToSave : exceptionsDraft;
     setSavingExceptions(true);
     setObservacoesError('');
     try {
       const response = await fetch('/api/robots/excecoes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ exceptions: exceptionsToSave }),
+        body: JSON.stringify({ exceptions: nextExceptions }),
       });
       const data = await response.json();
       if (!response.ok || data.status !== 'success') {
@@ -824,7 +825,7 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
                 Adicionar
               </button>
               <button
-                onClick={saveExceptions}
+                onClick={() => saveExceptions()}
                 disabled={savingExceptions}
                 className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-black text-white shadow-sm hover:brightness-95 disabled:opacity-60"
                 style={{ backgroundColor: theme.primary }}
