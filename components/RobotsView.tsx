@@ -189,7 +189,7 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
   const [copiedObservacao, setCopiedObservacao] = useState<ObservacaoSetor | null>(null);
   const [exceptionsDraft, setExceptionsDraft] = useState<ExceptionFloor[]>([]);
   const [savingExceptions, setSavingExceptions] = useState(false);
-  const [selectedDate, setSelectedDate] = useState('');
+  const [selectedDate, setSelectedDate] = useState(formatTodayIso());
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
   const [checkinContacts, setCheckinContacts] = useState<CheckinWhatsappContact[]>([]);
   const [loadingCheckinContacts, setLoadingCheckinContacts] = useState(false);
@@ -240,7 +240,7 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
       const response = await fetch('/api/robots/observacoes');
       const data = await response.json();
       if (!response.ok || data.status !== 'success') {
-        throw new Error(data.message || 'Falha ao carregar observacoes.');
+        throw new Error(data.message || 'Falha ao carregar observações.');
       }
       const nextObservacoes = {
         updatedAt: data.updatedAt,
@@ -254,7 +254,7 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
       setObservacoes(nextObservacoes);
       setExceptionsDraft(nextObservacoes.exceptions);
     } catch (err: any) {
-      setObservacoesError(err.message || 'Falha ao carregar observacoes.');
+      setObservacoesError(err.message || 'Falha ao carregar observações.');
     } finally {
       setLoadingObservacoes(false);
     }
@@ -403,12 +403,14 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
       });
       const data = await response.json();
       if (!response.ok || data.status !== 'success') {
-        throw new Error(data.message || 'Falha ao salvar excecoes.');
+        throw new Error(data.message || 'Falha ao salvar exceções.');
       }
+      const savedExceptions = data.exceptions || [];
+      setExceptionsDraft(savedExceptions);
+      setObservacoes((current) => current ? { ...current, exceptions: savedExceptions } : current);
       setMessage('Andares bloqueados atualizados na planilha.');
-      await loadObservacoes();
     } catch (err: any) {
-      setObservacoesError(err.message || 'Falha ao salvar excecoes.');
+      setObservacoesError(err.message || 'Falha ao salvar exceções.');
     } finally {
       setSavingExceptions(false);
     }
@@ -774,7 +776,7 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
           <div className="px-4 py-3 border-b border-slate-100 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
             <div className="flex items-center gap-2">
               <FileText size={17} style={{ color: theme.primary }} />
-              <span className="text-sm font-black text-slate-900">Observacoes da semana</span>
+              <span className="text-sm font-black text-slate-900">Observações da semana</span>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               {(Object.keys(observacaoLabels) as ObservacaoSetor[]).map((setor) => (
@@ -872,7 +874,7 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
               readOnly
               value={filteredObservationText}
               className="w-full min-h-[260px] resize-y rounded-lg border border-slate-200 bg-slate-50 p-3 font-mono text-xs font-bold text-slate-800 outline-none focus:border-slate-300"
-              placeholder="Sem observacoes para este setor."
+              placeholder="Sem observações para este setor."
             />
 
             {availableDates.length > 0 && (

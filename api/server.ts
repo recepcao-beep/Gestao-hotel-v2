@@ -254,6 +254,16 @@ const MAPINHA_ESCALA_RANGE = process.env.MAPINHA_ESCALA_RANGE || 'ESCALA!A1:H12'
 const OBSERVACOES_RANGE = process.env.OBSERVACOES_RANGE || 'SOLICITAÇÕES!A1:F2000';
 const DADOS_BRUTOS_HITS_RANGE = process.env.DADOS_BRUTOS_HITS_RANGE || 'DADOS_BRUTOS_HITS!A1:P5000';
 const CHECKIN_WHATSAPP_RANGE = process.env.CHECKIN_WHATSAPP_RANGE || 'CHECKIN_WHATSAPP!A1:H500';
+const CHECKIN_WHATSAPP_HEADERS = [
+  'Atualizado em',
+  'Voucher',
+  'Nome',
+  'Nome curto',
+  'Telefone',
+  'Telefone WhatsApp',
+  'Status',
+  'Origem',
+];
 let mapinhaSheetGidCache: number | null = null;
 const DEFAULT_MAPINHA_NAME_CELLS: Record<string, string> = {
   '200': 'Mapinha!E41',
@@ -481,13 +491,55 @@ function buildSheetsDateValue(value: any) {
   return text;
 }
 
+function normalizeExceptionDate(value: any) {
+  const text = String(value || '').trim();
+  const isoMatch = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (isoMatch) return `${isoMatch[3]}/${isoMatch[2]}/${isoMatch[1]}`;
+  const brMatch = text.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+  if (!brMatch) return text;
+  const year = brMatch[3].length === 2 ? `20${brMatch[3]}` : brMatch[3];
+  return `${brMatch[1].padStart(2, '0')}/${brMatch[2].padStart(2, '0')}/${year}`;
+}
+
 function getHeaderValue(row: any[], headers: any[], aliases: string[]) {
   const index = findHeaderIndex(headers, aliases);
   return getCell(row, index);
 }
 
+function getSheetTitleFromRange(range: string) {
+  const rawTitle = String(range || '').split('!')[0] || '';
+  return rawTitle.replace(/^'|'$/g, '').trim();
+}
+
+async function ensureSheetWithHeaders(title: string, headers: string[]) {
+  if (!title) return;
+
+  const response = await sheets.spreadsheets.get({
+    spreadsheetId: MAPINHA_SHEET_ID,
+    fields: 'sheets(properties(title))',
+  });
+  const exists = response.data.sheets?.some((sheet) => sheet.properties?.title === title);
+
+  if (!exists) {
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId: MAPINHA_SHEET_ID,
+      requestBody: {
+        requests: [{ addSheet: { properties: { title } } }],
+      },
+    });
+  }
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: MAPINHA_SHEET_ID,
+    range: `${title}!A1:H1`,
+    valueInputOption: 'USER_ENTERED',
+    requestBody: { values: [headers] },
+  });
+}
+
 app.get('/api/robots/checkin-whatsapp', async (req, res) => {
   try {
+    await ensureSheetWithHeaders(getSheetTitleFromRange(CHECKIN_WHATSAPP_RANGE), CHECKIN_WHATSAPP_HEADERS);
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: MAPINHA_SHEET_ID,
       range: CHECKIN_WHATSAPP_RANGE,
@@ -570,17 +622,23 @@ app.get('/api/robots/observacoes', async (req, res) => {
     });
   } catch (error: any) {
     console.error('[Robots Observacoes Error]', error);
-    res.status(500).json({ status: 'error', message: error.message || 'Erro ao carregar observacoes.' });
+    res.status(500).json({ status: 'error', message: error.message || 'Erro ao carregar observações.' });
   }
 });
 
 app.post('/api/robots/excecoes', async (req, res) => {
   try {
     const exceptions = Array.isArray(req.body?.exceptions) ? req.body.exceptions : [];
-    const values = exceptions
+    const cleanedExceptions = exceptions
+      .map((item: any) => ({
+        date: normalizeExceptionDate(item?.date),
+        floor: String(item?.floor || '').trim(),
+      }))
+      .filter((item) => item.date && item.floor);
+    const values = cleanedExceptions
       .map((item: any) => [
-        buildSheetsDateValue(item?.date),
-        String(item?.floor || '').trim(),
+        buildSheetsDateValue(item.date),
+        item.floor,
       ])
       .filter(([date, floor]) => date && floor);
 
@@ -600,12 +658,12 @@ app.post('/api/robots/excecoes', async (req, res) => {
 
     res.json({
       status: 'success',
-      exceptions: values.map(([date, floor]) => ({ date, floor })),
+      exceptions: cleanedExceptions,
       updatedAt: new Date().toISOString(),
     });
   } catch (error: any) {
     console.error('[Robots Excecoes Error]', error);
-    res.status(500).json({ status: 'error', message: error.message || 'Erro ao salvar excecoes.' });
+    res.status(500).json({ status: 'error', message: error.message || 'Erro ao salvar exceções.' });
   }
 });
 
