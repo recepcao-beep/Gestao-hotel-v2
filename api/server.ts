@@ -488,20 +488,6 @@ function formatObservationLines(items: any[]) {
     .join('\n');
 }
 
-function buildSheetsDateValue(value: any) {
-  const text = String(value || '').trim();
-  const isoMatch = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (isoMatch) {
-    return `=DATE(${Number(isoMatch[1])},${Number(isoMatch[2])},${Number(isoMatch[3])})`;
-  }
-  const brMatch = text.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
-  if (brMatch) {
-    const year = brMatch[3].length === 2 ? Number(`20${brMatch[3]}`) : Number(brMatch[3]);
-    return `=DATE(${year},${Number(brMatch[2])},${Number(brMatch[1])})`;
-  }
-  return text;
-}
-
 function normalizeExceptionDate(value: any) {
   const text = String(value || '').trim();
   const isoMatch = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -711,24 +697,33 @@ app.post('/api/robots/excecoes', async (req, res) => {
       .filter((item) => item.date && item.floor);
     const values = cleanedExceptions
       .map((item: any) => [
-        buildSheetsDateValue(item.date),
+        item.date,
         item.floor,
       ])
       .filter(([date, floor]) => date && floor);
 
-    await sheets.spreadsheets.values.clear({
-      spreadsheetId: MAPINHA_SHEET_ID,
-      range: 'DADOS_BRUTOS_HITS!O2:P5000',
-    });
+    const blankRows = Array.from({ length: 4999 }, () => ['', '']);
+    const data = [
+      {
+        range: 'DADOS_BRUTOS_HITS!O2:P5000',
+        values: blankRows,
+      },
+    ];
 
     if (values.length > 0) {
-      await sheets.spreadsheets.values.update({
-        spreadsheetId: MAPINHA_SHEET_ID,
+      data.push({
         range: 'DADOS_BRUTOS_HITS!O2',
-        valueInputOption: 'USER_ENTERED',
-        requestBody: { values },
+        values,
       });
     }
+
+    await sheets.spreadsheets.values.batchUpdate({
+      spreadsheetId: MAPINHA_SHEET_ID,
+      requestBody: {
+        valueInputOption: 'USER_ENTERED',
+        data,
+      },
+    });
 
     res.json({
       status: 'success',
