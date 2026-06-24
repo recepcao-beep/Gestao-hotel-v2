@@ -161,6 +161,8 @@ Segue também o link do nosso informativo:
 
 Qualquer dúvida, estamos à disposição. Obrigado e até logo!`;
 
+const defaultInformativeLink = 'https://mesquite-hisser-6e8.notion.site/1c0fb9fb7e0280488794ff5b9abbaf4c?v=1c0fb9fb7e0280e5ba6b000ce896f969';
+
 const isSpecialHousekeeping = (text: string) => {
   const normalized = String(text || '')
     .normalize('NFD')
@@ -195,7 +197,7 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
   const [loadingCheckinContacts, setLoadingCheckinContacts] = useState(false);
   const [checkinContactsError, setCheckinContactsError] = useState('');
   const [whatsappTemplate, setWhatsappTemplate] = useState(defaultWhatsappTemplate);
-  const [informativeLink, setInformativeLink] = useState('');
+  const [informativeLink, setInformativeLink] = useState(defaultInformativeLink);
   const lastNotificationKeyRef = useRef('');
 
   const addRobotLog = useCallback((text: string, tone: RobotLogEntry['tone'] = 'info') => {
