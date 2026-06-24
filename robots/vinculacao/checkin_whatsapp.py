@@ -29,8 +29,12 @@ XPATH_RECEPCAO = "/html/body/div[3]/div/header/nav[6]/div/ul/li[1]/a"
 XPATH_MAPA_RESERVAS = "/html/body/div[3]/div/header/nav[6]/div/ul/li[1]/ul/li[1]/a"
 XPATH_TOTAL_CHECKINS = "/html/body/div[3]/div/main/div[56]/div[1]/new-chart-timeline/div/div/div[1]/div[3]/div/div/div/div/div/div/svg/g/g/g[1]/g/text/tspan"
 XPATH_CHECKIN_ROWS = "/html/body/div[3]/div/main/div[56]/div[1]/new-chart-timeline/div/div/div[2]/div/new-chart-checkin/div[1]/div[2]/div[1]/div/table/tbody/tr"
-XPATH_NOME = "/html/body/div[3]/div/main/div[8]/div[3]/reservation-edit/div[2]/div[2]/div[1]/div[1]/div/form/div[1]/div/div[1]/div[1]/div/div/div[1]/div/input"
-XPATH_TELEFONE = "/html/body/div[3]/div/main/div[8]/div[3]/reservation-edit/div[2]/div[2]/div[1]/div[1]/div/form/div[1]/div/div[1]/div[3]/div/div/div[1]/div[2]/div/input"
+XPATH_NOME_CONTAINER = "/html/body/div[3]/div/main/div[8]/div[3]/reservation-edit/div[2]/div[2]/div[1]/div[1]/div/form/div[1]/div/div[1]/div[1]/div/div/div[1]"
+XPATH_NOME_INPUT = f"{XPATH_NOME_CONTAINER}/div/input"
+XPATH_TELEFONES = [
+    "/html/body/div[3]/div/main/div[8]/div[3]/reservation-edit/div[2]/div[2]/div[1]/div[1]/div/form/div[1]/div/div[1]/div[3]/div/div/div[1]/div[2]/div/input",
+    "/html/body/div[3]/div/main/div[8]/div[3]/reservation-edit/div[2]/div[2]/div[1]/div[1]/div/form/div[1]/div/div[1]/div[3]/div/div/div[2]/div[2]/div/input",
+]
 XPATH_FECHAR_RESERVA = "/html/body/div[3]/div/main/div[8]/div[3]/reservation-edit/div[14]/button[2]"
 
 
@@ -46,6 +50,25 @@ def texto_elemento(driver, element):
 def valor_input(driver, xpath):
     element = WebDriverWait(driver, 20).until(EC.presence_of_element_located((By.XPATH, xpath)))
     return (element.get_attribute("value") or texto_elemento(driver, element) or "").strip()
+
+
+def valor_elemento_quando_preenchido(driver, xpath, timeout=20):
+    wait = WebDriverWait(driver, timeout)
+
+    def obter(_driver):
+        try:
+            element = _driver.find_element(By.XPATH, xpath)
+            value = (
+                element.get_attribute("value")
+                or element.get_attribute("innerText")
+                or element.get_attribute("textContent")
+                or ""
+            ).strip()
+            return value or False
+        except Exception:
+            return False
+
+    return wait.until(obter)
 
 
 def somente_digitos(value):
@@ -211,10 +234,11 @@ def fechar_reserva(driver):
 
 def encontrar_telefone_reserva(driver):
     candidatos = []
-    try:
-        candidatos.append(valor_input(driver, XPATH_TELEFONE))
-    except Exception:
-        pass
+    for xpath in XPATH_TELEFONES:
+        try:
+            candidatos.append(valor_input(driver, xpath))
+        except Exception:
+            pass
 
     for element in driver.find_elements(By.XPATH, "/html/body/div[3]/div/main/div[8]//reservation-edit//input"):
         try:
@@ -237,6 +261,45 @@ def encontrar_telefone_reserva(driver):
             return candidato, telefone
 
     return "", ""
+
+
+def encontrar_nome_reserva(driver):
+    candidatos = []
+
+    for xpath in (XPATH_NOME_INPUT, XPATH_NOME_CONTAINER):
+        try:
+            candidatos.append(valor_elemento_quando_preenchido(driver, xpath, timeout=12))
+        except Exception:
+            pass
+
+    try:
+        container = driver.find_element(By.XPATH, XPATH_NOME_CONTAINER)
+        for element in container.find_elements(By.XPATH, ".//input|.//textarea|.//span|.//div"):
+            value = (
+                element.get_attribute("value")
+                or element.get_attribute("innerText")
+                or element.get_attribute("textContent")
+                or ""
+            ).strip()
+            if value:
+                candidatos.append(value)
+    except Exception:
+        pass
+
+    for element in driver.find_elements(By.XPATH, "/html/body/div[3]/div/main/div[8]//reservation-edit//input"):
+        try:
+            value = (element.get_attribute("value") or "").strip()
+            if value and re.search(r"[A-Za-zÀ-ÿ]{2,}", value) and not normalizar_telefone(value):
+                candidatos.append(value)
+        except Exception:
+            continue
+
+    for candidato in candidatos:
+        text = re.sub(r"\s+", " ", str(candidato or "")).strip()
+        if re.search(r"[A-Za-zÀ-ÿ]{2,}", text) and not parece_cpf_ou_documento(text) and not normalizar_telefone(text):
+            return text
+
+    return ""
 
 
 def coletar_contatos():
@@ -268,7 +331,8 @@ def coletar_contatos():
 
             try:
                 js_click(driver, element)
-                nome = valor_input(driver, XPATH_NOME)
+                time.sleep(3)
+                nome = encontrar_nome_reserva(driver)
                 telefone_original, telefone_whatsapp = encontrar_telefone_reserva(driver)
 
                 if not nome:
