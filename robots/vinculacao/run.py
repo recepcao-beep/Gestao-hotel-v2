@@ -9,6 +9,7 @@ ROTINAS = {
     "verificacao_diaria": ["mr.py", "obs.py", "vinc2.py"],
     "vinculacao_semanal": ["limpeza.py", "mr.py", "obs.py", "vinc2.py"],
     "mapa": ["mapa.py"],
+    "checkin_whatsapp": ["checkin_whatsapp.py"],
 }
 
 

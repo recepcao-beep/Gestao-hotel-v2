@@ -97,13 +97,14 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-type VinculacaoRotina = 'verificacao_diaria' | 'vinculacao_semanal' | 'mapa' | 'checkin_email';
+type VinculacaoRotina = 'verificacao_diaria' | 'vinculacao_semanal' | 'mapa' | 'checkin_email' | 'checkin_whatsapp';
 
 const VINCULACAO_ROTINAS = new Set<VinculacaoRotina>([
   'verificacao_diaria',
   'vinculacao_semanal',
   'mapa',
   'checkin_email',
+  'checkin_whatsapp',
 ]);
 
 function getGitHubWorkflowConfig(rotina: VinculacaoRotina = 'verificacao_diaria') {
@@ -252,6 +253,7 @@ const MAPINHA_PRINT_RANGE = process.env.MAPINHA_PRINT_RANGE || 'Mapinha!A1:L145'
 const MAPINHA_ESCALA_RANGE = process.env.MAPINHA_ESCALA_RANGE || 'ESCALA!A1:H12';
 const OBSERVACOES_RANGE = process.env.OBSERVACOES_RANGE || 'SOLICITAÇÕES!A1:F2000';
 const DADOS_BRUTOS_HITS_RANGE = process.env.DADOS_BRUTOS_HITS_RANGE || 'DADOS_BRUTOS_HITS!A1:P5000';
+const CHECKIN_WHATSAPP_RANGE = process.env.CHECKIN_WHATSAPP_RANGE || 'CHECKIN_WHATSAPP!A1:H500';
 let mapinhaSheetGidCache: number | null = null;
 const DEFAULT_MAPINHA_NAME_CELLS: Record<string, string> = {
   '200': 'Mapinha!E41',
@@ -354,6 +356,67 @@ function classifyObservation(text: string): 'restaurante' | 'governanca' | 'rece
   return 'recepcao';
 }
 
+function cleanObservationPart(text: string) {
+  return String(text || '')
+    .replace(/\*+/g, '')
+    .replace(/^observa[cç][oõ]es?\s*:/i, '')
+    .replace(/^favor\s+/i, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function uniqueObservationParts(text: string) {
+  const seen = new Set<string>();
+  return String(text || '')
+    .split('|')
+    .map(cleanObservationPart)
+    .filter(Boolean)
+    .filter((part) => {
+      const key = normalizeSheetText(part);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
+function summarizeMimoObservation(text: string) {
+  const normalized = normalizeSheetText(text);
+  if (!normalized.includes('mimo')) return '';
+
+  if (
+    normalized.includes('infantil') ||
+    normalized.includes('crianca') ||
+    normalized.includes('crianca') ||
+    normalized.includes('chd') ||
+    /\b\d{1,2}\s*anos?\b/.test(normalized)
+  ) {
+    return 'MIMO INFANTIL';
+  }
+
+  if (
+    normalized.includes('casamento') ||
+    normalized.includes('lua de mel') ||
+    normalized.includes('luademel') ||
+    normalized.includes('recem casad')
+  ) {
+    return 'MIMO CASAMENTO/LUA DE MEL';
+  }
+
+  if (normalized.includes('adulto')) return 'MIMO ADULTO';
+
+  return 'MIMO';
+}
+
+function formatObservationRequest(text: string, sector: 'restaurante' | 'governanca' | 'recepcao') {
+  if (sector === 'restaurante') {
+    const mimo = summarizeMimoObservation(text);
+    if (mimo) return mimo;
+  }
+
+  const parts = uniqueObservationParts(text);
+  return parts.join(' | ') || String(text || '').trim();
+}
+
 function buildApartmentByVoucher(rawValues: any[][]) {
   const headers = rawValues[0] || [];
   const voucherIndex = findHeaderIndex(headers, ['voucher', 'reserva', 'numero reserva', 'n reserva', 'localizador']);
@@ -418,6 +481,45 @@ function buildSheetsDateValue(value: any) {
   return text;
 }
 
+function getHeaderValue(row: any[], headers: any[], aliases: string[]) {
+  const index = findHeaderIndex(headers, aliases);
+  return getCell(row, index);
+}
+
+app.get('/api/robots/checkin-whatsapp', async (req, res) => {
+  try {
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: MAPINHA_SHEET_ID,
+      range: CHECKIN_WHATSAPP_RANGE,
+      valueRenderOption: 'FORMATTED_VALUE',
+    });
+
+    const values = response.data.values || [];
+    const headers = values[0] || [];
+    const contacts = values.slice(1)
+      .map((row, index) => ({
+        id: `${getHeaderValue(row, headers, ['voucher']) || index}-${getHeaderValue(row, headers, ['telefone whatsapp', 'whatsapp']) || index}`,
+        updatedAt: getHeaderValue(row, headers, ['atualizado em', 'atualizado']),
+        voucher: getHeaderValue(row, headers, ['voucher', 'reserva', 'localizador']),
+        name: getHeaderValue(row, headers, ['nome', 'hospede']),
+        shortName: getHeaderValue(row, headers, ['nome curto']) || getHeaderValue(row, headers, ['nome', 'hospede']),
+        phone: getHeaderValue(row, headers, ['telefone']),
+        whatsappPhone: getHeaderValue(row, headers, ['telefone whatsapp', 'whatsapp']),
+        status: getHeaderValue(row, headers, ['status']) || 'Pendente',
+      }))
+      .filter((contact) => contact.name && contact.whatsappPhone);
+
+    res.json({
+      status: 'success',
+      contacts,
+      updatedAt: contacts[0]?.updatedAt || '',
+    });
+  } catch (error: any) {
+    console.error('[Checkin WhatsApp Error]', error);
+    res.status(500).json({ status: 'error', message: error.message || 'Erro ao carregar contatos de check-in.' });
+  }
+});
+
 app.get('/api/robots/observacoes', async (req, res) => {
   try {
     const response = await sheets.spreadsheets.values.batchGet({
@@ -444,15 +546,16 @@ app.get('/api/robots/observacoes', async (req, res) => {
       const request = String(row?.[5] || '').trim();
       if (!voucher || !request) return;
 
+      const sector = classifyObservation(request);
       const item = {
         date,
         voucher,
         apartment: apartmentByVoucher.get(voucher) || '',
         floor,
         linkedVoucher,
-        request,
+        request: formatObservationRequest(request, sector),
       };
-      sections[classifyObservation(request)].push(item);
+      sections[sector].push(item);
     });
 
     const payload = Object.fromEntries(

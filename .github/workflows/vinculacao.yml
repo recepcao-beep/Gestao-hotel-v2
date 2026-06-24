@@ -12,6 +12,7 @@ on:
           - verificacao_diaria
           - vinculacao_semanal
           - mapa
+          - checkin_whatsapp
 
 jobs:
   executar:

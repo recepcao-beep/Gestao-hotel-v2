@@ -18,18 +18,20 @@ import {
   Home,
   Loader2,
   MailCheck,
+  MessageCircle,
   Play,
   Plus,
   Printer,
   RefreshCw,
   Save,
+  Send,
   Terminal,
   Trash2,
   Utensils,
 } from 'lucide-react';
 import { HotelTheme } from '../types';
 
-type Rotina = 'verificacao_diaria' | 'vinculacao_semanal' | 'checkin_email';
+type Rotina = 'verificacao_diaria' | 'vinculacao_semanal' | 'checkin_email' | 'checkin_whatsapp';
 type ObservacaoSetor = 'restaurante' | 'governanca' | 'recepcao';
 
 interface RobotsViewProps {
@@ -78,26 +80,40 @@ interface ExceptionFloor {
   floor: string;
 }
 
+interface CheckinWhatsappContact {
+  id: string;
+  updatedAt: string;
+  voucher: string;
+  name: string;
+  shortName: string;
+  phone: string;
+  whatsappPhone: string;
+  status: string;
+}
+
 const rotinaLabels: Record<Rotina, string> = {
   verificacao_diaria: 'Verificacao diaria',
   vinculacao_semanal: 'Vinculacao semanal',
   checkin_email: 'Check-in por email',
+  checkin_whatsapp: 'Contatos WhatsApp',
 };
 
 const rotinaDescriptions: Record<Rotina, string> = {
   verificacao_diaria: 'MR + OBS + vinculacao',
   vinculacao_semanal: 'Limpeza + MR + OBS + vinculacao',
   checkin_email: 'Anexos + cadastro + etiquetas',
+  checkin_whatsapp: 'Entradas de hoje + telefones',
 };
 
 const rotinaIcons: Record<Rotina, React.ElementType> = {
   verificacao_diaria: CalendarCheck2,
   vinculacao_semanal: CalendarRange,
   checkin_email: MailCheck,
+  checkin_whatsapp: MessageCircle,
 };
 
 const vinculacaoRotinas: Rotina[] = ['verificacao_diaria', 'vinculacao_semanal'];
-const outrosRobos: Rotina[] = ['checkin_email'];
+const outrosRobos: Rotina[] = ['checkin_email', 'checkin_whatsapp'];
 
 const observacaoLabels: Record<ObservacaoSetor, string> = {
   restaurante: 'Restaurante',
@@ -136,6 +152,15 @@ const isoToBrDate = (value: string) => {
   return `${match[3]}/${match[2]}/${match[1]}`;
 };
 
+const defaultWhatsappTemplate = `Olá {nome}, seja muito bem-vindo ao Hotel Vilage Inn.
+
+Estamos muito felizes em recebê-lo. Para tornar sua chegada mais rápida e confortável, você pode nos enviar por aqui os dados necessários para adiantar o check-in.
+
+Segue também o link do nosso informativo:
+{link_informativo}
+
+Qualquer dúvida, estamos à disposição. Obrigado e até logo!`;
+
 const isSpecialHousekeeping = (text: string) => {
   const normalized = String(text || '')
     .normalize('NFD')
@@ -166,6 +191,11 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
   const [savingExceptions, setSavingExceptions] = useState(false);
   const [selectedDate, setSelectedDate] = useState('');
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
+  const [checkinContacts, setCheckinContacts] = useState<CheckinWhatsappContact[]>([]);
+  const [loadingCheckinContacts, setLoadingCheckinContacts] = useState(false);
+  const [checkinContactsError, setCheckinContactsError] = useState('');
+  const [whatsappTemplate, setWhatsappTemplate] = useState(defaultWhatsappTemplate);
+  const [informativeLink, setInformativeLink] = useState('');
   const lastNotificationKeyRef = useRef('');
 
   const addRobotLog = useCallback((text: string, tone: RobotLogEntry['tone'] = 'info') => {
@@ -233,6 +263,27 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
   useEffect(() => {
     loadObservacoes();
   }, [loadObservacoes]);
+
+  const loadCheckinContacts = useCallback(async () => {
+    setLoadingCheckinContacts(true);
+    setCheckinContactsError('');
+    try {
+      const response = await fetch('/api/robots/checkin-whatsapp');
+      const data = await response.json();
+      if (!response.ok || data.status !== 'success') {
+        throw new Error(data.message || 'Falha ao carregar contatos.');
+      }
+      setCheckinContacts(data.contacts || []);
+    } catch (err: any) {
+      setCheckinContactsError(err.message || 'Falha ao carregar contatos.');
+    } finally {
+      setLoadingCheckinContacts(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadCheckinContacts();
+  }, [loadCheckinContacts]);
 
   useEffect(() => {
     if (!isWatchingRun) return;
@@ -367,6 +418,18 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
     if (!('Notification' in window)) return;
     const permission = await Notification.requestPermission();
     setNotificationsEnabled(permission === 'granted');
+  };
+
+  const buildWhatsappMessage = (contact: CheckinWhatsappContact) => whatsappTemplate
+    .replaceAll('{nome}', contact.shortName || contact.name)
+    .replaceAll('{nome_completo}', contact.name)
+    .replaceAll('{voucher}', contact.voucher)
+    .replaceAll('{telefone}', contact.phone)
+    .replaceAll('{link_informativo}', informativeLink || 'link do informativo');
+
+  const buildWhatsappUrl = (contact: CheckinWhatsappContact) => {
+    const phone = String(contact.whatsappPhone || '').replace(/\D/g, '');
+    return `https://wa.me/${phone}?text=${encodeURIComponent(buildWhatsappMessage(contact))}`;
   };
 
   const currentSectionItems = observacoes?.sections?.[activeObservacao]?.items || [];
@@ -522,6 +585,88 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
           {outrosRobos.map(renderRobotCard)}
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
+        <div className="px-4 py-3 border-b border-slate-100 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <MessageCircle size={17} style={{ color: theme.primary }} />
+            <div>
+              <span className="text-sm font-black text-slate-900">Check-in online por WhatsApp</span>
+              <div className="text-[11px] font-bold text-slate-400">{checkinContacts.length} contato(s) valido(s) coletado(s)</div>
+            </div>
+          </div>
+          <button
+            onClick={loadCheckinContacts}
+            disabled={loadingCheckinContacts}
+            className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-slate-200 bg-white text-xs font-black text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+          >
+            <RefreshCw size={15} className={loadingCheckinContacts ? 'animate-spin' : ''} />
+            Atualizar lista
+          </button>
+        </div>
+
+        <div className="p-4 grid grid-cols-1 xl:grid-cols-[380px_1fr] gap-4">
+          <div className="space-y-3">
+            <div>
+              <label className="text-[11px] font-black uppercase tracking-wider text-slate-400">Link do informativo</label>
+              <input
+                value={informativeLink}
+                onChange={(event) => setInformativeLink(event.target.value)}
+                placeholder="https://..."
+                className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-xs font-bold text-slate-700 outline-none focus:border-slate-300"
+              />
+            </div>
+            <div>
+              <label className="text-[11px] font-black uppercase tracking-wider text-slate-400">Mensagem padrao</label>
+              <textarea
+                value={whatsappTemplate}
+                onChange={(event) => setWhatsappTemplate(event.target.value)}
+                className="mt-1 w-full min-h-[220px] resize-y rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs font-bold text-slate-800 outline-none focus:border-slate-300"
+              />
+              <div className="mt-2 text-[11px] font-bold text-slate-400">
+                Variaveis: {'{nome}'}, {'{nome_completo}'}, {'{voucher}'}, {'{telefone}'}, {'{link_informativo}'}
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            {checkinContacts.length > 0 ? (
+              checkinContacts.map((contact) => (
+                <div key={contact.id} className="rounded-lg border border-slate-100 bg-slate-50 p-3 flex flex-col md:flex-row md:items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-sm font-black text-slate-900 truncate">{contact.name}</div>
+                    <div className="mt-1 flex flex-wrap gap-2 text-[11px] font-bold text-slate-500">
+                      <span>Voucher {contact.voucher || '-'}</span>
+                      <span>{contact.phone}</span>
+                      <span className="text-amber-600">{contact.status || 'Pendente'}</span>
+                    </div>
+                  </div>
+                  <a
+                    href={buildWhatsappUrl(contact)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-black text-white shadow-sm hover:brightness-95"
+                    style={{ backgroundColor: theme.primary }}
+                  >
+                    <Send size={14} />
+                    Abrir WhatsApp
+                  </a>
+                </div>
+              ))
+            ) : (
+              <div className="rounded-lg border border-slate-100 bg-slate-50 p-4 text-sm font-bold text-slate-400">
+                Nenhum contato carregado. Execute o robo Contatos WhatsApp e atualize a lista.
+              </div>
+            )}
+
+            {checkinContactsError && (
+              <div className="rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-xs font-bold text-red-700">
+                {checkinContactsError}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
