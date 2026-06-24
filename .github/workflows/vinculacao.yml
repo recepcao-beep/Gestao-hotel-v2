@@ -1,4 +1,5 @@
-name: Vinculacao HITS
+name: Robos HITS
+run-name: ${{ inputs.rotina }} - ${{ github.actor }}
 
 on:
   workflow_dispatch:
