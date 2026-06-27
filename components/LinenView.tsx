@@ -174,6 +174,15 @@ const getCurrentMonth = () => new Date().toISOString().slice(0, 7);
 
 type OperationalAction = Extract<LinenOperation['type'], 'Entrada' | 'Avaria' | 'Recuperação' | 'Reciclagem' | 'Extravio' | 'Baixa'>;
 
+type LinenTab = 'principal' | 'locais' | 'competencia' | 'historico';
+
+const linenTabs: { id: LinenTab; label: string; description: string; icon: React.ElementType }[] = [
+  { id: 'principal', label: 'Principal', description: 'Estoque fisico e itens', icon: Boxes },
+  { id: 'locais', label: 'Locais', description: 'Onde as pecas estao', icon: MapPin },
+  { id: 'competencia', label: 'Competencia', description: 'Contagem x ideal', icon: CalendarDays },
+  { id: 'historico', label: 'Historico', description: 'Graficos e auditoria', icon: History }
+];
+
 const LinenView: React.FC<LinenViewProps> = ({
   items,
   history,
@@ -199,6 +208,7 @@ const LinenView: React.FC<LinenViewProps> = ({
   const [locationItem, setLocationItem] = useState<LinenItem | null>(null);
   const [locationDraft, setLocationDraft] = useState<LinenLocationEntry[]>([]);
   const [selectedLocationName, setSelectedLocationName] = useState('');
+  const [activeTab, setActiveTab] = useState<LinenTab>('principal');
 
   const [name, setName] = useState('');
   const [category, setCategory] = useState('Roupa de cama');
@@ -654,6 +664,39 @@ const LinenView: React.FC<LinenViewProps> = ({
         </div>
       </div>
 
+      <div className="rounded-3xl border border-slate-100 bg-white dark:bg-slate-900 dark:border-slate-800 p-2 shadow-sm">
+        <div className="grid grid-cols-2 xl:grid-cols-4 gap-2">
+          {linenTabs.map(({ id, label, description, icon: Icon }) => {
+            const isActive = activeTab === id;
+            return (
+              <button
+                key={id}
+                onClick={() => setActiveTab(id)}
+                className={`min-h-[72px] rounded-2xl px-4 py-3 text-left transition-all flex items-center gap-3 ${
+                  isActive
+                    ? 'text-white shadow-lg'
+                    : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800'
+                }`}
+                style={{
+                  backgroundColor: isActive ? theme.primary : 'transparent',
+                  boxShadow: isActive ? `0 10px 20px -12px ${theme.primary}` : 'none'
+                }}
+              >
+                <span className={`w-10 h-10 rounded-2xl flex items-center justify-center ${isActive ? 'bg-white/15' : 'bg-slate-50 dark:bg-slate-800'}`}>
+                  <Icon size={18} />
+                </span>
+                <span>
+                  <span className="block text-sm font-black">{label}</span>
+                  <span className={`block text-[10px] font-bold mt-1 ${isActive ? 'text-white/70' : 'text-slate-400'}`}>{description}</span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {activeTab === 'principal' && (
+        <>
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
         {statCards.map(({ label, value, icon: Icon }) => (
           <div key={label} className="rounded-3xl border border-slate-100 bg-white dark:bg-slate-900 dark:border-slate-800 p-4 shadow-sm">
@@ -684,6 +727,10 @@ const LinenView: React.FC<LinenViewProps> = ({
         </div>
       </div>
 
+        </>
+      )}
+
+      {activeTab === 'locais' && (
       <div className="rounded-3xl border border-slate-100 bg-white dark:bg-slate-900 dark:border-slate-800 p-5 shadow-sm">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
           <div>
@@ -720,7 +767,9 @@ const LinenView: React.FC<LinenViewProps> = ({
           <p className="text-sm text-slate-400 mt-5">Nenhum local cadastrado ainda. Use o botao de localizacao em um item do enxoval.</p>
         )}
       </div>
+      )}
 
+      {activeTab === 'competencia' && (
       <div className="rounded-3xl border border-slate-100 bg-white dark:bg-slate-900 dark:border-slate-800 p-5 shadow-sm">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
           <div>
@@ -777,7 +826,9 @@ const LinenView: React.FC<LinenViewProps> = ({
           <p className="text-sm text-slate-400 mt-5">Nenhuma contagem mensal registrada.</p>
         )}
       </div>
+      )}
 
+      {activeTab === 'principal' && (
       <div className="rounded-3xl border border-slate-100 bg-white dark:bg-slate-900 dark:border-slate-800 shadow-sm overflow-hidden">
         <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex flex-col lg:flex-row lg:items-center gap-3 justify-between">
           <div>
@@ -853,7 +904,10 @@ const LinenView: React.FC<LinenViewProps> = ({
           </table>
         </div>
       </div>
+      )}
 
+      {activeTab === 'historico' && (
+        <>
       <div className="grid xl:grid-cols-2 gap-6">
         <div className="rounded-3xl border border-slate-100 bg-white dark:bg-slate-900 dark:border-slate-800 p-5 shadow-sm">
           <div className="flex items-center gap-2"><BarChart3 size={18} className="text-slate-400" /><h2 className="font-black text-slate-800 dark:text-white">Progressão mensal do inventário</h2></div>
@@ -919,6 +973,9 @@ const LinenView: React.FC<LinenViewProps> = ({
             </div>
           )}
         </div>
+      )}
+
+        </>
       )}
 
       {selectedLocationBlock && (
