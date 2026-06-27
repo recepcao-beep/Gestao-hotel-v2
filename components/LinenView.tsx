@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import {
   AlertTriangle,
   ArchiveRestore,
+  Archive,
   ArrowRight,
   BarChart3,
   Bed,
@@ -11,7 +12,10 @@ import {
   CalendarDays,
   CheckCircle2,
   ClipboardList,
+  Droplets,
   History,
+  Hotel,
+  MapPin,
   Pencil,
   Plus,
   Recycle,
@@ -36,6 +40,7 @@ import {
   LinenCalculationBasis,
   LinenHotelSettings,
   LinenItem,
+  LinenLocationEntry,
   LinenMonthlyInventory,
   LinenMonthlyInventoryItem,
   LinenOperation,
@@ -83,7 +88,26 @@ const basisOptions: { id: LinenCalculationBasis; label: string }[] = [
   { id: 'Manual', label: 'Mínimo informado manualmente' }
 ];
 
+const locationIconOptions = [
+  { id: 'Boxes', label: 'Estoque', icon: Boxes },
+  { id: 'Building2', label: 'Rouparia', icon: Building2 },
+  { id: 'Archive', label: 'Deposito', icon: Archive },
+  { id: 'BedDouble', label: 'Andares', icon: BedDouble },
+  { id: 'Droplets', label: 'Lavanderia', icon: Droplets },
+  { id: 'Hotel', label: 'Hotel', icon: Hotel },
+  { id: 'AlertTriangle', label: 'Avaria', icon: AlertTriangle }
+];
+
 const numberValue = (value: unknown) => Math.max(0, Number(value) || 0);
+const createEmptyLocation = (): LinenLocationEntry => ({
+  id: `linen_loc_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+  name: '',
+  icon: 'Boxes',
+  quantity: 0,
+  status: 'Em uso',
+  note: ''
+});
+const getLocationIcon = (iconId?: string) => locationIconOptions.find(option => option.id === iconId)?.icon || Boxes;
 
 const getStatusField = (status?: LinenStockStatus): keyof LinenItem | null => {
   switch (status) {
@@ -172,6 +196,9 @@ const LinenView: React.FC<LinenViewProps> = ({
   const [isAddingOperation, setIsAddingOperation] = useState(false);
   const [isEditingSettings, setIsEditingSettings] = useState(false);
   const [isClosingInventory, setIsClosingInventory] = useState(false);
+  const [locationItem, setLocationItem] = useState<LinenItem | null>(null);
+  const [locationDraft, setLocationDraft] = useState<LinenLocationEntry[]>([]);
+  const [selectedLocationName, setSelectedLocationName] = useState('');
 
   const [name, setName] = useState('');
   const [category, setCategory] = useState('Roupa de cama');
@@ -267,6 +294,29 @@ const LinenView: React.FC<LinenViewProps> = ({
 
   const monthlyDeficitItems = monthlyComparisonItems.filter(entry => entry.deficit > 0);
   const monthlyDeficitTotal = monthlyDeficitItems.reduce((sum, entry) => sum + entry.deficit, 0);
+  const locationBlocks = useMemo(() => {
+    const map = new Map<string, {
+      name: string;
+      icon: string;
+      quantity: number;
+      items: Array<{ item: LinenItem; entry: LinenLocationEntry }>;
+    }>();
+
+    items.forEach(item => {
+      (item.locations || []).forEach(entry => {
+        const name = entry.name.trim();
+        if (!name || numberValue(entry.quantity) <= 0) return;
+        const current = map.get(name) || { name, icon: entry.icon || 'Boxes', quantity: 0, items: [] };
+        current.quantity += numberValue(entry.quantity);
+        current.items.push({ item, entry });
+        if (!current.icon && entry.icon) current.icon = entry.icon;
+        map.set(name, current);
+      });
+    });
+
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [items]);
+  const selectedLocationBlock = locationBlocks.find(block => block.name === selectedLocationName) || null;
 
   const resetItemForm = () => {
     setEditingItem(null);
@@ -326,6 +376,7 @@ const LinenView: React.FC<LinenViewProps> = ({
       quantityTorn: numberValue(quantityTorn),
       quantityDamaged: numberValue(editingItem?.quantityDamaged),
       quantityLost: numberValue(editingItem?.quantityLost),
+      locations: editingItem?.locations || [],
       lastUpdate: Date.now()
     });
     resetItemForm();
@@ -353,6 +404,54 @@ const LinenView: React.FC<LinenViewProps> = ({
     }
     if (type === 'Baixa') setFromStatus(selectedDamageStatus || 'Rasgado');
     setIsAddingOperation(true);
+  };
+
+  const openLocationEditor = (item: LinenItem) => {
+    setLocationItem(item);
+    setLocationDraft((item.locations || []).length > 0 ? item.locations || [] : [createEmptyLocation()]);
+  };
+
+  const closeLocationEditor = () => {
+    setLocationItem(null);
+    setLocationDraft([]);
+  };
+
+  const updateLocationDraft = (id: string, field: keyof LinenLocationEntry, value: string | number) => {
+    setLocationDraft(current => current.map(location => (
+      location.id === id
+        ? { ...location, [field]: field === 'quantity' ? numberValue(value) : value }
+        : location
+    )));
+  };
+
+  const addLocationDraft = () => {
+    setLocationDraft(current => [...current, createEmptyLocation()]);
+  };
+
+  const removeLocationDraft = (id: string) => {
+    setLocationDraft(current => current.filter(location => location.id !== id));
+  };
+
+  const handleSaveLocations = (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!locationItem) return;
+
+    const locations = locationDraft
+      .map(location => ({
+        ...location,
+        name: location.name.trim(),
+        icon: location.icon || 'Boxes',
+        quantity: numberValue(location.quantity),
+        note: location.note?.trim() || ''
+      }))
+      .filter(location => location.name && location.quantity > 0);
+
+    onSave({
+      ...locationItem,
+      locations,
+      lastUpdate: Date.now()
+    });
+    closeLocationEditor();
   };
 
   const handleSaveOperation = (event: React.FormEvent) => {
@@ -588,6 +687,43 @@ const LinenView: React.FC<LinenViewProps> = ({
       <div className="rounded-3xl border border-slate-100 bg-white dark:bg-slate-900 dark:border-slate-800 p-5 shadow-sm">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
           <div>
+            <p className="text-xs font-black uppercase tracking-wider text-slate-400">Localizacao opcional</p>
+            <h2 className="font-black text-slate-800 dark:text-white mt-1">Locais do enxoval</h2>
+            <p className="text-xs text-slate-400 mt-1">Os locais detalham onde as pecas estao, sem alterar o total fisico cadastrado.</p>
+          </div>
+          <div className="text-xs font-black text-slate-500">{locationBlocks.length} local(is) cadastrado(s)</div>
+        </div>
+
+        {locationBlocks.length > 0 ? (
+          <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-3 mt-5">
+            {locationBlocks.map(block => {
+              const LocationIcon = getLocationIcon(block.icon);
+              return (
+                <button
+                  key={block.name}
+                  onClick={() => setSelectedLocationName(block.name)}
+                  className="rounded-2xl border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800 p-4 text-left hover:border-slate-300 transition-colors"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="w-10 h-10 rounded-2xl bg-white dark:bg-slate-900 flex items-center justify-center" style={{ color: theme.primary }}>
+                      <LocationIcon size={19} />
+                    </div>
+                    <span className="text-xl font-black text-slate-800 dark:text-white">{block.quantity}</span>
+                  </div>
+                  <p className="mt-3 text-sm font-black text-slate-800 dark:text-white">{block.name}</p>
+                  <p className="text-[11px] font-bold text-slate-400 mt-1">{block.items.length} item(ns) neste local</p>
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="text-sm text-slate-400 mt-5">Nenhum local cadastrado ainda. Use o botao de localizacao em um item do enxoval.</p>
+        )}
+      </div>
+
+      <div className="rounded-3xl border border-slate-100 bg-white dark:bg-slate-900 dark:border-slate-800 p-5 shadow-sm">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+          <div>
             <p className="text-xs font-black uppercase tracking-wider text-slate-400">Contagem por competencia</p>
             <h2 className="font-black text-slate-800 dark:text-white mt-1">Fisico contado x estoque ideal</h2>
           </div>
@@ -680,11 +816,13 @@ const LinenView: React.FC<LinenViewProps> = ({
                 const ideal = getIdealQuantity(item, hotelSettings);
                 const physical = getPhysicalTotal(item);
                 const inUse = getInUseTotal(item);
+                const locatedQuantity = (item.locations || []).reduce((sum, location) => sum + numberValue(location.quantity), 0);
                 return (
                   <tr key={item.id} className="text-sm">
                     <td className="px-5 py-4">
                       <p className="font-black text-slate-800 dark:text-white">{item.name}</p>
                       <p className="text-[11px] text-slate-400 mt-1">{item.category} · {item.unit}</p>
+                      {locatedQuantity > 0 && <p className="text-[11px] font-bold text-slate-500 mt-1">{locatedQuantity} peca(s) localizadas em {(item.locations || []).length} local(is)</p>}
                     </td>
                     <td className="px-3 py-4 text-center font-bold text-slate-600 dark:text-slate-300">{minimum}</td>
                     <td className="px-3 py-4 text-center font-bold text-slate-600 dark:text-slate-300">{ideal}</td>
@@ -700,6 +838,7 @@ const LinenView: React.FC<LinenViewProps> = ({
                     <td className="px-5 py-4">
                       <div className="flex justify-end gap-2">
                         <button onClick={() => openOperation('Avaria', item)} className="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800" title="Registrar avaria"><AlertTriangle size={16} /></button>
+                        <button onClick={() => openLocationEditor(item)} className="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800" title="Localizar pecas"><MapPin size={16} /></button>
                         <button onClick={() => openEditItem(item)} className="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800" title="Editar item"><Pencil size={16} /></button>
                         <button onClick={() => { if (window.confirm(`Excluir “${item.name}”?`)) onDelete(item.id); }} className="p-2 rounded-xl hover:bg-red-50 text-red-500" title="Excluir item"><Trash2 size={16} /></button>
                       </div>
@@ -779,6 +918,90 @@ const LinenView: React.FC<LinenViewProps> = ({
               </table>
             </div>
           )}
+        </div>
+      )}
+
+      {selectedLocationBlock && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-3xl bg-white dark:bg-slate-900 p-6 shadow-2xl">
+            <div className="flex justify-between items-start gap-3">
+              <div>
+                <p className="text-xs font-black uppercase tracking-wider text-slate-400">Local do enxoval</p>
+                <h2 className="text-xl font-black text-slate-800 dark:text-white mt-1">{selectedLocationBlock.name}</h2>
+                <p className="text-sm text-slate-500 mt-1">{selectedLocationBlock.quantity} peca(s) cadastradas neste local.</p>
+              </div>
+              <button type="button" onClick={() => setSelectedLocationName('')}><X /></button>
+            </div>
+
+            <div className="mt-5 space-y-3">
+              {selectedLocationBlock.items.map(({ item, entry }) => (
+                <div key={`${item.id}-${entry.id}`} className="rounded-2xl border border-slate-100 dark:border-slate-800 p-4">
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
+                    <div>
+                      <p className="font-black text-slate-800 dark:text-white">{item.name}</p>
+                      <p className="text-[11px] text-slate-400 mt-1">{item.category} · {entry.status || 'Sem status'}</p>
+                    </div>
+                    <span className="text-lg font-black text-slate-800 dark:text-white">{entry.quantity}</span>
+                  </div>
+                  {entry.note && <p className="text-xs text-slate-500 mt-2">{entry.note}</p>}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {locationItem && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <form onSubmit={handleSaveLocations} className="w-full max-w-5xl max-h-[90vh] overflow-y-auto rounded-3xl bg-white dark:bg-slate-900 p-6 shadow-2xl">
+            <div className="flex justify-between items-start gap-3">
+              <div>
+                <p className="text-xs font-black uppercase tracking-wider text-slate-400">Localizacao opcional</p>
+                <h2 className="text-xl font-black text-slate-800 dark:text-white mt-1">{locationItem.name}</h2>
+                <p className="text-sm text-slate-500 mt-1">Informe onde estao algumas ou todas as pecas. O total do item continua sendo controlado nos saldos principais.</p>
+              </div>
+              <button type="button" onClick={closeLocationEditor}><X /></button>
+            </div>
+
+            <div className="mt-5 space-y-3">
+              {locationDraft.map(location => {
+                const LocationIcon = getLocationIcon(location.icon);
+                return (
+                  <div key={location.id} className="rounded-2xl border border-slate-100 dark:border-slate-800 p-4">
+                    <div className="grid lg:grid-cols-[1.4fr_130px_170px_1fr_40px] gap-3 items-end">
+                      <label className="text-xs font-bold text-slate-500">Local
+                        <input value={location.name} onChange={e => updateLocationDraft(location.id, 'name', e.target.value)} placeholder="Ex.: Rouparia central" className="mt-1 w-full px-3 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-transparent" />
+                      </label>
+                      <label className="text-xs font-bold text-slate-500">Quantidade
+                        <input type="number" min="0" value={location.quantity} onChange={e => updateLocationDraft(location.id, 'quantity', e.target.value)} className="mt-1 w-full px-3 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-transparent" />
+                      </label>
+                      <label className="text-xs font-bold text-slate-500">Icone
+                        <select value={location.icon} onChange={e => updateLocationDraft(location.id, 'icon', e.target.value)} className="mt-1 w-full px-3 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-transparent">
+                          {locationIconOptions.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}
+                        </select>
+                      </label>
+                      <label className="text-xs font-bold text-slate-500">Observacao
+                        <input value={location.note || ''} onChange={e => updateLocationDraft(location.id, 'note', e.target.value)} placeholder="Ex.: 10 danificadas separadas" className="mt-1 w-full px-3 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-transparent" />
+                      </label>
+                      <button type="button" onClick={() => removeLocationDraft(location.id)} className="h-12 rounded-xl border border-slate-200 text-slate-500 hover:text-red-600 hover:bg-red-50 flex items-center justify-center" title="Remover local"><Trash2 size={16} /></button>
+                    </div>
+                    <div className="mt-3 inline-flex items-center gap-2 text-xs font-bold text-slate-400">
+                      <LocationIcon size={15} />
+                      Previa do icone do bloco
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mt-6">
+              <button type="button" onClick={addLocationDraft} className="px-4 py-3 rounded-xl border border-slate-200 font-black text-xs uppercase tracking-wider text-slate-700 dark:text-white flex items-center justify-center gap-2"><Plus size={16} /> Adicionar local</button>
+              <div className="flex justify-end gap-3">
+                <button type="button" onClick={closeLocationEditor} className="px-4 py-3 rounded-xl font-bold text-slate-500">Cancelar</button>
+                <button type="submit" style={{ backgroundColor: theme.primary }} className="px-5 py-3 rounded-xl text-white font-black flex items-center gap-2"><Save size={17} /> Salvar locais</button>
+              </div>
+            </div>
+          </form>
         </div>
       )}
 

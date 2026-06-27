@@ -57,6 +57,18 @@ const normalizeLinenItemV2 = (item: any): LinenItem => {
     (Number(item?.quantityClean) || 0) +
     (Number(item?.quantityDirty) || 0) +
     (Number(item?.quantityLaundry) || 0);
+  const locations = Array.isArray(item?.locations)
+    ? item.locations
+        .map((location: any, index: number) => ({
+          id: location?.id?.toString() || `linen-location-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 7)}`,
+          name: location?.name?.toString() || '',
+          icon: location?.icon?.toString() || 'Boxes',
+          quantity: Math.max(0, Number(location?.quantity) || 0),
+          status: location?.status?.toString() || undefined,
+          note: location?.note?.toString() || ''
+        }))
+        .filter((location: any) => location.name && location.quantity > 0)
+    : [];
 
   return {
     ...item,
@@ -68,7 +80,8 @@ const normalizeLinenItemV2 = (item: any): LinenItem => {
     quantityStained: Number(item?.quantityStained) || 0,
     quantityTorn: Number(item?.quantityTorn) || 0,
     quantityDamaged: Number(item?.quantityDamaged) || 0,
-    quantityLost: Number(item?.quantityLost) || 0
+    quantityLost: Number(item?.quantityLost) || 0,
+    locations
   } as LinenItem;
 };
 

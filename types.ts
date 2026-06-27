@@ -194,6 +194,15 @@ export interface LinenHotelSettings {
   idealStockMultiplier: number;
 }
 
+export interface LinenLocationEntry {
+  id: string;
+  name: string;
+  icon: string;
+  quantity: number;
+  status?: LinenStockStatus;
+  note?: string;
+}
+
 export interface LinenItem {
   id: string;
   name: string;
@@ -213,6 +222,7 @@ export interface LinenItem {
   quantityTorn: number;
   quantityDamaged: number;
   quantityLost: number;
+  locations?: LinenLocationEntry[];
   lastUpdate: number;
 }
 
