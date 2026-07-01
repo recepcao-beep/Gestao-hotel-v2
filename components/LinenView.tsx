@@ -171,6 +171,9 @@ const formatMonth = (month: string) => {
 };
 
 const getCurrentMonth = () => new Date().toISOString().slice(0, 7);
+const getVarianceColor = (variance: number) => (
+  variance > 0 ? 'text-emerald-600' : variance === 0 ? 'text-blue-600' : 'text-red-600'
+);
 
 type OperationalAction = Extract<LinenOperation['type'], 'Entrada' | 'Avaria' | 'Recuperação' | 'Reciclagem' | 'Extravio' | 'Baixa'>;
 
@@ -236,6 +239,7 @@ const LinenView: React.FC<LinenViewProps> = ({
   const [inventoryNotes, setInventoryNotes] = useState('');
   const [inventoryDraft, setInventoryDraft] = useState<Record<string, LinenMonthlyInventoryItem>>({});
   const [selectedAuditInventoryId, setSelectedAuditInventoryId] = useState('');
+  const inventoryBeingEdited = monthlyInventories.find(inventory => inventory.month === inventoryMonth);
 
   const totals = useMemo(() => items.reduce((acc, item) => {
     acc.inUse += numberValue(item.quantityInUse);
@@ -289,17 +293,19 @@ const LinenView: React.FC<LinenViewProps> = ({
     return selectedAuditInventory.items.map(entry => {
       const item = items.find(currentItem => currentItem.id === entry.itemId);
       const ideal = item ? getIdealQuantity(item, hotelSettings) : numberValue(entry.expectedPhysicalTotal);
-      const counted = numberValue(entry.countedPhysicalTotal);
+      const counted = numberValue(entry.usableTotal || entry.quantityInUse);
+      const difference = counted - ideal;
       const deficit = Math.max(ideal - counted, 0);
       const percent = ideal > 0 ? Math.min(100, Math.round((counted / ideal) * 100)) : 100;
       return {
         ...entry,
         ideal,
         counted,
+        difference,
         deficit,
         percent
       };
-    }).sort((a, b) => b.deficit - a.deficit);
+    }).sort((a, b) => a.difference - b.difference);
   }, [selectedAuditInventory, items, hotelSettings]);
 
   const monthlyDeficitItems = monthlyComparisonItems.filter(entry => entry.deficit > 0);
@@ -530,8 +536,30 @@ const LinenView: React.FC<LinenViewProps> = ({
 
   const buildInventoryDraft = (month: string) => {
     const previousMonthInventory = monthlyInventories.find(inventory => inventory.month === month);
-    const previousReasonMap = new Map<string, string>((previousMonthInventory?.items || []).map(entry => [entry.itemId, entry.varianceReason || '']));
+    const previousEntryMap = new Map<string, LinenMonthlyInventoryItem>((previousMonthInventory?.items || []).map(entry => [entry.itemId, entry]));
     return items.reduce((acc: Record<string, LinenMonthlyInventoryItem>, item) => {
+      const previousEntry = previousEntryMap.get(item.id);
+      if (previousEntry) {
+        acc[item.id] = {
+          ...previousEntry,
+          itemName: item.name,
+          quantityClean: 0,
+          quantityDirty: 0,
+          quantityLaundry: 0,
+          quantityInUse: numberValue(previousEntry.quantityInUse),
+          quantityStained: numberValue(previousEntry.quantityStained),
+          quantityTorn: numberValue(previousEntry.quantityTorn),
+          quantityDamaged: numberValue(previousEntry.quantityDamaged),
+          quantityLost: numberValue(previousEntry.quantityLost),
+          expectedPhysicalTotal: numberValue(previousEntry.expectedPhysicalTotal),
+          countedPhysicalTotal: numberValue(previousEntry.countedPhysicalTotal),
+          usableTotal: getInUseTotal(previousEntry),
+          variance: numberValue(previousEntry.countedPhysicalTotal) - numberValue(previousEntry.expectedPhysicalTotal),
+          varianceReason: previousEntry.varianceReason || ''
+        };
+        return acc;
+      }
+
       const expectedPhysicalTotal = getPhysicalTotal(item);
       acc[item.id] = {
         itemId: item.id,
@@ -548,7 +576,7 @@ const LinenView: React.FC<LinenViewProps> = ({
         countedPhysicalTotal: expectedPhysicalTotal,
         usableTotal: getInUseTotal(item),
         variance: 0,
-        varianceReason: previousReasonMap.get(item.id) || ''
+        varianceReason: ''
       };
       return acc;
     }, {} as Record<string, LinenMonthlyInventoryItem>);
@@ -559,6 +587,13 @@ const LinenView: React.FC<LinenViewProps> = ({
     setInventoryMonth(month);
     setInventoryNotes(monthlyInventories.find(inventory => inventory.month === month)?.notes || '');
     setInventoryDraft(buildInventoryDraft(month));
+    setIsClosingInventory(true);
+  };
+
+  const openExistingMonthlyInventory = (inventory: LinenMonthlyInventory) => {
+    setInventoryMonth(inventory.month);
+    setInventoryNotes(inventory.notes || '');
+    setInventoryDraft(buildInventoryDraft(inventory.month));
     setIsClosingInventory(true);
   };
 
@@ -777,9 +812,16 @@ const LinenView: React.FC<LinenViewProps> = ({
             <h2 className="font-black text-slate-800 dark:text-white mt-1">Fisico contado x estoque ideal</h2>
           </div>
           {sortedMonthlyInventories.length > 0 && (
-            <select value={selectedAuditInventory?.id || ''} onChange={event => setSelectedAuditInventoryId(event.target.value)} className="px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm outline-none">
-              {sortedMonthlyInventories.map(inventory => <option key={inventory.id} value={inventory.id}>{formatMonth(inventory.month)}</option>)}
-            </select>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <select value={selectedAuditInventory?.id || ''} onChange={event => setSelectedAuditInventoryId(event.target.value)} className="px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm outline-none">
+                {sortedMonthlyInventories.map(inventory => <option key={inventory.id} value={inventory.id}>{formatMonth(inventory.month)}</option>)}
+              </select>
+              {selectedAuditInventory && (
+                <button type="button" onClick={() => openExistingMonthlyInventory(selectedAuditInventory)} className="px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-black uppercase tracking-wider text-slate-700 dark:text-white flex items-center justify-center gap-2">
+                  <Pencil size={15} /> Editar
+                </button>
+              )}
+            </div>
           )}
         </div>
 
@@ -806,15 +848,15 @@ const LinenView: React.FC<LinenViewProps> = ({
                   <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
                     <div>
                       <p className="text-sm font-black text-slate-800 dark:text-white">{entry.itemName}</p>
-                      <p className="text-[11px] font-bold text-slate-400">Contado {entry.counted} de ideal {entry.ideal}</p>
+                      <p className="text-[11px] font-bold text-slate-400">Em uso {entry.counted} de ideal {entry.ideal}</p>
                     </div>
-                    <span className={`text-xs font-black ${entry.deficit > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
-                      {entry.deficit > 0 ? `Faltam ${entry.deficit}` : 'Dentro do ideal'}
+                    <span className={`text-xs font-black ${entry.difference > 0 ? 'text-emerald-600' : entry.difference === 0 ? 'text-blue-600' : 'text-red-600'}`}>
+                      {entry.difference > 0 ? `Sobram ${entry.difference}` : entry.difference === 0 ? 'Exato' : `Faltam ${Math.abs(entry.difference)}`}
                     </span>
                   </div>
                   <div className="mt-3 h-3 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
                     <div
-                      className={`h-full rounded-full ${entry.deficit > 0 ? 'bg-red-500' : 'bg-emerald-500'}`}
+                      className={`h-full rounded-full ${entry.difference > 0 ? 'bg-emerald-500' : entry.difference === 0 ? 'bg-blue-500' : 'bg-red-500'}`}
                       style={{ width: `${entry.percent}%` }}
                     />
                   </div>
@@ -958,16 +1000,23 @@ const LinenView: React.FC<LinenViewProps> = ({
               <h2 className="font-black text-slate-800 dark:text-white">Auditoria dos inventários mensais</h2>
               <p className="text-xs text-slate-400 mt-1">Consulte divergências e justificativas registradas em cada fechamento.</p>
             </div>
-            <select value={selectedAuditInventory?.id || ''} onChange={event => setSelectedAuditInventoryId(event.target.value)} className="px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm outline-none">
-              {sortedMonthlyInventories.map(inventory => <option key={inventory.id} value={inventory.id}>{formatMonth(inventory.month)}</option>)}
-            </select>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <select value={selectedAuditInventory?.id || ''} onChange={event => setSelectedAuditInventoryId(event.target.value)} className="px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm outline-none">
+                {sortedMonthlyInventories.map(inventory => <option key={inventory.id} value={inventory.id}>{formatMonth(inventory.month)}</option>)}
+              </select>
+              {selectedAuditInventory && (
+                <button type="button" onClick={() => openExistingMonthlyInventory(selectedAuditInventory)} className="px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-black uppercase tracking-wider text-slate-700 dark:text-white flex items-center justify-center gap-2">
+                  <Pencil size={15} /> Editar
+                </button>
+              )}
+            </div>
           </div>
           {selectedAuditInventory && (
             <div className="overflow-x-auto mt-4">
               <table className="w-full min-w-[760px] text-sm text-left">
                 <thead className="text-[10px] uppercase tracking-wider text-slate-400"><tr><th className="py-3">Item</th><th className="py-3 text-center">Esperado</th><th className="py-3 text-center">Contado</th><th className="py-3 text-center">Divergência</th><th className="py-3">Justificativa</th></tr></thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {selectedAuditInventory.items.map(entry => <tr key={entry.itemId}><td className="py-3 font-bold">{entry.itemName}</td><td className="py-3 text-center">{entry.expectedPhysicalTotal}</td><td className="py-3 text-center">{entry.countedPhysicalTotal}</td><td className={`py-3 text-center font-black ${entry.variance !== 0 ? 'text-red-600' : 'text-emerald-600'}`}>{entry.variance}</td><td className="py-3 text-slate-500">{entry.varianceReason || '—'}</td></tr>)}
+                  {selectedAuditInventory.items.map(entry => <tr key={entry.itemId}><td className="py-3 font-bold">{entry.itemName}</td><td className="py-3 text-center">{entry.expectedPhysicalTotal}</td><td className="py-3 text-center">{entry.countedPhysicalTotal}</td><td className={`py-3 text-center font-black ${getVarianceColor(entry.variance)}`}>{entry.variance}</td><td className="py-3 text-slate-500">{entry.varianceReason || '—'}</td></tr>)}
                 </tbody>
               </table>
             </div>
@@ -1145,7 +1194,7 @@ const LinenView: React.FC<LinenViewProps> = ({
                   {items.map(item => {
                     const entry = inventoryDraft[item.id];
                     if (!entry) return null;
-                    return <tr key={item.id}><td className="p-3 font-bold">{item.name}</td><td className="p-3 text-center">{entry.expectedPhysicalTotal}</td><td className="p-3"><input type="number" min="0" value={entry.quantityInUse} onChange={e => updateInventoryDraft(item.id, 'quantityInUse', numberValue(e.target.value))} className="w-20 px-2 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-transparent text-center" /></td><td className="p-3"><input type="number" min="0" value={entry.quantityStained} onChange={e => updateInventoryDraft(item.id, 'quantityStained', numberValue(e.target.value))} className="w-20 px-2 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-transparent text-center" /></td><td className="p-3"><input type="number" min="0" value={entry.quantityTorn} onChange={e => updateInventoryDraft(item.id, 'quantityTorn', numberValue(e.target.value))} className="w-20 px-2 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-transparent text-center" /></td><td className="p-3 text-center font-black">{entry.countedPhysicalTotal}</td><td className={`p-3 text-center font-black ${entry.variance !== 0 ? 'text-red-600' : 'text-emerald-600'}`}>{entry.variance}</td><td className="p-3"><input value={entry.varianceReason || ''} onChange={e => updateInventoryDraft(item.id, 'varianceReason', e.target.value)} placeholder={entry.variance !== 0 ? 'Obrigatória' : 'Opcional'} className="w-full min-w-[180px] px-2 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-transparent" /></td></tr>;
+                    return <tr key={item.id}><td className="p-3 font-bold">{item.name}</td><td className="p-3 text-center">{entry.expectedPhysicalTotal}</td><td className="p-3"><input type="number" min="0" value={entry.quantityInUse} onChange={e => updateInventoryDraft(item.id, 'quantityInUse', numberValue(e.target.value))} className="w-20 px-2 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-transparent text-center" /></td><td className="p-3"><input type="number" min="0" value={entry.quantityStained} onChange={e => updateInventoryDraft(item.id, 'quantityStained', numberValue(e.target.value))} className="w-20 px-2 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-transparent text-center" /></td><td className="p-3"><input type="number" min="0" value={entry.quantityTorn} onChange={e => updateInventoryDraft(item.id, 'quantityTorn', numberValue(e.target.value))} className="w-20 px-2 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-transparent text-center" /></td><td className="p-3 text-center font-black">{entry.countedPhysicalTotal}</td><td className={`p-3 text-center font-black ${getVarianceColor(entry.variance)}`}>{entry.variance}</td><td className="p-3"><input value={entry.varianceReason || ''} onChange={e => updateInventoryDraft(item.id, 'varianceReason', e.target.value)} placeholder={entry.variance !== 0 ? 'Obrigatória' : 'Opcional'} className="w-full min-w-[180px] px-2 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-transparent" /></td></tr>;
                   })}
                 </tbody>
               </table>

@@ -158,6 +158,7 @@ const safeGetTime = (val: any) => {
 
 const App: React.FC = () => {
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const initialSyncRef = useRef(false);
   
   const [state, setState] = useState<AppState>(() => {
@@ -1472,9 +1473,11 @@ const App: React.FC = () => {
           user={state.currentUser} 
           lastDataSource={state.lastDataSource}
           visibleTabs={currentHotelData.config?.visibleTabs}
+          isCollapsed={isSidebarCollapsed}
+          onToggleCollapsed={() => setIsSidebarCollapsed(current => !current)}
         />
         
-        <main className="flex-1 p-4 md:p-8 md:ml-64 mb-20 md:mb-0 transition-all duration-300">
+        <main className={`flex-1 p-4 md:p-8 ${isSidebarCollapsed ? 'md:ml-20' : 'md:ml-64'} mb-20 md:mb-0 transition-all duration-300`}>
           <header className="flex justify-between items-center mb-8 md:hidden">
             <div className="flex items-center gap-3">
               <Logo className="h-10" themeColor={theme.primary} />
