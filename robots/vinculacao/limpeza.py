@@ -10,6 +10,9 @@ from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, StaleElementReferenceException
+from speed import configure_fast_sleep
+
+configure_fast_sleep()
 
 
 def executar_limpeza():

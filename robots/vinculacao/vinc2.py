@@ -15,6 +15,9 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.keys import Keys
+from speed import configure_fast_sleep
+
+configure_fast_sleep()
 
 def executar_vinculacao_2_0():
     # --- CONFIGURAÇÕES ---
@@ -281,8 +284,8 @@ def executar_vinculacao_2_0():
             texto = "|".join(partes)
             return hashlib.sha1(texto.encode("utf-8")).hexdigest()[:12]
 
-        tentativas = int(os.environ.get("VINCULACAO_PLANILHA_TENTATIVAS", "6"))
-        intervalo = int(os.environ.get("VINCULACAO_PLANILHA_INTERVALO", "10"))
+        tentativas = int(os.environ.get("VINCULACAO_PLANILHA_TENTATIVAS", "4"))
+        intervalo = int(os.environ.get("VINCULACAO_PLANILHA_INTERVALO", "4"))
         assinatura_anterior = None
         agrupados_anterior = {}
 
