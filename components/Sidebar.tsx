@@ -89,12 +89,11 @@ const Sidebar: React.FC<SidebarProps> = ({
   const menuItems = [
     { id: ViewType.DASHBOARD, label: 'Dashboard', icon: LayoutDashboard, visible: isTabVisible(ViewType.DASHBOARD) },
     { id: ViewType.APARTMENTS, label: 'Apartamentos', icon: Hotel, visible: isTabVisible(ViewType.APARTMENTS) },
-    { id: ViewType.TODAY_SCHEDULE, label: 'Pauta do Dia', icon: FileBarChart, visible: isTabVisible(ViewType.TODAY_SCHEDULE) },
     { id: ViewType.PARKING, label: 'Estacionamento', icon: Car, visible: isTabVisible(ViewType.PARKING) },
     { id: ViewType.BUDGETS, label: 'Orcamentos', icon: ReceiptPoundSterling, visible: isTabVisible(ViewType.BUDGETS) },
     { id: ViewType.INVENTORY, label: 'Estoque', icon: Package, visible: isTabVisible(ViewType.INVENTORY) },
     { id: ViewType.LINEN, label: 'Enxoval', icon: BedDouble, visible: isTabVisible(ViewType.LINEN) },
-    { id: ViewType.ROBOTS, label: 'Robos', icon: Bot, visible: isTabVisible(ViewType.ROBOTS) },
+    { id: ViewType.ROBOTS, label: 'Recepcao', icon: Bot, visible: isTabVisible(ViewType.ROBOTS) },
     { id: ViewType.EMPLOYEES, label: 'Funcionarios', icon: Users, visible: isTabVisible(ViewType.EMPLOYEES) }
   ];
 

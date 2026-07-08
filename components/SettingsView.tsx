@@ -60,9 +60,8 @@ const SettingsView: React.FC<SettingsViewProps> = ({
     [ViewType.INVENTORY]: 'Controle de Estoque',
     [ViewType.LINEN]: 'Controle de Enxoval',
     [ViewType.REPORTS]: 'Relatórios e BI',
-    [ViewType.TODAY_SCHEDULE]: 'Pauta do Dia',
     [ViewType.PARKING]: 'Estacionamento / Vagas',
-    [ViewType.ROBOTS]: 'Robos de Vinculacao',
+    [ViewType.ROBOTS]: 'Recepção',
     [ViewType.SETTINGS]: 'Configurações'
   };
   
@@ -309,7 +308,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({
                   </p>
                   
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                     {Object.entries(viewLabels).map(([view, label]) => {
+                     {Object.entries(viewLabels).filter(([view]) => view !== ViewType.TODAY_SCHEDULE).map(([view, label]) => {
                         if (view === ViewType.SETTINGS) return null;
                         
                         const isVisible = hotelConfig?.visibleTabs?.[view] !== false; 
@@ -872,17 +871,18 @@ const SettingsView: React.FC<SettingsViewProps> = ({
                     <div>
                        <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1">Abas de Acesso</label>
                        <div className="grid grid-cols-2 gap-2">
-                         {Object.values(ViewType).map(tab => {
+                         {Object.values(ViewType).filter(tab => tab !== ViewType.TODAY_SCHEDULE).map(tab => {
                            const tabLabels: Record<string, string> = {
-                             DASHBOARD: 'Dashboard',
+                             DASHBOARD: 'Painel geral',
                              APARTMENTS: 'Apartamentos',
-                             BUDGETS: 'Orçamentos',
-                             SETTINGS: 'Configurações',
-                             EMPLOYEES: 'Colaboradores',
+                             BUDGETS: 'Orcamentos',
+                             SETTINGS: 'Configuracoes',
+                             EMPLOYEES: 'Funcionarios',
                              INVENTORY: 'Estoque',
-                             REPORTS: 'Relatórios',
-                             TODAY_SCHEDULE: 'Agenda do Dia',
-                             PARKING: 'Estacionamento'
+                             REPORTS: 'Relatorios',
+                             PARKING: 'Estacionamento',
+                             LINEN: 'Enxoval',
+                             ROBOTS: 'Recepcao'
                            };
                            
                            return (

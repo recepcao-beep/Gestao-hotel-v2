@@ -24,15 +24,19 @@ import {
   Printer,
   RefreshCw,
   Save,
+  Search,
   Send,
+  Shirt,
   Terminal,
   Trash2,
   Utensils,
+  X,
 } from 'lucide-react';
 import { HotelTheme } from '../types';
 
 type Rotina = 'verificacao_diaria' | 'vinculacao_semanal' | 'checkin_email' | 'checkin_whatsapp';
 type ObservacaoSetor = 'restaurante' | 'governanca' | 'recepcao';
+type ReceptionTab = 'robos' | 'mensagens' | 'observacoes' | 'lavanderia';
 
 interface RobotsViewProps {
   theme: HotelTheme;
@@ -113,7 +117,47 @@ const rotinaIcons: Record<Rotina, React.ElementType> = {
 };
 
 const vinculacaoRotinas: Rotina[] = ['verificacao_diaria', 'vinculacao_semanal'];
-const outrosRobos: Rotina[] = ['checkin_email', 'checkin_whatsapp'];
+const outrosRobos: Rotina[] = ['checkin_email'];
+
+const receptionTabs: { id: ReceptionTab; label: string; icon: React.ElementType }[] = [
+  { id: 'robos', label: 'Robos', icon: Bot },
+  { id: 'mensagens', label: 'Mensagens', icon: MessageCircle },
+  { id: 'observacoes', label: 'Observacoes', icon: FileText },
+  { id: 'lavanderia', label: 'Lavanderia', icon: Shirt },
+];
+
+const laundryPriceList = [
+  { name: 'MAIO/BIQUINI / SUNGA', price: 15 },
+  { name: 'ROUPAO', price: 25 },
+  { name: 'TOALHAS', price: 15 },
+  { name: 'FRONHA', price: 10 },
+  { name: 'BLUSAS', price: 12 },
+  { name: 'LINGERIE / CUECAS / MEIAS', price: 8 },
+  { name: 'CAMISETAS', price: 12 },
+  { name: 'CAMISA / CALCA SOCIAL', price: 25 },
+  { name: 'BLAZER', price: 35 },
+  { name: 'PIJAMAS', price: 15 },
+  { name: 'SAIAS', price: 12 },
+  { name: 'CALCAS', price: 12 },
+  { name: 'VESTIDOS', price: 15 },
+  { name: 'VESTIDO LONGO', price: 25 },
+  { name: 'SHORTS', price: 10 },
+  { name: 'JAQUETAS', price: 15 },
+  { name: 'MACACAO', price: 20 },
+  { name: 'BOLSA / MOCHILA', price: 35 },
+  { name: 'TENIS', price: 25 },
+  { name: 'COBERTAS / MANTA / TRAVESSEIRO', price: 20 },
+  { name: 'LENCOL', price: 10 },
+  { name: 'CAMISETA INFANTIL', price: 9 },
+  { name: 'MAIO / BIQUINI / SUNGA INFANTIL', price: 5 },
+  { name: 'BABADOR / FRALDINHA', price: 5 },
+  { name: 'CAPA CADEIRINHA', price: 40 },
+  { name: 'CAMISA / CALCA SOCIAL INFANTIL', price: 15 },
+  { name: 'SHORTS INFANTIL', price: 8 },
+  { name: 'CALCAS INFANTIL', price: 10 },
+  { name: 'MACACAO BEBE', price: 15 },
+  { name: 'VESTIDO INFANTIL', price: 12 },
+];
 
 const observacaoLabels: Record<ObservacaoSetor, string> = {
   restaurante: 'Restaurante',
@@ -152,6 +196,13 @@ const isoToBrDate = (value: string) => {
   return `${match[3]}/${match[2]}/${match[1]}`;
 };
 
+const normalizeSearch = (value: string) => String(value || '')
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .toLowerCase();
+
+const formatCurrency = (value: number) => value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
 const defaultWhatsappTemplate = `Olá {nome}, seja muito bem-vindo ao Hotel Vilage Inn.
 
 Estamos muito felizes em recebê-lo. Para tornar sua chegada mais rápida e confortável, você pode nos enviar por aqui os dados necessários para adiantar o check-in.
@@ -168,7 +219,7 @@ const isSpecialHousekeeping = (text: string) => {
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase();
-  return normalized.includes('arrumacao especial');
+  return normalized.includes('arrumacao especial') || normalized.includes('entrada antecipada') || normalized.includes('check-in antecipado') || normalized.includes('checkin antecipado');
 };
 
 const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
@@ -200,6 +251,10 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
   const [informativeLink, setInformativeLink] = useState(defaultInformativeLink);
   const [savingWhatsappConfig, setSavingWhatsappConfig] = useState(false);
   const [whatsappConfigMessage, setWhatsappConfigMessage] = useState('');
+  const [activeReceptionTab, setActiveReceptionTab] = useState<ReceptionTab>('robos');
+  const [laundrySearch, setLaundrySearch] = useState('');
+  const [laundryCart, setLaundryCart] = useState<{ id: string; name: string; price: number; quantity: number }[]>([]);
+  const [laundryUrgent, setLaundryUrgent] = useState(false);
   const lastNotificationKeyRef = useRef('');
 
   const addRobotLog = useCallback((text: string, tone: RobotLogEntry['tone'] = 'info') => {
@@ -503,7 +558,7 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
     const key = specialHousekeepingItems.map((item) => `${item.voucher}-${item.apartment}-${item.request}`).join('|');
     if (lastNotificationKeyRef.current === key) return;
     lastNotificationKeyRef.current = key;
-    new Notification('Arrumacao especial', {
+    new Notification('Alerta de Governanca', {
       body: `${specialHousekeepingItems.length} solicitacao(oes) em destaque na Governanca.`,
     });
   }, [notificationsEnabled, specialHousekeepingItems]);
@@ -559,6 +614,32 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
     );
   };
 
+  const laundrySuggestions = laundrySearch.trim()
+    ? laundryPriceList.filter((item) => normalizeSearch(item.name).includes(normalizeSearch(laundrySearch))).slice(0, 8)
+    : laundryPriceList.slice(0, 8);
+
+  const laundrySubtotal = laundryCart.reduce((total, item) => total + item.price * item.quantity, 0);
+  const laundryTotal = laundryUrgent ? laundrySubtotal * 1.5 : laundrySubtotal;
+
+  const addLaundryItem = (item: { name: string; price: number }) => {
+    setLaundryCart((current) => {
+      const existing = current.find((cartItem) => cartItem.name === item.name);
+      if (existing) {
+        return current.map((cartItem) => cartItem.name === item.name ? { ...cartItem, quantity: cartItem.quantity + 1 } : cartItem);
+      }
+      return [...current, { id: `${Date.now()}-${Math.random()}`, name: item.name, price: item.price, quantity: 1 }];
+    });
+    setLaundrySearch('');
+  };
+
+  const updateLaundryQuantity = (id: string, quantity: number) => {
+    if (quantity <= 0) {
+      setLaundryCart((current) => current.filter((item) => item.id !== id));
+      return;
+    }
+    setLaundryCart((current) => current.map((item) => item.id === id ? { ...item, quantity } : item));
+  };
+
   return (
     <div className="max-w-7xl mx-auto p-4 md:p-8 space-y-5">
       <div className="flex flex-col xl:flex-row xl:items-start justify-between gap-4">
@@ -567,7 +648,7 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
             <Bot size={22} />
           </div>
           <div>
-            <h1 className="text-2xl font-black text-slate-900 tracking-tight">Robos e Mapinha</h1>
+            <h1 className="text-2xl font-black text-slate-900 tracking-tight">Recepcao</h1>
             <div className="mt-1 flex items-center gap-2">
               <span className={`inline-flex items-center gap-2 rounded-lg border px-2.5 py-1 text-xs font-black ${statusColor}`}>
                 <StatusIcon size={14} />
@@ -603,6 +684,26 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
         </div>
       </div>
 
+      <div className="rounded-lg border border-slate-200 bg-white p-1.5 flex flex-wrap gap-1.5">
+        {receptionTabs.map((tab) => {
+          const TabIcon = tab.icon;
+          const active = activeReceptionTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveReceptionTab(tab.id)}
+              className={`inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-xs font-black transition-colors ${active ? 'text-white shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}
+              style={active ? { backgroundColor: theme.primary } : undefined}
+            >
+              <TabIcon size={15} />
+              {tab.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {activeReceptionTab === 'robos' && (
+      <>
       <div className="space-y-3">
         <div className="flex items-center gap-2">
           <Home size={17} style={{ color: theme.primary }} />
@@ -639,6 +740,78 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
         </div>
       </div>
 
+      <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
+        <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Home size={17} style={{ color: theme.primary }} />
+            <span className="text-sm font-black text-slate-900">Andares bloqueados</span>
+          </div>
+          <button
+            onClick={loadObservacoes}
+            disabled={loadingObservacoes}
+            className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-60"
+            title="Atualizar"
+          >
+            <RefreshCw size={15} className={loadingObservacoes ? 'animate-spin' : ''} />
+          </button>
+        </div>
+        <div className="p-4 space-y-2">
+          {exceptionsDraft.length > 0 ? (
+            exceptionsDraft.map((item, index) => (
+              <div key={`${index}-${item.date}-${item.floor}`} className="grid grid-cols-[1fr_1fr_32px] gap-2 rounded-lg border border-slate-100 bg-slate-50 p-2">
+                <input
+                  type="date"
+                  value={dateToIso(item.date)}
+                  onChange={(event) => updateExceptionDraft(index, 'date', isoToBrDate(event.target.value))}
+                  className="min-w-0 rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs font-black text-slate-700 outline-none focus:border-slate-300"
+                />
+                <input
+                  value={item.floor}
+                  onChange={(event) => updateExceptionDraft(index, 'floor', event.target.value)}
+                  placeholder="500, 300"
+                  className="min-w-0 rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs font-black text-slate-700 outline-none focus:border-slate-300"
+                />
+                <button
+                  onClick={() => removeExceptionDraft(index)}
+                  disabled={savingExceptions}
+                  className="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:text-red-600 hover:bg-red-50"
+                  title="Remover e salvar"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            ))
+          ) : (
+            <div className="text-xs font-bold text-slate-400">Nenhuma excecao carregada.</div>
+          )}
+          <div className="flex items-center gap-2 pt-2">
+            <button
+              onClick={addExceptionDraft}
+              className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-slate-200 bg-white text-xs font-black text-slate-700 hover:bg-slate-50"
+            >
+              <Plus size={14} />
+              Adicionar
+            </button>
+            <button
+              onClick={() => saveExceptions()}
+              disabled={savingExceptions}
+              className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-black text-white shadow-sm hover:brightness-95 disabled:opacity-60"
+              style={{ backgroundColor: theme.primary }}
+            >
+              <Save size={14} />
+              Salvar
+            </button>
+          </div>
+        </div>
+      </div>
+      </>
+      )}
+
+      {activeReceptionTab === 'mensagens' && (
+      <>
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+        {renderRobotCard('checkin_whatsapp')}
+      </div>
       <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
         <div className="px-4 py-3 border-b border-slate-100 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
           <div className="flex items-center gap-2">
@@ -735,6 +908,8 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
           </div>
         </div>
       </div>
+      </>
+      )}
 
       {(robotLogs.length > 0 || isWatchingRun) && (
         <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
@@ -771,8 +946,9 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
         </div>
       )}
 
-      <div className="grid grid-cols-1 xl:grid-cols-[320px_1fr] gap-4">
-        <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
+      {activeReceptionTab === 'observacoes' && (
+      <div className="grid grid-cols-1 gap-4">
+        <div className="hidden rounded-lg border border-slate-200 bg-white overflow-hidden">
           <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <Home size={17} style={{ color: theme.primary }} />
@@ -969,6 +1145,101 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
           </div>
         </div>
       </div>
+      )}
+
+      {activeReceptionTab === 'lavanderia' && (
+        <div className="grid grid-cols-1 xl:grid-cols-[420px_1fr] gap-4">
+          <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
+            <div className="px-4 py-3 border-b border-slate-100 flex items-center gap-2">
+              <Shirt size={17} style={{ color: theme.primary }} />
+              <span className="text-sm font-black text-slate-900">Orcamento de lavanderia</span>
+            </div>
+            <div className="p-4 space-y-3">
+              <div className="relative">
+                <Search size={16} className="absolute left-3 top-3.5 text-slate-400" />
+                <input
+                  value={laundrySearch}
+                  onChange={(event) => setLaundrySearch(event.target.value)}
+                  placeholder="Digite a peca..."
+                  className="w-full rounded-lg border border-slate-200 bg-slate-50 pl-9 pr-3 py-3 text-sm font-bold text-slate-800 outline-none focus:border-slate-300"
+                />
+              </div>
+              <div className="grid grid-cols-1 gap-2 max-h-[420px] overflow-y-auto pr-1">
+                {laundrySuggestions.map((item) => (
+                  <button
+                    key={item.name}
+                    onClick={() => addLaundryItem(item)}
+                    className="flex items-center justify-between gap-3 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-left hover:bg-white hover:border-slate-200"
+                  >
+                    <span className="text-xs font-black text-slate-700">{item.name}</span>
+                    <span className="text-xs font-black" style={{ color: theme.primary }}>{formatCurrency(item.price)}</span>
+                  </button>
+                ))}
+              </div>
+              <div className="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-[11px] font-bold text-amber-800">
+                Prazo normal: 48h. Com taxa de urgencia: 24h e acrescimo de 50%.
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
+            <div className="px-4 py-3 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-black text-slate-900">Comanda</div>
+                <div className="text-[11px] font-bold text-slate-400">{laundryCart.length} item(ns) selecionado(s)</div>
+              </div>
+              <label className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-black text-slate-700">
+                <input type="checkbox" checked={laundryUrgent} onChange={(event) => setLaundryUrgent(event.target.checked)} />
+                Taxa de urgencia +50%
+              </label>
+            </div>
+            <div className="p-4 space-y-3">
+              {laundryCart.length > 0 ? laundryCart.map((item) => (
+                <div key={item.id} className="rounded-lg border border-slate-100 bg-slate-50 p-3 flex flex-col md:flex-row md:items-center justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-black text-slate-900">{item.name}</div>
+                    <div className="text-[11px] font-bold text-slate-500">{formatCurrency(item.price)} por peca</div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min={1}
+                      value={item.quantity}
+                      onChange={(event) => updateLaundryQuantity(item.id, Number(event.target.value) || 0)}
+                      className="w-20 rounded-lg border border-slate-200 bg-white px-3 py-2 text-center text-sm font-black"
+                    />
+                    <div className="w-28 text-right text-sm font-black text-slate-900">{formatCurrency(item.price * item.quantity)}</div>
+                    <button onClick={() => updateLaundryQuantity(item.id, 0)} className="w-8 h-8 rounded-lg border border-slate-200 bg-white text-slate-400 hover:text-red-600">
+                      <X size={14} className="mx-auto" />
+                    </button>
+                  </div>
+                </div>
+              )) : (
+                <div className="rounded-lg border border-slate-100 bg-slate-50 p-4 text-sm font-bold text-slate-400">
+                  Nenhuma peca adicionada.
+                </div>
+              )}
+
+              <div className="rounded-lg border border-slate-200 bg-slate-900 p-4 text-white">
+                <div className="flex justify-between text-xs font-bold text-slate-300">
+                  <span>Subtotal</span>
+                  <span>{formatCurrency(laundrySubtotal)}</span>
+                </div>
+                {laundryUrgent && (
+                  <div className="mt-2 flex justify-between text-xs font-bold text-amber-200">
+                    <span>Taxa de urgencia</span>
+                    <span>{formatCurrency(laundrySubtotal * 0.5)}</span>
+                  </div>
+                )}
+                <div className="mt-3 flex justify-between text-lg font-black">
+                  <span>Total</span>
+                  <span>{formatCurrency(laundryTotal)}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {(message || error || configWarning) && (
         <div className={`rounded-lg border px-4 py-3 text-sm font-bold ${

@@ -1425,32 +1425,36 @@ const App: React.FC = () => {
     }
   };
 
-  const handleGoogleLogin = async (email: string, name: string, hotel: HotelType) => {
+  const handleGoogleLogin = async (email: string, name: string) => {
     try {
-      const hotelData = await loadDataFromSheet(hotel);
-      
-      const user = hotelData.users?.find((u: any) => u.email === email);
-      if (user) {
-        if (user.status === 'PENDING') {
-          return { success: false, message: 'Seu acesso está pendente de aprovação pelo Gestor.' };
-        } else {
-          handleLogin({ ...user, hotel });
+      const hotelsToSearch: HotelType[] = ['VILLAGE', 'GOLDEN_PARK', 'THERMAL_RESORT'];
+      for (const hotel of hotelsToSearch) {
+        const hotelData = await loadDataFromSheet(hotel);
+        const user = hotelData?.users?.find((u: any) => String(u.email || '').toLowerCase().trim() === email.toLowerCase().trim());
+        if (user) {
+          if (user.status === 'PENDING') {
+            return { success: false, message: 'Seu acesso está pendente de aprovação pelo Gestor.' };
+          }
+          const allowedHotel = user.hotel || hotel;
+          localStorage.setItem('hotel_last_google_email', email);
+          localStorage.setItem('hotel_last_access_hotel', allowedHotel);
+          handleLogin({ ...user, hotel: allowedHotel });
           return { success: true };
         }
-      } else {
-        const newUser: User = {
-          id: `user_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
-          name: name,
-          email: email,
-          password: '',
-          role: 'FUNCIONARIO',
-          status: 'PENDING',
-          allowedTabs: [],
-          hotel: hotel
-        };
-        handleSaveUser(newUser);
-        return { success: false, message: 'Solicitação de acesso enviada! Aguarde a aprovação do Gestor.' };
       }
+
+      const newUser: User = {
+        id: `user_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+        name,
+        email,
+        password: '',
+        role: 'FUNCIONARIO',
+        status: 'PENDING',
+        allowedTabs: [],
+        hotel: 'VILLAGE'
+      };
+      handleSaveUser(newUser);
+      return { success: false, message: 'Solicitação de acesso enviada. O administrador deve liberar a unidade no cadastro.' };
     } catch (error: any) {
       console.error("Google Login Error:", error);
       return { success: false, message: error.message || 'Erro ao conectar com o servidor' };

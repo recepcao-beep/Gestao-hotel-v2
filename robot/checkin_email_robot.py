@@ -296,6 +296,23 @@ def clicar_etiqueta_checkin_online(driver: webdriver.Chrome) -> None:
     raise RuntimeError("Nao foi possivel localizar as etiquetas Check-in Online ou Precheck in OK pelos XPaths informados.")
 
 
+def hospede_ja_tem_etiqueta_checkin(driver: webdriver.Chrome) -> bool:
+    """Evita processar de novo reservas cujo hospede principal ja recebeu as etiquetas."""
+    xpaths = [
+        "//*[contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZÁÀÂÃÉÊÍÓÔÕÚÇ', 'abcdefghijklmnopqrstuvwxyzáàâãéêíóôõúç'), 'check-in online') and (contains(@class, 'active') or contains(@class, 'selected') or contains(@class, 'checked') or ancestor::*[contains(@class, 'active') or contains(@class, 'selected') or contains(@class, 'checked')])]",
+        "//*[contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZÁÀÂÃÉÊÍÓÔÕÚÇ', 'abcdefghijklmnopqrstuvwxyzáàâãéêíóôõúç'), 'check in online') and (contains(@class, 'active') or contains(@class, 'selected') or contains(@class, 'checked') or ancestor::*[contains(@class, 'active') or contains(@class, 'selected') or contains(@class, 'checked')])]",
+        "//*[contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZÁÀÂÃÉÊÍÓÔÕÚÇ', 'abcdefghijklmnopqrstuvwxyzáàâãéêíóôõúç'), 'precheck') and (contains(@class, 'active') or contains(@class, 'selected') or contains(@class, 'checked') or ancestor::*[contains(@class, 'active') or contains(@class, 'selected') or contains(@class, 'checked')])]",
+        "//*[contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZÁÀÂÃÉÊÍÓÔÕÚÇ', 'abcdefghijklmnopqrstuvwxyzáàâãéêíóôõúç'), 'pre check') and (contains(@class, 'active') or contains(@class, 'selected') or contains(@class, 'checked') or ancestor::*[contains(@class, 'active') or contains(@class, 'selected') or contains(@class, 'checked')])]",
+    ]
+    for xpath in xpaths:
+        try:
+            if driver.find_elements(By.XPATH, xpath):
+                return True
+        except Exception:
+            continue
+    return False
+
+
 def salvar_debug_reserva(driver: webdriver.Chrome, num_reserva: str) -> None:
     DEBUG_DIR.mkdir(exist_ok=True)
     try:
@@ -583,6 +600,12 @@ def anexar_no_hits(
         log("[EMAIL] Clicando no hospede principal...")
         time.sleep(3)
         clique_forcado("(//button[@ng-click='newGuest(true,guest)' or @title='Atualizar cadastro do hospede'])[1]", driver, wait)
+        time.sleep(3)
+
+        if hospede_ja_tem_etiqueta_checkin(driver):
+            log("[EMAIL] Hospede ja possui etiqueta de check-in online/precheck. Pulando para evitar duplicidade.")
+            clique_forcado('//*[@id="cancelReservation"]', driver, wait)
+            return "JA_ETIQUETADO"
 
         clicar_atualizar_cadastro_completo(driver, wait, nome_email, cpf_email)
 
@@ -728,7 +751,7 @@ def processar_lote_email() -> None:
             log(f"[EMAIL] Reserva {num_reserva}: {total_anexos} anexo(s) baixado(s).")
 
             status_hits = anexar_no_hits(driver, wait, num_reserva, pasta, nome_email, cpf_email)
-            if status_hits is True or status_hits == "NAO_ENCONTRADO":
+            if status_hits is True or status_hits in ("NAO_ENCONTRADO", "JA_ETIQUETADO"):
                 log(f"[EMAIL] Movendo e-mail da reserva {num_reserva} para a lixeira para evitar duplicidade.")
                 service.users().messages().trash(userId="me", id=message["id"]).execute()
                 processados += 1
