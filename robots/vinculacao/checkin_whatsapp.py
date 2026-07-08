@@ -209,11 +209,32 @@ def obter_total_checkins(driver):
     return 0
 
 
+def linha_tem_marcador_laranja(driver, linha):
+    try:
+        candidatos = linha.find_elements(By.XPATH, ".//td[5]/div/span[3] | .//td[5]//span[contains(@class, 'orange') or contains(@class, 'warning') or contains(@class, 'text-orange') or contains(@style, 'orange')]")
+        for candidato in candidatos:
+            classe = (candidato.get_attribute("class") or "").lower()
+            style = (candidato.get_attribute("style") or "").lower()
+            color = (candidato.value_of_css_property("color") or "").lower()
+            background = (candidato.value_of_css_property("background-color") or "").lower()
+            texto = texto_elemento(driver, candidato).lower()
+            marcador = " ".join([classe, style, color, background, texto])
+            if any(term in marcador for term in ("orange", "warning", "laranja", "rgb(255", "rgb(245", "rgb(249", "#ff", "#f5", "#f9")):
+                return True
+    except Exception:
+        return False
+    return False
+
+
 def linhas_com_voucher(driver):
     linhas = driver.find_elements(By.XPATH, XPATH_CHECKIN_ROWS)
     resultado = []
     for linha in linhas:
         try:
+            if linha_tem_marcador_laranja(driver, linha):
+                voucher_text = texto_elemento(driver, linha)
+                print(f"[WHATSAPP] Linha ignorada por marcador laranja: {voucher_text[:80]}", flush=True)
+                continue
             span = linha.find_element(By.XPATH, ".//td[2]//span[1]")
             voucher = texto_elemento(driver, span)
             if re.search(r"\d{4,}", voucher):

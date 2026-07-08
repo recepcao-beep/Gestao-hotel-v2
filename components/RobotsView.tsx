@@ -119,11 +119,11 @@ const rotinaIcons: Record<Rotina, React.ElementType> = {
 const vinculacaoRotinas: Rotina[] = ['verificacao_diaria', 'vinculacao_semanal'];
 const outrosRobos: Rotina[] = ['checkin_email'];
 
-const receptionTabs: { id: ReceptionTab; label: string; icon: React.ElementType }[] = [
-  { id: 'robos', label: 'Robos', icon: Bot },
-  { id: 'mensagens', label: 'Mensagens', icon: MessageCircle },
-  { id: 'observacoes', label: 'Observacoes', icon: FileText },
-  { id: 'lavanderia', label: 'Lavanderia', icon: Shirt },
+const receptionTabs: { id: ReceptionTab; label: string; description: string; icon: React.ElementType }[] = [
+  { id: 'robos', label: 'Robos', description: 'Mapinha e automacoes', icon: Bot },
+  { id: 'mensagens', label: 'Mensagens', description: 'Contatos e WhatsApp', icon: MessageCircle },
+  { id: 'observacoes', label: 'Observacoes', description: 'Setores e alertas', icon: FileText },
+  { id: 'lavanderia', label: 'Lavanderia', description: 'Orcamentos de pecas', icon: Shirt },
 ];
 
 const laundryPriceList = [
@@ -645,7 +645,7 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
       <div className="flex flex-col xl:flex-row xl:items-start justify-between gap-4">
         <div className="flex items-center gap-3">
           <div className="w-11 h-11 rounded-lg flex items-center justify-center text-white shadow-sm" style={{ backgroundColor: theme.primary }}>
-            <Bot size={22} />
+            <ConciergeBell size={22} />
           </div>
           <div>
             <h1 className="text-2xl font-black text-slate-900 tracking-tight">Recepcao</h1>
@@ -684,7 +684,7 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
         </div>
       </div>
 
-      <div className="rounded-lg border border-slate-200 bg-white p-1.5 flex flex-wrap gap-1.5">
+      <div className="rounded-[1.25rem] border border-slate-200 bg-white p-3 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
         {receptionTabs.map((tab) => {
           const TabIcon = tab.icon;
           const active = activeReceptionTab === tab.id;
@@ -692,11 +692,24 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
             <button
               key={tab.id}
               onClick={() => setActiveReceptionTab(tab.id)}
-              className={`inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-xs font-black transition-colors ${active ? 'text-white shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}
+              className={`group flex items-center gap-3 rounded-[1rem] px-4 py-4 text-left transition-all ${
+                active
+                  ? 'text-white shadow-lg'
+                  : 'text-slate-600 hover:bg-slate-50'
+              }`}
               style={active ? { backgroundColor: theme.primary } : undefined}
             >
-              <TabIcon size={15} />
-              {tab.label}
+              <span
+                className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${
+                  active ? 'bg-white/15 text-white' : 'bg-slate-50 text-slate-500 group-hover:bg-white'
+                }`}
+              >
+                <TabIcon size={17} />
+              </span>
+              <span className="min-w-0">
+                <span className={`block text-sm font-black ${active ? 'text-white' : 'text-slate-800'}`}>{tab.label}</span>
+                <span className={`mt-0.5 block text-[10px] font-bold ${active ? 'text-white/85' : 'text-slate-400'}`}>{tab.description}</span>
+              </span>
             </button>
           );
         })}

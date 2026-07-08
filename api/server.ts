@@ -365,6 +365,7 @@ function classifyObservation(text: string): 'restaurante' | 'governanca' | 'rece
   const governanca = [
     'colchao', 'berco', 'banheira', 'banheiro', 'arrumacao', 'arrumacao especial',
     'limpeza', 'cama', 'travesseiro', 'toalha', 'cobertor', 'enxoval', 'fronha',
+    'entrada antecipada', 'check-in antecipado', 'checkin antecipado', 'early check',
   ];
   const recepcao = [
     'proxim', 'perto', 'junto', 'lado a lado', 'vinculad', 'andar', 'terreo',

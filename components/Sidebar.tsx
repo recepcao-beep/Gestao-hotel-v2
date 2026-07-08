@@ -14,7 +14,7 @@ import {
   FileBarChart,
   Car,
   BedDouble,
-  Bot,
+  ConciergeBell,
   PanelLeftClose,
   PanelLeftOpen
 } from 'lucide-react';
@@ -93,7 +93,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     { id: ViewType.BUDGETS, label: 'Orcamentos', icon: ReceiptPoundSterling, visible: isTabVisible(ViewType.BUDGETS) },
     { id: ViewType.INVENTORY, label: 'Estoque', icon: Package, visible: isTabVisible(ViewType.INVENTORY) },
     { id: ViewType.LINEN, label: 'Enxoval', icon: BedDouble, visible: isTabVisible(ViewType.LINEN) },
-    { id: ViewType.ROBOTS, label: 'Recepcao', icon: Bot, visible: isTabVisible(ViewType.ROBOTS) },
+    { id: ViewType.ROBOTS, label: 'Recepcao', icon: ConciergeBell, visible: isTabVisible(ViewType.ROBOTS) },
     { id: ViewType.EMPLOYEES, label: 'Funcionarios', icon: Users, visible: isTabVisible(ViewType.EMPLOYEES) }
   ];
 

@@ -19,6 +19,8 @@ from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.keys import Keys
 from speed import configure_fast_sleep
 
+os.environ.setdefault("ROBOT_SLEEP_FACTOR", "0.60")
+os.environ.setdefault("ROBOT_SLEEP_MAX_SECONDS", "6")
 configure_fast_sleep()
 
 class RoboHITS:
@@ -77,6 +79,12 @@ class RoboHITS:
                 return False
         return False
 
+    def clicar_primeiro_disponivel(self, descricao, xpaths, timeout=20):
+        for xpath in xpaths:
+            if self.clicar_com_espera(xpath, timeout):
+                return xpath
+        raise RuntimeError(f"{descricao} não encontrado.")
+
     def realizar_login(self):
         url_hits = "https://susceptor.apphotel.one/account/login?returnUrl=%2Fconnect%2Fauthorize%2Flogin%3F" \
                    "response_type%3Did_token%2520token%26client_id%3DB37748FC-ED13-4858-AE26-28AB3512A171%26" \
@@ -84,40 +92,76 @@ class RoboHITS:
                    "%2520webapi%26nonce%3DN0.28324722615515141770822279499%26state%3D17708222794990.2983837305966167"
         try:
             print("🌐 Acessando HITS...")
+            if not os.environ.get("HITS_EMAIL") or not os.environ.get("HITS_PASSWORD"):
+                raise RuntimeError("HITS_EMAIL/HITS_PASSWORD não configurados no ambiente.")
             self.driver.get(url_hits)
             self.wait.until(EC.presence_of_element_located((By.ID, "Email"))).send_keys(os.environ["HITS_EMAIL"])
             self.driver.find_element(By.ID, "Password").send_keys(os.environ["HITS_PASSWORD"])
             self.driver.find_element(By.XPATH, "//button[@type='submit']").click()
             print("⏳ Login enviado. Aguardando 15 segundos para carregar painel...")
             time.sleep(15) 
+            if not self.aguardar_e_focar("//*[@id='menuPrimary']/a", 30):
+                raise RuntimeError("Login enviado, mas o menu principal do HITS não carregou.")
+            print("✅ Login confirmado no HITS.")
+            return True
         except Exception as e:
             print(f"❌ Erro no Login: {e}")
+            raise
 
     def navegar_ate_relatorio(self):
         try:
-            if self.focar_quadro("//*[@id='menuPrimary']/a"):
-                self.force_click(self.driver.find_element(By.XPATH, "//*[@id='menuPrimary']/a"))
-                time.sleep(4) 
-            if self.focar_quadro("//*[@id='menufrontdesk']"):
-                self.force_click(self.driver.find_element(By.XPATH, "//*[@id='menufrontdesk']"))
-                time.sleep(4) 
-            if self.focar_quadro("//span[contains(text(), 'Mapa de reserva')]"):
-                self.force_click(self.driver.find_element(By.XPATH, "//span[contains(text(), 'Mapa de reserva')]"))
-                print("⏳ Carregando o mapa de reservas (12s)...")
-                time.sleep(12) 
-            if self.focar_quadro("//button[contains(@ng-click, 'moreOptionsShowReport')]"):
-                self.force_click(self.driver.find_element(By.XPATH, "//button[contains(@ng-click, 'moreOptionsShowReport')]"))
-                time.sleep(4) 
-            if self.focar_quadro("//*[@id='one2']/div/div[2]/button[2]"):
-                self.force_click(self.driver.find_element(By.XPATH, "//*[@id='one2']/div/div[2]/button[2]"))
-                print("✅ Relatório acessado.")
-                time.sleep(6) 
+            self.clicar_primeiro_disponivel("Menu principal", ["//*[@id='menuPrimary']/a"], 30)
+            time.sleep(3)
+
+            self.clicar_primeiro_disponivel(
+                "Menu Recepção",
+                [
+                    "//*[@id='menufrontdesk']",
+                    "/html/body/div[3]/div/header/nav[6]/div/ul/li[1]/a",
+                ],
+                20,
+            )
+            time.sleep(3)
+
+            self.clicar_primeiro_disponivel(
+                "Mapa de reservas",
+                [
+                    "//*[@id='menunewChart']/a",
+                    "//span[contains(text(), 'Mapa de reserva')]",
+                    "//a[contains(., 'Mapa de reserva')]",
+                    "/html/body/div[3]/div/header/nav[6]/div/ul/li[1]/ul/li[1]/a",
+                ],
+                20,
+            )
+            print("⏳ Carregando o mapa de reservas...")
+            time.sleep(10)
+
+            self.clicar_primeiro_disponivel(
+                "Botão de relatório do mapa",
+                ["//button[contains(@ng-click, 'moreOptionsShowReport')]"],
+                30,
+            )
+            time.sleep(3)
+
+            self.clicar_primeiro_disponivel(
+                "Opção do relatório de observações",
+                ["//*[@id='one2']/div/div[2]/button[2]"],
+                20,
+            )
+            print("✅ Relatório acessado.")
+            time.sleep(5)
+
+            if not self.aguardar_e_focar("//*[@id='one-search-filters-container']", 30):
+                raise RuntimeError("Relatório abriu, mas os filtros não carregaram.")
+            return True
         except Exception as e:
             print(f"❌ Erro na Navegação: {e}")
+            raise
 
     def aplicar_filtros_e_obs(self):
         try:
             print("🔍 Aplicando filtros inteligentes...")
+            filtros_ok = 0
             
             # --- PRIMEIRO FILTRO ---
             xpath_btn1 = "//*[@id='one-search-filters-container']/div[2]/span[8]/one-translate"
@@ -129,6 +173,7 @@ class RoboHITS:
                 if self.clicar_com_espera(xpath_opt1):
                     time.sleep(1)
                     self.clicar_com_espera(xpath_ok)
+                    filtros_ok += 1
                     time.sleep(3)
                 else:
                     print("⚠️ Modal do 1º filtro não carregou a tempo.")
@@ -150,6 +195,7 @@ class RoboHITS:
                         # Clica no botão de confirmar após selecionar o button[17]
                         self.clicar_com_espera(xpath_ok)
                         print("🎯 Filtros OK. Iniciando extração...")
+                        filtros_ok += 1
                         time.sleep(6)
                     else:
                         print("⚠️ Opção dentro do 2º filtro não carregou.")
@@ -158,8 +204,13 @@ class RoboHITS:
             else:
                 print("⚠️ Botão principal do 2º filtro não encontrado.")
 
+            if filtros_ok == 0:
+                raise RuntimeError("Nenhum filtro foi aplicado. Provavelmente o relatório correto não carregou.")
+            return True
+
         except Exception as e:
             print(f"❌ Erro crítico nos Filtros: {e}")
+            raise
 
     def mudar_data_para(self, dias_para_frente):
         data_alvo = datetime.datetime.now() + datetime.timedelta(days=dias_para_frente)
@@ -551,6 +602,9 @@ if __name__ == "__main__":
         robo.navegar_ate_relatorio()
         robo.aplicar_filtros_e_obs()
         robo.processar_semana_e_salvar()
+    except Exception as e:
+        print(f"❌ Execução interrompida: {e}")
+        raise
     finally:
         print("🏁 Encerrando e fechando o navegador...")
         robo.driver.quit()
