@@ -9,6 +9,7 @@ from selenium.webdriver.chrome.options import Options
 from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from hits_popup_guard import fechar_popups_hits, click_hits_seguro
 
 def executar_mapa():
     print("🚀 INICIANDO ATUALIZAÇÃO DO MAPA (OCC/IN/OUT)...")
@@ -35,7 +36,16 @@ def executar_mapa():
     wait = WebDriverWait(driver, 30)
 
     def js_click(elemento):
-        driver.execute_script("arguments[0].click();", elemento)
+        fechar_popups_hits(driver)
+        try:
+            driver.execute_script("arguments[0].scrollIntoView({block: 'center', inline: 'center'});", elemento)
+        except Exception:
+            pass
+        try:
+            driver.execute_script("arguments[0].click();", elemento)
+        except Exception:
+            fechar_popups_hits(driver)
+            click_hits_seguro(driver, elemento)
 
     def capturar_tabela_em_colunas():
         """Extrai os dados célula por célula para preencher as colunas da planilha"""
@@ -78,6 +88,7 @@ def executar_mapa():
         
         print("⏳ Aguardando carregamento (20s)...")
         time.sleep(20)
+        fechar_popups_hits(driver)
 
         # Navegação
         print("🖱️ Navegando para Governança > Ocupação...")

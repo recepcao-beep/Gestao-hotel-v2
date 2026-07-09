@@ -54,6 +54,189 @@ def executar_vinculacao_2_0():
     def js_click(elemento):
         driver.execute_script("arguments[0].click();", elemento)
 
+    def fechar_popup_hits():
+        """Fecha o pop-up pós-login do HITS e remove o backdrop que bloqueia cliques."""
+        driver.switch_to.default_content()
+        def remover_comunicado_visivel():
+            try:
+                return bool(driver.execute_script("""
+                    let removeu = false;
+                    const termos = ['COMUNICADO', 'Olá Hoteleiros', 'Ola Hoteleiros'];
+                    const contemComunicado = (el) => {
+                      const texto = String(el.innerText || el.textContent || '');
+                      return termos.some((termo) => texto.includes(termo));
+                    };
+                    const area = (el) => {
+                      const r = el.getBoundingClientRect();
+                      return r.width * r.height;
+                    };
+                    const candidatos = Array.from(document.querySelectorAll('body *'))
+                      .filter((el) => {
+                        if (!contemComunicado(el)) return false;
+                        const r = el.getBoundingClientRect();
+                        const visivel = !!(r.width || r.height || el.getClientRects().length);
+                        return visivel && r.width >= 250 && r.height >= 120;
+                      })
+                      .sort((a, b) => area(a) - area(b));
+                    candidatos.forEach((el) => {
+                      let alvo = el;
+                      let atual = el;
+                      while (atual.parentElement && atual.parentElement !== document.body) {
+                        const pai = atual.parentElement;
+                        const r = pai.getBoundingClientRect();
+                        if (!contemComunicado(pai)) break;
+                        if (r.width >= window.innerWidth * 0.98 || r.height >= window.innerHeight * 0.98) break;
+                        alvo = pai;
+                        atual = pai;
+                      }
+                      if (alvo && alvo.parentElement && alvo.tagName !== 'BODY' && alvo.tagName !== 'HTML') {
+                        alvo.remove();
+                        removeu = true;
+                      }
+                    });
+                    return removeu;
+                """))
+            except:
+                return False
+
+        remover_comunicado_visivel()
+        def popup_bloqueando_presente():
+            try:
+                return bool(driver.execute_script("""
+                    const textoPagina = String(document.body ? document.body.innerText || '' : '');
+                    const temComunicado = textoPagina.includes('COMUNICADO') || textoPagina.includes('Olá Hoteleiros');
+                    const temBackdrop = Array.from(document.querySelectorAll('div, [class]')).some((el) => {
+                      const cls = String(el.className || '');
+                      const bg = String(el.getAttribute('backgroundcolor') || '');
+                      const style = String(el.getAttribute('style') || '');
+                      return cls.includes('themes-preview-reflect-backdrop')
+                        || cls.includes('ug-sdk__sc-1rnuyal')
+                        || bg.includes('rgba(0, 0, 0')
+                        || (style.includes('pointer-events: all') && style.includes('rgba(0, 0, 0'));
+                    });
+                    return temComunicado || temBackdrop;
+                """))
+            except:
+                return True
+
+        xpaths_fechar = [
+            "/html/body/div/div/div/div/div/div/div[3]/div/button",
+            "/html/body/div/div/div/div/div/div/div[1]//*[name()='svg']",
+            "/html/body/div/div/div/div/div/div/div[1]//*[name()='svg']/*[name()='path']",
+            "/html/body/div/div/div/div/div/div/div[1]//*[normalize-space(.)='×' or normalize-space(.)='x' or normalize-space(.)='X']",
+            "//*[contains(normalize-space(.), 'COMUNICADO')]/ancestor::*[self::div][1]//*[normalize-space(.)='OK']",
+            "//button[contains(normalize-space(.), 'Fechar')]",
+            "//button[normalize-space(.)='OK' or .//*[normalize-space(.)='OK']]",
+            "//*[@role='button' and (normalize-space(.)='OK' or .//*[normalize-space(.)='OK'])]",
+            "//button[contains(normalize-space(.), 'Entendi')]",
+        ]
+        for _ in range(6):
+            if remover_comunicado_visivel():
+                time.sleep(0.5)
+            if not popup_bloqueando_presente():
+                break
+            fechou = False
+            for xpath in xpaths_fechar:
+                try:
+                    botoes = driver.find_elements(By.XPATH, xpath)
+                    for botao in botoes:
+                        if botao.is_displayed() or "svg" in xpath:
+                            driver.execute_script("""
+                                const el = arguments[0];
+                                const disparar = (alvo) => {
+                                  if (!alvo) return;
+                                  ['mouseover', 'mousedown', 'mouseup', 'click'].forEach((nome) => {
+                                    try { alvo.dispatchEvent(new MouseEvent(nome, { bubbles: true, cancelable: true, view: window })); } catch (e) {}
+                                  });
+                                  try { alvo.click(); } catch (e) {}
+                                };
+                                disparar(el);
+                                disparar(el.closest && (el.closest('button') || el.closest('[role="button"]') || el.closest('svg')));
+                                let pai = el.parentElement;
+                                for (let i = 0; pai && i < 6; i += 1, pai = pai.parentElement) disparar(pai);
+                            """, botao)
+                            time.sleep(0.8)
+                            fechou = True
+                            break
+                    if fechou:
+                        break
+                except:
+                    continue
+            if not fechou:
+                try:
+                    ActionChains(driver).send_keys(Keys.ESCAPE).perform()
+                    time.sleep(0.3)
+                except:
+                    pass
+            try:
+                fechou_js = driver.execute_script("""
+                    let clicou = false;
+                    const disparar = (alvo) => {
+                      if (!alvo) return;
+                      ['mouseover', 'mousedown', 'mouseup', 'click'].forEach((nome) => {
+                        try { alvo.dispatchEvent(new MouseEvent(nome, { bubbles: true, cancelable: true, view: window })); } catch (e) {}
+                      });
+                      try { alvo.click(); clicou = true; } catch (e) {}
+                    };
+                    const fecharPath = document.evaluate(
+                      "/html/body/div/div/div/div/div/div/div[1]//*[name()='svg']/*[name()='path']",
+                      document,
+                      null,
+                      XPathResult.FIRST_ORDERED_NODE_TYPE,
+                      null
+                    ).singleNodeValue;
+                    const fecharSvg = document.evaluate(
+                      "/html/body/div/div/div/div/div/div/div[1]//*[name()='svg']",
+                      document,
+                      null,
+                      XPathResult.FIRST_ORDERED_NODE_TYPE,
+                      null
+                    ).singleNodeValue;
+                    disparar(fecharPath);
+                    disparar(fecharSvg);
+                    let paiFechar = (fecharPath || fecharSvg || {}).parentElement;
+                    for (let i = 0; paiFechar && i < 8; i += 1, paiFechar = paiFechar.parentElement) disparar(paiFechar);
+                    Array.from(document.querySelectorAll('button, [role="button"], a, div, span')).forEach((el) => {
+                      const texto = String(el.innerText || el.textContent || '').trim();
+                      const visivel = !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
+                      if (visivel && (texto === 'OK' || texto === 'Fechar' || texto === 'Entendi')) {
+                        try { el.click(); clicou = true; } catch (e) {}
+                      }
+                    });
+                    const comunicados = Array.from(document.querySelectorAll('body *'))
+                      .filter((el) => {
+                        const texto = String(el.innerText || '');
+                        if (!texto.includes('COMUNICADO') && !texto.includes('Olá Hoteleiros')) return false;
+                        const rect = el.getBoundingClientRect();
+                        return rect.width >= 250 && rect.height >= 120 && rect.width < window.innerWidth * 0.95 && rect.height < window.innerHeight * 0.98;
+                      })
+                      .sort((a, b) => (b.getBoundingClientRect().width * b.getBoundingClientRect().height) - (a.getBoundingClientRect().width * a.getBoundingClientRect().height));
+                    if (comunicados.length) {
+                      const alvo = comunicados[0];
+                      if (alvo && alvo.tagName !== 'BODY' && alvo.tagName !== 'HTML') {
+                        alvo.remove();
+                        clicou = true;
+                      }
+                    }
+                    Array.from(document.querySelectorAll('div, [class]')).forEach((el) => {
+                      const cls = String(el.className || '');
+                      const bg = String(el.getAttribute('backgroundcolor') || '');
+                      const style = String(el.getAttribute('style') || '');
+                      const bloqueiaTela = cls.includes('themes-preview-reflect-backdrop')
+                        || cls.includes('ug-sdk__sc-1rnuyal')
+                        || bg.includes('rgba(0, 0, 0')
+                        || (style.includes('pointer-events: all') && style.includes('rgba(0, 0, 0'));
+                      if (bloqueiaTela) { el.remove(); clicou = true; }
+                    });
+                    return clicou;
+                """)
+                fechou = fechou or bool(fechou_js)
+            except:
+                pass
+            if not fechou:
+                break
+        driver.switch_to.default_content()
+
     def focar_quadro_do_elemento(xpath_alvo, tempo_maximo=15):
         tempo_inicial = time.time()
         while time.time() - tempo_inicial < tempo_maximo:
@@ -325,6 +508,8 @@ def executar_vinculacao_2_0():
         wait.until(EC.visibility_of_element_located((By.ID, "Email"))).send_keys(os.environ["HITS_EMAIL"])
         driver.find_element(By.ID, "Password").send_keys(os.environ["HITS_PASSWORD"])
         driver.find_element(By.XPATH, "//button[@type='submit']").click()
+        time.sleep(8)
+        fechar_popup_hits()
         
         js_click(wait.until(EC.element_to_be_clickable((By.XPATH, '//*[@id="menuPrimary"]/a'))))
         time.sleep(1); js_click(wait.until(EC.presence_of_element_located((By.XPATH, '//*[@id="menureservation"]'))))
@@ -340,6 +525,7 @@ def executar_vinculacao_2_0():
             esperar_loading_sumir()
 
         for voucher, lista_aps in dados.items():
+            fechar_popup_hits()
             print(f"\n🚀 VOUCHER: {voucher} | Requisições na planilha: {len(lista_aps)}")
             driver.switch_to.default_content()
             esperar_loading_sumir()

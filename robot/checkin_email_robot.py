@@ -26,6 +26,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 from webdriver_manager.chrome import ChromeDriverManager
+from hits_popup_guard import fechar_popups_hits, click_hits_seguro
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -231,19 +232,29 @@ def iterar_anexos(payload: dict[str, Any]):
 
 
 def clique_forcado(xpath: str, driver: webdriver.Chrome, wait: WebDriverWait) -> None:
+    fechar_popups_hits(driver)
     elemento = wait.until(EC.presence_of_element_located((By.XPATH, xpath)))
     driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", elemento)
     time.sleep(1)
-    driver.execute_script("arguments[0].click();", elemento)
+    try:
+        driver.execute_script("arguments[0].click();", elemento)
+    except Exception:
+        fechar_popups_hits(driver)
+        click_hits_seguro(driver, elemento)
 
 
 def clicar_primeiro_possivel(driver: webdriver.Chrome, xpaths: list[str], timeout: int = 8) -> bool:
     for xp in xpaths:
         try:
+            fechar_popups_hits(driver)
             elemento = WebDriverWait(driver, timeout).until(EC.presence_of_element_located((By.XPATH, xp)))
             driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", elemento)
             time.sleep(1)
-            driver.execute_script("arguments[0].click();", elemento)
+            try:
+                driver.execute_script("arguments[0].click();", elemento)
+            except Exception:
+                fechar_popups_hits(driver)
+                click_hits_seguro(driver, elemento)
             return True
         except Exception:
             continue
@@ -252,6 +263,7 @@ def clicar_primeiro_possivel(driver: webdriver.Chrome, xpaths: list[str], timeou
 
 def clicar_xpath_etiqueta(driver: webdriver.Chrome, xpath_alvo: str, descricao: str) -> bool:
     try:
+        fechar_popups_hits(driver)
         elemento = WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.XPATH, xpath_alvo)))
         driver.execute_script(
             """
@@ -356,7 +368,7 @@ def selecionar_cadastro_similar_se_bater(driver: webdriver.Chrome, nome_email: s
                 botao = linha.find_element(By.XPATH, "./td[1]/button")
                 driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", botao)
                 time.sleep(1)
-                driver.execute_script("arguments[0].click();", botao)
+                click_hits_seguro(driver, botao)
                 log("[EMAIL] Cadastro similar selecionado.")
                 time.sleep(2)
                 return True
@@ -481,6 +493,7 @@ def fazer_login(driver: webdriver.Chrome, wait: WebDriverWait) -> None:
     driver.find_element(By.NAME, "Password").send_keys(required_env("HITS_PASSWORD"))
     clique_forcado('//*[@id="navbar-login"]/section/form/div[1]/div[3]/div/button', driver, wait)
     time.sleep(8)
+    fechar_popups_hits(driver)
 
 
 def navegar_para_reservas(driver: webdriver.Chrome, wait: WebDriverWait) -> None:
@@ -527,7 +540,7 @@ def anexar_no_hits(
                 elemento_tabela = WebDriverWait(driver, 3).until(EC.presence_of_element_located((By.XPATH, xp)))
                 driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", elemento_tabela)
                 time.sleep(1)
-                driver.execute_script("arguments[0].click();", elemento_tabela)
+                click_hits_seguro(driver, elemento_tabela)
                 sucesso_clique = True
                 break
             except Exception:
@@ -584,7 +597,7 @@ def anexar_no_hits(
                     btn_confirmar = WebDriverWait(driver, 5).until(EC.element_to_be_clickable((By.XPATH, xp)))
                     driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", btn_confirmar)
                     time.sleep(1)
-                    driver.execute_script("arguments[0].click();", btn_confirmar)
+                    click_hits_seguro(driver, btn_confirmar)
                     log("[EMAIL] Upload confirmado.")
                     sucesso_confirmar = True
                     break

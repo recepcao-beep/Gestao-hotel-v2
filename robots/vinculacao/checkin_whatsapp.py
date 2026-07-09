@@ -11,6 +11,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 from webdriver_manager.chrome import ChromeDriverManager
+from hits_popup_guard import fechar_popups_hits, click_hits_seguro
 
 
 ID_PLANILHA = os.environ.get("MAPINHA_SHEET_ID", "1oMKFu9aobTP5sBuF0jjSR4In3Z6EcWfATCe_9ijNFXA")
@@ -39,8 +40,13 @@ XPATH_FECHAR_RESERVA = "/html/body/div[3]/div/main/div[8]/div[3]/reservation-edi
 
 
 def js_click(driver, element):
+    fechar_popups_hits(driver)
     driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", element)
-    driver.execute_script("arguments[0].click();", element)
+    try:
+        driver.execute_script("arguments[0].click();", element)
+    except Exception:
+        fechar_popups_hits(driver)
+        click_hits_seguro(driver, element)
 
 
 def texto_elemento(driver, element):
@@ -188,6 +194,7 @@ def navegar_ate_checkins(driver, wait):
     driver.find_element(By.ID, "Password").send_keys(os.environ["HITS_PASSWORD"])
     driver.find_element(By.XPATH, "//button[@type='submit']").click()
     time.sleep(8)
+    fechar_popups_hits(driver)
 
     print("[WHATSAPP] Entrando em Recepcao > Mapa de reservas...", flush=True)
     js_click(driver, wait.until(EC.element_to_be_clickable((By.XPATH, XPATH_MENU))))

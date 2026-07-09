@@ -11,6 +11,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, StaleElementReferenceException
 from speed import configure_fast_sleep
+from hits_popup_guard import fechar_popups_hits, click_hits_seguro
 
 configure_fast_sleep()
 
@@ -55,8 +56,13 @@ def executar_limpeza():
         print("Sem apartamentos protegidos por data hoje.")
 
     def js_click(elemento):
+        fechar_popups_hits(driver)
         driver.execute_script("arguments[0].scrollIntoView({block: 'center', inline: 'center'});", elemento)
-        driver.execute_script("arguments[0].click();", elemento)
+        try:
+            driver.execute_script("arguments[0].click();", elemento)
+        except Exception:
+            fechar_popups_hits(driver)
+            click_hits_seguro(driver, elemento)
 
     def aguardar_overlay_sumir(timeout=15):
         try:
@@ -70,6 +76,7 @@ def executar_limpeza():
         ultimo_erro = None
         for by, valor in localizadores:
             try:
+                fechar_popups_hits(driver)
                 elemento = WebDriverWait(driver, timeout).until(EC.element_to_be_clickable((by, valor)))
                 js_click(elemento)
                 return True
@@ -178,6 +185,7 @@ def executar_limpeza():
         driver.find_element(By.ID, "Password").send_keys(os.environ.get("HITS_PASSWORD", "Edivan@123"))
         driver.find_element(By.XPATH, "//button[@type='submit']").click()
         aguardar_overlay_sumir(timeout=45)
+        fechar_popups_hits(driver)
 
         print("Navegando ate o Mapa...")
         clicar_primeiro_disponivel([(By.XPATH, '//*[@id="menuPrimary"]/a')], timeout=20, descricao="menu principal")
