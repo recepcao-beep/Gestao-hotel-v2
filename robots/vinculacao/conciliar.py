@@ -357,7 +357,9 @@ def carregar_plano(valores: List[List[str]], registros: List[RegistroHits]) -> T
         if acao and acao not in ACOES_VALIDAS:
             raise RuntimeError(f"Acao desconhecida na linha {n}: {acao}")
         if acao in {"REVISAR", "BLOQUEADO"}:
-            raise RuntimeError(f"Plano bloqueado antes da conciliacao: linha {n}, voucher {voucher}, acao {acao}")
+            # REVISAR/BLOQUEADO pode ser sobra da conciliacao anterior.
+            # O conciliar recalcula; quem bloqueia a execucao no HITS e o vinc2.py.
+            acao = ""
         origem = escolher_origem(linha, registros, usados, idx_voucher, idx_hospede, idx_checkin, idx_atual, idx_cat)
         item = ItemPlano(
             idx=len(itens),
