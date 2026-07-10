@@ -646,6 +646,89 @@ def executar_vinculacao_2_0():
         driver.switch_to.default_content()
         esperar_loading_sumir()
 
+    def aplicar_filtro_voucher(voucher):
+        xpath_abrir_filtro = '//*[@id="one-search-filters-container"]/div[2]/span[5]/one-translate'
+        if not focar_quadro_do_elemento(xpath_abrir_filtro, 10):
+            log_dry(f"⚠️ Não encontrei o filtro de voucher para {voucher}.")
+            if DRY_RUN:
+                salvar_screenshot(f"filtro_voucher_nao_encontrado_{voucher}.png")
+            return False
+
+        js_click(driver.find_element(By.XPATH, xpath_abrir_filtro))
+        time.sleep(1)
+
+        input_xpaths = [
+            '//*[@id="one-search-modal-content"]//input',
+            "//div[contains(@class, 'modal') or @id='one-search-modal-content']//input",
+            "//input[@type='text' and not(@disabled)]",
+        ]
+        input_v = None
+        for xpath in input_xpaths:
+            if focar_quadro_do_elemento(xpath, 5):
+                candidatos = driver.find_elements(By.XPATH, xpath)
+                for candidato in candidatos:
+                    try:
+                        if candidato.is_displayed() and candidato.is_enabled():
+                            input_v = candidato
+                            break
+                    except:
+                        continue
+            if input_v:
+                break
+
+        if not input_v:
+            log_dry(f"⚠️ Modal do filtro abriu, mas não encontrei o campo para voucher {voucher}.")
+            if DRY_RUN:
+                salvar_screenshot(f"campo_filtro_voucher_nao_encontrado_{voucher}.png")
+            return False
+
+        js_click(input_v)
+        input_v.send_keys(Keys.CONTROL + "a")
+        input_v.send_keys(Keys.DELETE)
+        input_v.send_keys(voucher)
+        time.sleep(0.5)
+
+        botoes_xpath = [
+            '/html/body/div[1]/div/div/div[4]/button',
+            "//*[@id='one-search-modal-content']/ancestor::div[contains(@class,'modal')][1]//button[not(@disabled)]",
+            "//button[normalize-space(.)='Aplicar' or normalize-space(.)='Confirmar' or normalize-space(.)='Filtrar' or normalize-space(.)='Buscar' or normalize-space(.)='OK']",
+            "//button[.//*[normalize-space(.)='Aplicar' or normalize-space(.)='Confirmar' or normalize-space(.)='Filtrar' or normalize-space(.)='Buscar' or normalize-space(.)='OK']]",
+        ]
+        for xpath in botoes_xpath:
+            try:
+                botoes = driver.find_elements(By.XPATH, xpath)
+                for botao in botoes:
+                    try:
+                        if not botao.is_displayed() or not botao.is_enabled():
+                            continue
+                        texto = (botao.text or "").strip().upper()
+                        classe = botao.get_attribute("class") or ""
+                        if texto in {"CANCELAR", "FECHAR"} or "cancel" in classe.lower():
+                            continue
+                        js_click(botao)
+                        time.sleep(2)
+                        esperar_loading_sumir()
+                        time.sleep(1)
+                        return True
+                    except:
+                        continue
+            except:
+                continue
+
+        try:
+            input_v.send_keys(Keys.ENTER)
+            time.sleep(2)
+            esperar_loading_sumir()
+            time.sleep(1)
+            return True
+        except:
+            pass
+
+        log_dry(f"⚠️ Não consegui confirmar o filtro do voucher {voucher}.")
+        if DRY_RUN:
+            salvar_screenshot(f"confirmar_filtro_voucher_falhou_{voucher}.png")
+        return False
+
     try:
         dados = obter_dados()
         if DRY_RUN:
@@ -685,14 +768,11 @@ def executar_vinculacao_2_0():
             driver.switch_to.default_content()
             esperar_loading_sumir()
             
-            if focar_quadro_do_elemento('//*[@id="one-search-filters-container"]/div[2]/span[5]/one-translate', 10):
-                js_click(driver.find_element(By.XPATH, '//*[@id="one-search-filters-container"]/div[2]/span[5]/one-translate')); time.sleep(1)
-                
-                input_v = driver.find_element(By.XPATH, '//*[@id="one-search-modal-content"]/div/input')
-                js_click(input_v)
-                input_v.send_keys(Keys.CONTROL + "a"); input_v.send_keys(Keys.DELETE); input_v.send_keys(voucher); time.sleep(0.5)
-                js_click(driver.find_element(By.XPATH, '/html/body/div[1]/div/div/div[4]/button'))
-                time.sleep(2); esperar_loading_sumir(); time.sleep(1) 
+            if not aplicar_filtro_voucher(voucher):
+                if DRY_RUN:
+                    log_dry(f"[DRY-RUN] Pulando voucher {voucher} porque o filtro não foi aplicado.")
+                    continue
+                raise RuntimeError(f"Filtro de voucher não aplicado: {voucher}")
             
             aps_necessarios = [d["ap"] for d in lista_aps]
             todos_vinculados_corretamente = True
