@@ -714,7 +714,7 @@ def main() -> int:
     parser.add_argument("--dry-run", action="store_true", help="Calcula e valida sem escrever na planilha.")
     parser.add_argument("--sem-overbooking", action="store_true", help="Bloqueia quando não há solução física.")
     parser.add_argument("--permitir-overbooking", action="store_true", help="Permite marcar OVERBOOKING quando nao houver solucao fisica.")
-    parser.add_argument("--max-seconds", type=float, default=float(os.environ.get("CONCILIACAO_MAX_SECONDS", "90")))
+    parser.add_argument("--max-seconds", type=float, default=float(os.environ.get("CONCILIACAO_MAX_SECONDS", "240")))
     args = parser.parse_args()
 
     cliente = autenticar()

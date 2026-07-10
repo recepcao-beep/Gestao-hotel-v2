@@ -509,6 +509,12 @@ def executar_vinculacao_2_0():
                     acao = "VINCULAR"
 
                 if acao in {"REVISAR", "BLOQUEADO"}:
+                    if DRY_RUN:
+                        print(
+                            f"[DRY-RUN] Pulando linha {numero_linha}, voucher {v_s}, "
+                            f"acao {acao}; dry-run continua nos demais vouchers."
+                        )
+                        continue
                     raise RuntimeError(
                         f"Execução bloqueada antes de abrir o HITS: linha {numero_linha}, "
                         f"voucher {v_s}, ação {acao}."
