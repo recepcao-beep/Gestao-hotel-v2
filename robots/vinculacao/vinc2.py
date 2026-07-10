@@ -729,6 +729,162 @@ def executar_vinculacao_2_0():
             salvar_screenshot(f"confirmar_filtro_voucher_falhou_{voucher}.png")
         return False
 
+    def aplicar_filtro_voucher(voucher):
+        """Aplica o filtro de voucher sem usar a blindagem de pop-up dentro do modal."""
+        def clique_modal_sem_guard(elemento):
+            try:
+                driver.execute_script("arguments[0].scrollIntoView({block: 'center', inline: 'center'});", elemento)
+            except:
+                pass
+            try:
+                elemento.click()
+            except:
+                driver.execute_script("arguments[0].click();", elemento)
+
+        def modal_filtro_aberto():
+            try:
+                return bool(driver.execute_script("""
+                    const el = document.querySelector('#one-search-modal-content');
+                    if (!el) return false;
+                    const r = el.getBoundingClientRect();
+                    return !!(r.width || r.height || el.getClientRects().length);
+                """))
+            except:
+                return False
+
+        def lista_tem_voucher():
+            try:
+                texto = driver.execute_script("return String(document.body ? document.body.innerText || '' : '');")
+                return str(voucher) in texto
+            except:
+                return False
+
+        def aguardar_filtro_confirmado():
+            fim = time.time() + 8
+            while time.time() < fim:
+                esperar_loading_sumir()
+                if lista_tem_voucher() and not modal_filtro_aberto():
+                    return True
+                time.sleep(0.5)
+            return lista_tem_voucher()
+
+        def clicar_botao_modal_por_js():
+            try:
+                return bool(driver.execute_script("""
+                    const visivel = (el) => {
+                      const r = el.getBoundingClientRect();
+                      return !!(r.width || r.height || el.getClientRects().length);
+                    };
+                    const input = document.querySelector('#one-search-modal-content input');
+                    let root = input || document.querySelector('#one-search-modal-content');
+                    for (let i = 0; root && i < 8; i += 1) {
+                      const buttons = Array.from(root.querySelectorAll ? root.querySelectorAll('button') : []);
+                      const candidatos = buttons.filter((btn) => {
+                        const texto = String(btn.innerText || btn.textContent || '').trim().toUpperCase();
+                        const classe = String(btn.className || '').toLowerCase();
+                        return visivel(btn)
+                          && !btn.disabled
+                          && texto !== 'CANCELAR'
+                          && texto !== 'FECHAR'
+                          && !classe.includes('cancel');
+                      });
+                      if (candidatos.length) {
+                        const alvo = candidatos[candidatos.length - 1];
+                        ['mouseover', 'mousedown', 'mouseup', 'click'].forEach((nome) => {
+                          alvo.dispatchEvent(new MouseEvent(nome, { bubbles: true, cancelable: true, view: window }));
+                        });
+                        try { alvo.click(); } catch (e) {}
+                        return true;
+                      }
+                      root = root.parentElement;
+                    }
+                    return false;
+                """))
+            except:
+                return False
+
+        try:
+            xpath_abrir_filtro = '//*[@id="one-search-filters-container"]/div[2]/span[5]/one-translate'
+            if not focar_quadro_do_elemento(xpath_abrir_filtro, 10):
+                log_dry(f"[DRY-RUN] Filtro de voucher nao encontrado: {voucher}")
+                if DRY_RUN:
+                    salvar_screenshot(f"filtro_voucher_nao_encontrado_{voucher}.png")
+                return False
+
+            js_click(driver.find_element(By.XPATH, xpath_abrir_filtro))
+            time.sleep(1)
+
+            input_xpaths = [
+                '//*[@id="one-search-modal-content"]//input',
+                "//div[contains(@class, 'modal') or @id='one-search-modal-content']//input",
+                "//input[@type='text' and not(@disabled)]",
+            ]
+            input_v = None
+            for xpath in input_xpaths:
+                if focar_quadro_do_elemento(xpath, 5):
+                    for candidato in driver.find_elements(By.XPATH, xpath):
+                        try:
+                            if candidato.is_displayed() and candidato.is_enabled():
+                                input_v = candidato
+                                break
+                        except:
+                            continue
+                if input_v:
+                    break
+
+            if not input_v:
+                log_dry(f"[DRY-RUN] Campo do filtro de voucher nao encontrado: {voucher}")
+                if DRY_RUN:
+                    salvar_screenshot(f"campo_filtro_voucher_nao_encontrado_{voucher}.png")
+                return False
+
+            clique_modal_sem_guard(input_v)
+            input_v.send_keys(Keys.CONTROL + "a")
+            input_v.send_keys(Keys.DELETE)
+            input_v.send_keys(voucher)
+            time.sleep(0.5)
+
+            try:
+                input_v.send_keys(Keys.ENTER)
+                if aguardar_filtro_confirmado():
+                    return True
+            except:
+                pass
+
+            if clicar_botao_modal_por_js() and aguardar_filtro_confirmado():
+                return True
+
+            botoes_xpath = [
+                '/html/body/div[1]/div/div/div[4]/button',
+                "//*[@id='one-search-modal-content']/ancestor::*[contains(@class,'modal') or contains(@class,'one')][1]//button[not(@disabled)]",
+                "//button[normalize-space(.)='Aplicar' or normalize-space(.)='Confirmar' or normalize-space(.)='Filtrar' or normalize-space(.)='Buscar' or normalize-space(.)='OK']",
+                "//button[.//*[normalize-space(.)='Aplicar' or normalize-space(.)='Confirmar' or normalize-space(.)='Filtrar' or normalize-space(.)='Buscar' or normalize-space(.)='OK']]",
+            ]
+            for xpath in botoes_xpath:
+                for botao in driver.find_elements(By.XPATH, xpath):
+                    try:
+                        if not botao.is_displayed() or not botao.is_enabled():
+                            continue
+                        texto = (botao.text or "").strip().upper()
+                        classe = botao.get_attribute("class") or ""
+                        if texto in {"CANCELAR", "FECHAR"} or "cancel" in classe.lower():
+                            continue
+                        clique_modal_sem_guard(botao)
+                        if aguardar_filtro_confirmado():
+                            return True
+                    except:
+                        continue
+
+            log_dry(f"[DRY-RUN] Nao consegui confirmar o filtro do voucher {voucher}.")
+            if DRY_RUN:
+                salvar_screenshot(f"confirmar_filtro_voucher_falhou_{voucher}.png")
+            return False
+        except Exception as erro:
+            log_dry(f"[DRY-RUN] Erro controlado ao aplicar filtro do voucher {voucher}: {erro}")
+            if DRY_RUN:
+                salvar_screenshot(f"erro_filtro_voucher_{voucher}.png")
+            return False
+
     try:
         dados = obter_dados()
         if DRY_RUN:
