@@ -11,6 +11,9 @@ on:
         type: choice
         options:
           - verificacao_diaria
+          - verificacao_diaria_conciliada
+          - conciliacao_dry_run
+          - vinc2_dry_run
           - vinculacao_semanal
           - mapa
           - checkin_whatsapp

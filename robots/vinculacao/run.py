@@ -7,6 +7,9 @@ from pathlib import Path
 
 ROTINAS = {
     "verificacao_diaria": ["mr.py", "obs.py", "vinc2.py"],
+    "verificacao_diaria_conciliada": ["mr.py", "obs.py", "conciliar.py", "vinc2.py", "mr.py"],
+    "conciliacao_dry_run": ["conciliar.py --dry-run"],
+    "vinc2_dry_run": ["vinc2.py --dry-run"],
     "vinculacao_semanal": ["limpeza.py", "mr.py", "obs.py", "vinc2.py"],
     "mapa": ["mapa.py"],
     "checkin_whatsapp": ["checkin_whatsapp.py"],
@@ -32,7 +35,8 @@ def exigir_variaveis() -> None:
 
 def executar(script: str, base_dir: Path) -> None:
     print(f"\n=== Executando {script} ===", flush=True)
-    subprocess.run([sys.executable, script], cwd=base_dir, check=True)
+    partes = script.split()
+    subprocess.run([sys.executable, *partes], cwd=base_dir, check=True)
 
 
 def main() -> None:

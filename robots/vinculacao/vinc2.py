@@ -2,6 +2,9 @@ import os
 import re
 import time
 import hashlib
+import sys
+from datetime import datetime
+from pathlib import Path
 import gspread
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -16,6 +19,11 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.keys import Keys
 from speed import configure_fast_sleep
+try:
+    from hits_popup_guard import fechar_popups_hits, click_hits_seguro
+except Exception:
+    fechar_popups_hits = None
+    click_hits_seguro = None
 
 configure_fast_sleep()
 
@@ -23,6 +31,15 @@ def executar_vinculacao_2_0():
     # --- CONFIGURAÇÕES ---
     ID_PLANILHA = "1oMKFu9aobTP5sBuF0jjSR4In3Z6EcWfATCe_9ijNFXA"
     NOME_ABA = "VINCULACAO_HOJE"
+    DRY_RUN = (
+        "--dry-run" in sys.argv[1:]
+        or os.environ.get("VINC2_DRY_RUN", "0") == "1"
+        or os.environ.get("VINCULACAO_DRY_RUN", "0") == "1"
+    )
+    MAX_OPERACOES = int(os.environ.get("VINC2_MAX_OPERACOES", "30"))
+    artifacts_dir = Path(__file__).resolve().parent / "artifacts" / "conciliacao"
+    artifacts_dir.mkdir(parents=True, exist_ok=True)
+    relatorio_dry_run = artifacts_dir / "relatorio_dry_run.txt"
     
     URL_HITS = "https://susceptor.apphotel.one/account/login?returnUrl=%2Fconnect%2Fauthorize%2Flogin%3F" \
                "response_type%3Did_token%2520token%26client_id%3DB37748FC-ED13-4858-AE26-28AB3512A171%26" \
@@ -51,11 +68,33 @@ def executar_vinculacao_2_0():
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
     wait = WebDriverWait(driver, 15)
 
+    def log_dry(mensagem):
+        print(mensagem)
+        if DRY_RUN:
+            with open(relatorio_dry_run, "a", encoding="utf-8") as arquivo:
+                arquivo.write(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} {mensagem}\n")
+
+    def salvar_screenshot(nome):
+        caminho = artifacts_dir / nome
+        try:
+            driver.save_screenshot(str(caminho))
+            log_dry(f"📸 Screenshot salvo: {caminho}")
+        except Exception as erro:
+            log_dry(f"⚠️ Falha ao salvar screenshot {nome}: {erro}")
+
     def js_click(elemento):
-        driver.execute_script("arguments[0].click();", elemento)
+        if fechar_popups_hits:
+            fechar_popups_hits(driver)
+        if click_hits_seguro:
+            click_hits_seguro(driver, elemento)
+        else:
+            driver.execute_script("arguments[0].click();", elemento)
 
     def fechar_popup_hits():
         """Fecha o pop-up pós-login do HITS e remove o backdrop que bloqueia cliques."""
+        if fechar_popups_hits:
+            fechar_popups_hits(driver)
+            return
         driver.switch_to.default_content()
         def remover_comunicado_visivel():
             try:
@@ -419,7 +458,7 @@ def executar_vinculacao_2_0():
         return False
 
     def obter_dados():
-        print("📡 Lendo 'VINCULACAO_HOJE' (Voucher, Apartamento, Categoria) via OAuth...")
+        print("📡 Lendo 'VINCULACAO_HOJE' via OAuth...")
         escopos = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
         creds = None
         
@@ -443,19 +482,58 @@ def executar_vinculacao_2_0():
         cliente = gspread.authorize(creds)
         aba = cliente.open_by_key(ID_PLANILHA).worksheet(NOME_ABA)
 
+        def normalizar_cabecalho(texto):
+            texto = str(texto or "").strip().upper()
+            texto = re.sub(r"[^A-Z0-9]+", "_", texto)
+            return texto.strip("_")
+
         def montar_agrupados(linhas):
             agrupados = {}
 
-            for linha in linhas:
-                if len(linha) >= 3:
-                    v_s = str(linha[0]).strip()
-                    a_s = str(linha[1]).strip()
-                    c_s = str(linha[2]).strip().upper()
+            for numero_linha, linha in enumerate(linhas, start=2):
+                if len(linha) < 3:
+                    continue
+                if numero_linha == 2 and normalizar_cabecalho(linha[0]) in {"VOUCHER", "VOUCHER_CONTA"}:
+                    continue
 
-                    if v_s and a_s and c_s:
-                        if v_s not in agrupados:
-                            agrupados[v_s] = []
-                        agrupados[v_s].append({"ap": a_s, "cat": c_s})
+                v_s = str(linha[0]).strip()
+                a_s = str(linha[1]).strip()
+                c_s = str(linha[2]).strip().upper()
+                hospede = str(linha[3]).strip() if len(linha) > 3 else ""
+                checkin = str(linha[4]).strip() if len(linha) > 4 else ""
+                status_extra = str(linha[5]).strip() if len(linha) > 5 else ""
+                resumo = str(linha[6]).strip() if len(linha) > 6 else ""
+                atual = str(linha[7]).strip() if len(linha) > 7 else ""
+                acao = str(linha[8]).strip().upper() if len(linha) > 8 else ""
+                if not acao:
+                    acao = "VINCULAR"
+
+                if acao in {"REVISAR", "BLOQUEADO"}:
+                    raise RuntimeError(
+                        f"Execução bloqueada antes de abrir o HITS: linha {numero_linha}, "
+                        f"voucher {v_s}, ação {acao}."
+                    )
+                if acao == "MANTER":
+                    continue
+                if acao == "TROCAR" and not atual:
+                    raise RuntimeError(f"Linha {numero_linha}: TROCAR sem apartamento atual.")
+                if acao not in {"TROCAR", "VINCULAR", "OVERBOOKING"}:
+                    raise RuntimeError(f"Linha {numero_linha}: ação desconhecida/indefinida: {acao}")
+
+                if v_s and a_s and c_s:
+                    if v_s not in agrupados:
+                        agrupados[v_s] = []
+                    agrupados[v_s].append({
+                        "ap": a_s,
+                        "cat": c_s,
+                        "acao": acao,
+                        "atual": atual,
+                        "linha": numero_linha,
+                        "hospede": hospede,
+                        "checkin": checkin,
+                        "status_extra": status_extra,
+                        "resumo": resumo,
+                    })
 
             return agrupados
 
@@ -463,7 +541,7 @@ def executar_vinculacao_2_0():
             partes = []
             for voucher in sorted(agrupados.keys()):
                 for item in agrupados[voucher]:
-                    partes.append(f"{voucher}:{item['ap']}:{item['cat']}")
+                    partes.append(f"{voucher}:{item['ap']}:{item['cat']}:{item.get('acao','')}:{item.get('atual','')}")
             texto = "|".join(partes)
             return hashlib.sha1(texto.encode("utf-8")).hexdigest()[:12]
 
@@ -487,7 +565,7 @@ def executar_vinculacao_2_0():
                 print(f"   Primeiros vouchers lidos: {primeiros_vouchers}")
 
             if assinatura_anterior == assinatura:
-                print("✅ Aba VINCULACAO_HOJE estabilizada em duas leituras consecutivas. Iniciando vinculação.")
+                print("✅ Aba VINCULACAO_HOJE estabilizada em duas leituras consecutivas.")
                 return agrupados
 
             if assinatura_anterior is not None:
@@ -502,8 +580,81 @@ def executar_vinculacao_2_0():
         print("⚠️ A aba VINCULACAO_HOJE não estabilizou dentro do tempo. Seguindo com a última leitura disponível.")
         return agrupados_anterior
 
+    def ler_apartamento_marcado_no_modal():
+        candidatos = []
+        xpaths = [
+            "//modal-reservation-edit-select-update-grouped-rooms//button[contains(@class,'btn-success') or contains(@class,'active') or .//*[contains(@class,'fa-check') or contains(@class,'check')]]",
+            "//modal-reservation-edit-select-update-grouped-rooms//*[contains(@class,'btn-success') or contains(@class,'active') or .//*[contains(@class,'fa-check') or contains(@class,'check')]]",
+            "//button[contains(@class,'btn-success') or .//*[contains(@class,'fa-check') or contains(@class,'check')]]",
+        ]
+        for xpath in xpaths:
+            for elemento in driver.find_elements(By.XPATH, xpath):
+                try:
+                    if not elemento.is_displayed():
+                        continue
+                    texto = elemento.text.strip()
+                    match = re.search(r"\b(\d{3,4})\b", texto)
+                    if match:
+                        candidatos.append(match.group(1))
+                except:
+                    continue
+        return candidatos[0] if candidatos else ""
+
+    def dry_run_inspecionar_quarto(voucher, indice, item, botao_cama):
+        ap_alvo = item["ap"]
+        cat_alvo = item["cat"]
+        acao = item.get("acao", "")
+        atual_planilha = item.get("atual", "")
+        linha = item.get("linha", "?")
+        cat_bloco_atual = obter_categoria_bloco(indice)
+
+        log_dry(
+            f"[DRY-RUN] Voucher {voucher} linha {linha} quarto {indice + 1}: "
+            f"ação={acao}, planilha atual={atual_planilha or '-'}, destino={ap_alvo}, "
+            f"cat planilha={cat_alvo}, cat HITS={cat_bloco_atual or '-'}"
+        )
+
+        try:
+            js_click(botao_cama)
+            focar_quadro_do_elemento("//modal-reservation-edit-select-update-grouped-rooms", 8)
+            time.sleep(1)
+            atual_hits = ler_apartamento_marcado_no_modal()
+        except Exception as erro:
+            atual_hits = ""
+            log_dry(f"[DRY-RUN] Falha ao abrir/ler modal do quarto {indice + 1}: {erro}")
+
+        divergencias = []
+        if atual_planilha and atual_hits and atual_hits != atual_planilha:
+            divergencias.append(f"HITS={atual_hits}, planilha H={atual_planilha}")
+        if cat_bloco_atual and cat_alvo and cat_bloco_atual != cat_alvo and acao != "OVERBOOKING":
+            divergencias.append(f"categoria HITS={cat_bloco_atual}, planilha C={cat_alvo}")
+        if acao == "TROCAR" and atual_hits and atual_hits == ap_alvo:
+            divergencias.append("ação TROCAR, mas o HITS já está no apartamento destino")
+        if acao == "VINCULAR" and atual_hits:
+            divergencias.append(f"ação VINCULAR, mas o HITS já mostra apartamento {atual_hits}")
+
+        if divergencias:
+            log_dry(f"[DRY-RUN] DIVERGÊNCIA voucher {voucher}: " + " | ".join(divergencias))
+            salvar_screenshot(f"divergencia_{voucher}_linha_{linha}.png")
+        else:
+            log_dry(
+                f"[DRY-RUN] OK voucher {voucher}: faria {acao} "
+                f"{atual_hits or atual_planilha or '-'} -> {ap_alvo}."
+            )
+
+        fechar_modal_selecao_apartamento()
+        driver.switch_to.default_content()
+        esperar_loading_sumir()
+
     try:
         dados = obter_dados()
+        if DRY_RUN:
+            with open(relatorio_dry_run, "w", encoding="utf-8") as arquivo:
+                arquivo.write("DRY-RUN VISUAL VINC2 - nenhuma confirmação será clicada\n")
+            log_dry(f"[DRY-RUN] {len(dados)} voucher(s) carregados para inspeção visual.")
+        if not dados:
+            print("Nenhum voucher acionável encontrado na VINCULACAO_HOJE.")
+            return
         driver.get(URL_HITS)
         wait.until(EC.visibility_of_element_located((By.ID, "Email"))).send_keys(os.environ["HITS_EMAIL"])
         driver.find_element(By.ID, "Password").send_keys(os.environ["HITS_PASSWORD"])
@@ -524,7 +675,11 @@ def executar_vinculacao_2_0():
             time.sleep(1)
             esperar_loading_sumir()
 
+        operacoes_dry = 0
         for voucher, lista_aps in dados.items():
+            if DRY_RUN and operacoes_dry >= MAX_OPERACOES:
+                log_dry(f"[DRY-RUN] Limite VINC2_MAX_OPERACOES={MAX_OPERACOES} atingido. Encerrando inspeção.")
+                break
             fechar_popup_hits()
             print(f"\n🚀 VOUCHER: {voucher} | Requisições na planilha: {len(lista_aps)}")
             driver.switch_to.default_content()
@@ -550,10 +705,19 @@ def executar_vinculacao_2_0():
                     break
 
             if todos_vinculados_corretamente:
-                print(f"✨ Todos os apartamentos ({aps_necessarios}) já estão perfeitamente vinculados! Pulando voucher...")
-                continue
+                if DRY_RUN:
+                    log_dry(
+                        f"[DRY-RUN] A lista já mostra {aps_necessarios} no voucher {voucher}; "
+                        "abrindo a reserva mesmo assim para conferência visual."
+                    )
+                else:
+                    print(f"✨ Todos os apartamentos ({aps_necessarios}) já estão perfeitamente vinculados! Pulando voucher...")
+                    continue
 
-            print("⚠️ Algum apartamento faltando ou errado. Abrindo reserva para correção...")
+            if DRY_RUN:
+                print("🔎 Abrindo reserva para conferência visual em dry-run...")
+            else:
+                print("⚠️ Algum apartamento faltando ou errado. Abrindo reserva para correção...")
             
             xpath_lapis = "(//div[contains(@class, 'ui-grid-row')]//div[contains(@class, 'ui-grid-cell')]//a)[1]"
             if focar_quadro_do_elemento(xpath_lapis, 20):
@@ -570,8 +734,11 @@ def executar_vinculacao_2_0():
                 print(f"🏨 Status da Reserva: Contém {qtd_quartos_reserva} quarto(s). Validando com os {len(lista_aps)} requeridos na planilha...")
 
                 for i, dados_alvo in enumerate(lista_aps):
+                    if DRY_RUN and operacoes_dry >= MAX_OPERACOES:
+                        break
                     ap_alvo = dados_alvo["ap"]
                     cat_alvo = dados_alvo["cat"]
+                    acao_alvo = dados_alvo.get("acao", "VINCULAR")
                     
                     print(f"\n🔄 Processando Quarto {i+1} -> Destino: {ap_alvo} (Cat: {cat_alvo})")
                     
@@ -584,6 +751,11 @@ def executar_vinculacao_2_0():
                     
                     if btn_c.get_attribute("disabled") or "disabled" in (btn_c.get_attribute("class") or ""):
                         print(f"🔒 Cama {i+1} bloqueada (Provável Check-in realizado). Pulando...")
+                        continue
+
+                    if DRY_RUN:
+                        operacoes_dry += 1
+                        dry_run_inspecionar_quarto(voucher, i, dados_alvo, btn_c)
                         continue
 
                     cat_bloco_atual = obter_categoria_bloco(i)
@@ -639,10 +811,20 @@ def executar_vinculacao_2_0():
                         time.sleep(1.5)
                         continue
 
-                    if cat_bloco_atual and cat_bloco_atual == cat_alvo:
+                    if acao_alvo != "OVERBOOKING" and cat_bloco_atual and cat_bloco_atual == cat_alvo:
                         print(
                             f"🛑 Overbooking bloqueado: bloco {i+1} já é da categoria {cat_bloco_atual}, "
                             f"igual à planilha ({cat_alvo}). O AP {ap_alvo} deveria estar no pop-up normal."
+                        )
+                        fechar_modal_selecao_apartamento()
+                        driver.switch_to.default_content()
+                        esperar_loading_sumir()
+                        continue
+
+                    if acao_alvo != "OVERBOOKING":
+                        print(
+                            f"🛑 AP {ap_alvo} não encontrado e ação da planilha é {acao_alvo}. "
+                            "Overbooking só é permitido quando a coluna I estiver como OVERBOOKING."
                         )
                         fechar_modal_selecao_apartamento()
                         driver.switch_to.default_content()
