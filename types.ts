@@ -125,6 +125,7 @@ export interface Employee {
   status: 'Ativo' | 'Inativo';
   scheduleType: '6x1' | '12x36' | 'Intermitente';
   shiftType?: 'Par' | 'Ímpar';
+  shiftPeriod?: 'MANHA' | 'TARDE' | 'MADRUGADA';
   workingHours: string;
   fixedDayOff: string;
   sundayOffs: number[];

@@ -421,18 +421,77 @@ function summarizeMimoObservation(text: string) {
     normalized.includes('luademel') ||
     normalized.includes('recem casad')
   ) {
-    return 'MIMO CASAMENTO/LUA DE MEL';
+    return 'MIMO LUA DE MEL';
   }
-
-  if (normalized.includes('adulto')) return 'MIMO ADULTO';
 
   return 'MIMO';
 }
 
-function formatObservationRequest(text: string, sector: 'restaurante' | 'governanca' | 'recepcao') {
+function formatGovernancaObservation(text: string) {
+  const normalized = normalizeSheetText(text);
+  const items: string[] = [];
+  const add = (label: string) => {
+    if (!items.includes(label)) items.push(label);
+  };
+
+  if (normalized.includes('romantic')) add('ARRUMACAO ROMANTICA');
+  if (normalized.includes('berco') && normalized.includes('colchao')) add('BERCO E COLCHAO');
+  else if (normalized.includes('berco')) add('BERCO');
+  else if (normalized.includes('colchao')) add('COLCHAO');
+  if (normalized.includes('banheira')) add('BANHEIRA');
+  if (normalized.includes('grade')) add('GRADE DE CAMA');
+  if (normalized.includes('duas camas de casal') || normalized.includes('2 camas de casal')) add('DUAS CAMAS DE CASAL');
+  else if (normalized.includes('cama de casal') || normalized.includes('cama casal')) add('CAMA DE CASAL');
+  if (
+    normalized.includes('meio dia') ||
+    normalized.includes('meio-dia') ||
+    normalized.includes('12:00') ||
+    normalized.includes('12h')
+  ) add('ENTRARA MEIO-DIA');
+  else if (
+    normalized.includes('entrada antecipada') ||
+    normalized.includes('check-in antecipado') ||
+    normalized.includes('checkin antecipado') ||
+    normalized.includes('early check')
+  ) add('ENTRADA ANTECIPADA');
+
+  return items.join(' | ');
+}
+
+function formatRecepcaoObservation(text: string, linkedVoucher = '') {
+  const normalized = normalizeSheetText(text);
+  const items: string[] = [];
+  const add = (label: string) => {
+    if (!items.includes(label)) items.push(label);
+  };
+
+  if (linkedVoucher) add(`MANTER PROXIMO AO VOUCHER ${linkedVoucher}`);
+  if (normalized.includes('recepcao')) add('MANTER ANDAR DA RECEPCAO');
+  if (normalized.includes('copinha')) add('MANTER ANDAR DA COPINHA');
+  if (normalized.includes('mesmo andar')) add('MANTER MESMO ANDAR');
+  if (normalized.includes('grupo')) add('GRUPO: MANTER APTOS PROXIMOS');
+  if (
+    items.length === 0 &&
+    (normalized.includes('proxim') || normalized.includes('perto') || normalized.includes('junto') || normalized.includes('lado a lado'))
+  ) add('MANTER PROXIMO');
+
+  return items.join(' | ');
+}
+
+function formatObservationRequest(text: string, sector: 'restaurante' | 'governanca' | 'recepcao', linkedVoucher = '') {
   if (sector === 'restaurante') {
     const mimo = summarizeMimoObservation(text);
     if (mimo) return mimo;
+  }
+
+  if (sector === 'governanca') {
+    const governanca = formatGovernancaObservation(text);
+    if (governanca) return governanca;
+  }
+
+  if (sector === 'recepcao') {
+    const recepcao = formatRecepcaoObservation(text, linkedVoucher);
+    if (recepcao) return recepcao;
   }
 
   const parts = uniqueObservationParts(text);
@@ -660,13 +719,15 @@ app.get('/api/robots/observacoes', async (req, res) => {
       if (!voucher || !request) return;
 
       const sector = classifyObservation(request);
+      const formattedRequest = formatObservationRequest(request, sector, linkedVoucher);
+      if (!formattedRequest) return;
       const item = {
         date,
         voucher,
         apartment: apartmentByVoucher.get(voucher) || '',
         floor,
         linkedVoucher,
-        request: formatObservationRequest(request, sector),
+        request: formattedRequest,
       };
       sections[sector].push(item);
     });

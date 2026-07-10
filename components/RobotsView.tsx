@@ -219,8 +219,11 @@ const isSpecialHousekeeping = (text: string) => {
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase();
-  return normalized.includes('arrumacao especial') || normalized.includes('entrada antecipada') || normalized.includes('check-in antecipado') || normalized.includes('checkin antecipado');
+  return normalized.includes('arrumacao romantica') || normalized.includes('arrumacao romant');
 };
+
+const formatObservationLine = (item: ObservacaoItem) =>
+  `${item.voucher || 'sem voucher'} - ${item.apartment || 'sem apto'} - ${item.request}`;
 
 const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
   const lastStatusKeyRef = useRef('');
@@ -255,6 +258,7 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
   const [laundrySearch, setLaundrySearch] = useState('');
   const [laundryCart, setLaundryCart] = useState<{ id: string; name: string; price: number; quantity: number }[]>([]);
   const [laundryUrgent, setLaundryUrgent] = useState(false);
+  const [dismissedRomanticAlertKey, setDismissedRomanticAlertKey] = useState('');
   const lastNotificationKeyRef = useRef('');
 
   const addRobotLog = useCallback((text: string, tone: RobotLogEntry['tone'] = 'info') => {
@@ -539,18 +543,22 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
   };
 
   const currentSectionItems = observacoes?.sections?.[activeObservacao]?.items || [];
+  const allObservationItems = (Object.values(observacoes?.sections || {}) as ObservacaoSection[])
+    .flatMap((section) => section.items);
   const availableDates = Array.from(new Set(
-    (Object.values(observacoes?.sections || {}) as ObservacaoSection[])
-      .flatMap((section) => section.items.map((item) => item.date).filter(Boolean))
+    allObservationItems.map((item) => item.date).filter(Boolean)
   ));
   const filteredObservationItems = currentSectionItems.filter((item) => {
     if (!selectedDate) return true;
     return dateToIso(item.date) === selectedDate;
   });
   const filteredObservationText = filteredObservationItems
-    .map((item) => `${item.voucher || 'sem voucher'} - ${item.apartment || 'sem apto'} - ${item.request}`)
+    .map(formatObservationLine)
     .join('\n');
-  const specialHousekeepingItems = filteredObservationItems.filter((item) => isSpecialHousekeeping(item.request));
+  const specialHousekeepingItems = allObservationItems
+    .filter((item) => !selectedDate || dateToIso(item.date) === selectedDate)
+    .filter((item) => isSpecialHousekeeping(item.request));
+  const romanticAlertKey = specialHousekeepingItems.map((item) => `${item.date}-${item.voucher}-${item.apartment}-${item.request}`).join('|');
 
   useEffect(() => {
     if (!notificationsEnabled || !('Notification' in window) || Notification.permission !== 'granted') return;
@@ -558,8 +566,8 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
     const key = specialHousekeepingItems.map((item) => `${item.voucher}-${item.apartment}-${item.request}`).join('|');
     if (lastNotificationKeyRef.current === key) return;
     lastNotificationKeyRef.current = key;
-    new Notification('Alerta de Governanca', {
-      body: `${specialHousekeepingItems.length} solicitacao(oes) em destaque na Governanca.`,
+    new Notification('Arrumacao romantica', {
+      body: specialHousekeepingItems.map((item) => `${item.date || 'sem data'} - ${item.apartment || 'sem apto'} - ${item.voucher}`).join('\n'),
     });
   }, [notificationsEnabled, specialHousekeepingItems]);
 
@@ -1061,12 +1069,12 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
               <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-xs font-black text-amber-800">
                 <div className="flex items-center gap-2">
                   <AlertTriangle size={16} />
-                  <span>Arrumacao especial em destaque</span>
+                  <span>Arrumacao romantica em destaque</span>
                 </div>
                 <div className="mt-2 space-y-1 font-bold">
                   {specialHousekeepingItems.map((item) => (
                     <div key={`${item.voucher}-${item.apartment}-${item.request}`}>
-                      {item.voucher} - {item.apartment || 'sem apto'} - {item.request}
+                      {item.date} - {formatObservationLine(item)}
                     </div>
                   ))}
                 </div>
@@ -1124,12 +1132,34 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
               </div>
             </div>
 
-            <textarea
-              readOnly
-              value={filteredObservationText}
-              className="w-full min-h-[260px] resize-y rounded-lg border border-slate-200 bg-slate-50 p-3 font-mono text-xs font-bold text-slate-800 outline-none focus:border-slate-300"
-              placeholder="Sem observações para este setor."
-            />
+            <div className="rounded-lg border border-slate-200 bg-slate-50 overflow-hidden">
+              {filteredObservationItems.length > 0 ? (
+                <div className="divide-y divide-slate-200">
+                  {filteredObservationItems.map((item) => (
+                    <div
+                      key={`${item.date}-${item.voucher}-${item.apartment}-${item.request}`}
+                      className="grid grid-cols-1 md:grid-cols-[92px_96px_1fr] gap-2 md:gap-3 px-3 py-3 bg-white/70 text-xs font-bold text-slate-800"
+                    >
+                      <div className="flex md:block items-center gap-2">
+                        <span className="md:hidden text-[9px] font-black uppercase text-slate-400">Voucher</span>
+                        <span className="font-black text-slate-900">{item.voucher || '-'}</span>
+                      </div>
+                      <div className="flex md:block items-center gap-2">
+                        <span className="md:hidden text-[9px] font-black uppercase text-slate-400">Apto</span>
+                        <span className="font-black text-slate-700">{item.apartment || 'sem apto'}</span>
+                      </div>
+                      <div className="uppercase tracking-wide text-slate-700">
+                        {item.request}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="px-4 py-12 text-center text-xs font-bold text-slate-400">
+                  Sem observacoes para este setor.
+                </div>
+              )}
+            </div>
 
             {availableDates.length > 0 && (
               <div className="flex flex-wrap gap-2">
@@ -1158,6 +1188,33 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
           </div>
         </div>
       </div>
+      )}
+
+      {activeReceptionTab === 'observacoes' && romanticAlertKey && dismissedRomanticAlertKey !== romanticAlertKey && (
+        <div className="fixed bottom-4 right-4 z-[450] w-[calc(100%-2rem)] max-w-sm rounded-2xl border border-amber-200 bg-amber-50 shadow-2xl p-4 animate-in slide-in-from-bottom-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
+                <AlertTriangle size={20} />
+              </div>
+              <div>
+                <p className="text-xs font-black uppercase text-amber-900 tracking-widest">Arrumacao romantica</p>
+                <div className="mt-1 space-y-1 text-xs font-bold text-amber-800">
+                  {specialHousekeepingItems.slice(0, 3).map((item) => (
+                    <p key={`${item.date}-${item.voucher}-${item.apartment}`}>{item.date} - apto {item.apartment || 'sem apto'} - voucher {item.voucher}</p>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <button
+              onClick={() => setDismissedRomanticAlertKey(romanticAlertKey)}
+              className="p-1 rounded-lg text-amber-700 hover:bg-amber-100"
+              title="Fechar alerta"
+            >
+              <X size={16} />
+            </button>
+          </div>
+        </div>
       )}
 
       {activeReceptionTab === 'lavanderia' && (

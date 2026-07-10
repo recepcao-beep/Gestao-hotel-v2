@@ -156,6 +156,24 @@ const safeGetTime = (val: any) => {
   return Date.now() + Math.floor(Math.random() * 1000);
 };
 
+const normalizeShiftPeriod = (value: any, workingHours?: string): Employee['shiftPeriod'] => {
+  const normalized = String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase();
+  if (normalized.includes('MADRUGADA') || normalized.includes('NOITE')) return 'MADRUGADA';
+  if (normalized.includes('TARDE')) return 'TARDE';
+  if (normalized.includes('MANHA')) return 'MANHA';
+
+  const hourMatch = String(workingHours || '').match(/(\d{1,2})\s*:/);
+  const hour = hourMatch ? Number(hourMatch[1]) : NaN;
+  if (Number.isFinite(hour)) {
+    if (hour < 6 || hour >= 22) return 'MADRUGADA';
+    if (hour >= 12) return 'TARDE';
+  }
+  return 'MANHA';
+};
+
 const App: React.FC = () => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
@@ -322,7 +340,7 @@ const App: React.FC = () => {
           return {
             ...emp,
             id: emp.id?.toString() || `emp-${Date.now()}-${idx}-${Math.random().toString(36).substr(2, 5)}`,
-            name: emp.name || 'Sem Nome',
+            name: (emp.name || 'Sem Nome').toString().toUpperCase(),
             gender: (emp.gender?.toUpperCase() === 'F' || emp.gender?.toUpperCase() === 'FEMININO') ? 'F' : 'M',
             role: emp.role || '',
             fixedDayOff: emp.fixedDayOff || 'Segunda-feira',
@@ -330,6 +348,7 @@ const App: React.FC = () => {
             sectorId: emp.sectorId?.toString() || '',
             salary: parseFloat(emp.salary) || 0,
             uniforms: safeJSONParse(emp.uniforms, []),
+            shiftPeriod: normalizeShiftPeriod(emp.shiftPeriod || emp.turno, emp.workingHours),
             photo: emp.photo || '' // Normalized photo field
           };
         }));
@@ -339,7 +358,7 @@ const App: React.FC = () => {
         const normalizedExtras = dedupe(rawExtras.map((ext: any, idx: number) => ({
           ...ext,
           id: ext.id?.toString() || `extra-${Date.now()}-${idx}-${Math.random().toString(36).substr(2, 5)}`,
-          name: ext.name || '',
+          name: (ext.name || '').toString().toUpperCase(),
           phone: ext.phone || '',
           availability: safeJSONParse(ext.availability, []),
           serviceQuality: parseFloat(ext.serviceQuality) || 0,

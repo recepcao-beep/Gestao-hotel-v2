@@ -5,6 +5,7 @@ import * as pdfjsLib from 'pdfjs-dist';
 import pdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import { Employee, Sector, HotelTheme, UniformItem, ExtraLabor, InventoryOperation } from '../types';
 import { compressImage } from '../utils/imageUtils';
+import Logo from './Logo';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
 
@@ -35,8 +36,14 @@ import {
   List,
   AlertCircle,
   ShoppingCart,
-  Upload
+  Upload,
+  Sun,
+  Sunset,
+  Moon
 } from 'lucide-react';
+
+type ShiftPeriod = 'MANHA' | 'TARDE' | 'MADRUGADA';
+type ShiftPeriodFilter = 'TODOS' | ShiftPeriod;
 
 interface EmployeesViewProps {
   employees: Employee[];
@@ -87,7 +94,9 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
   const [newSectorUniformRole, setNewSectorUniformRole] = useState('');
 
   const [searchTerm, setSearchTerm] = useState('');
+  const [shiftPeriodFilter, setShiftPeriodFilter] = useState<ShiftPeriodFilter>('TODOS');
   const [viewMode, setViewMode] = useState<'LIST' | 'SCALE' | 'TODAY' | 'EXTRAS' | 'ORDERS' | 'WEEKLY_SCALE'>('LIST');
+  const [scaleView, setScaleView] = useState<'YEAR' | 'MONTH'>('YEAR');
   const [activeFormTab, setActiveFormTab] = useState<'DADOS' | 'ESCALA' | 'UNIFORMES'>('DADOS');
   const [selectedBadge, setSelectedBadge] = useState<Employee | null>(null);
   const [viewingHistoryEmployee, setViewingHistoryEmployee] = useState<Employee | null>(null);
@@ -285,6 +294,7 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
   const [salary, setSalary] = useState('');
   const [scheduleType, setScheduleType] = useState<'6x1' | '12x36' | 'Intermitente'>('6x1');
   const [shiftType, setShiftType] = useState<'Par' | 'Ímpar'>('Par');
+  const [shiftPeriod, setShiftPeriod] = useState<ShiftPeriod>('MANHA');
   const [workingHours, setWorkingHours] = useState('08:00 - 16:20');
   const [fixedDayOff, setFixedDayOff] = useState('Segunda-feira');
   const [sundayOffs, setSundayOffs] = useState<number[]>([]);
@@ -312,6 +322,11 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
   const weekdaysFull = ['DOMINGO', 'SEGUNDA-FEIRA', 'TERCA-FEIRA', 'QUARTA-FEIRA', 'QUINTA-FEIRA', 'SEXTA-FEIRA', 'SABADO'];
   const weekdaysShort = ['DOM', 'SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SAB'];
   const monthCircleLabels = ['jan.', 'fev.', 'mar.', 'abr.', 'mai.', 'jun.', 'jul.', 'ago.', 'set.', 'out.', 'nov.', 'dez.'];
+  const shiftPeriodOptions: { value: ShiftPeriod; label: string; Icon: React.ElementType }[] = [
+    { value: 'MANHA', label: 'Manha', Icon: Sun },
+    { value: 'TARDE', label: 'Tarde', Icon: Sunset },
+    { value: 'MADRUGADA', label: 'Madrugada', Icon: Moon },
+  ];
 
   const normalizeWeekday = (value?: string) => String(value || '')
     .normalize('NFD')
@@ -323,6 +338,63 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
     .replace(/^QUINTA$/, 'QUINTA-FEIRA')
     .replace(/^SEXTA$/, 'SEXTA-FEIRA')
     .replace(/^SABADO$/, 'SABADO');
+
+  const getEmployeeShiftPeriod = (emp: Employee): ShiftPeriod => {
+    const value = (emp.shiftPeriod || '').toString().toUpperCase();
+    if (value === 'TARDE' || value === 'MADRUGADA' || value === 'MANHA') return value as ShiftPeriod;
+    const hourMatch = String(emp.workingHours || '').match(/(\d{1,2})\s*:/);
+    const hour = hourMatch ? Number(hourMatch[1]) : NaN;
+    if (Number.isFinite(hour)) {
+      if (hour < 6 || hour >= 22) return 'MADRUGADA';
+      if (hour >= 12) return 'TARDE';
+    }
+    return 'MANHA';
+  };
+
+  const getShiftPeriodMeta = (value: ShiftPeriod) =>
+    shiftPeriodOptions.find(option => option.value === value) || shiftPeriodOptions[0];
+
+  const parseLocalDate = (value?: string, endOfDay = false) => {
+    if (!value) return null;
+    const date = new Date(`${value}T${endOfDay ? '23:59:59' : '00:00:00'}`);
+    return Number.isNaN(date.getTime()) ? null : date;
+  };
+
+  const isVacationRegistered = (emp: Employee) => Boolean(emp.vacationStatus && emp.vacationStatus !== 'Pendente');
+
+  const getVacationDaysInMonth = (emp: Employee, year: number, month: number) => {
+    if (!isVacationRegistered(emp) || !emp.vacationStart || !emp.vacationEnd) return 0;
+    const vacationStartDate = parseLocalDate(emp.vacationStart);
+    const vacationEndDate = parseLocalDate(emp.vacationEnd, true);
+    if (!vacationStartDate || !vacationEndDate) return 0;
+
+    const monthStart = new Date(year, month, 1);
+    const monthEnd = new Date(year, month + 1, 0, 23, 59, 59);
+    const overlapStart = new Date(Math.max(monthStart.getTime(), vacationStartDate.getTime()));
+    const overlapEnd = new Date(Math.min(monthEnd.getTime(), vacationEndDate.getTime()));
+
+    if (overlapStart > overlapEnd) return 0;
+    return Math.floor((overlapEnd.getTime() - overlapStart.getTime()) / 86400000) + 1;
+  };
+
+  const formatShortDate = (value?: string) => {
+    const date = parseLocalDate(value);
+    return date ? date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) : '';
+  };
+
+  const getVacationBadgeText = (emp: Employee) => {
+    if (!isVacationRegistered(emp)) return '';
+    const start = formatShortDate(emp.vacationStart);
+    const end = formatShortDate(emp.vacationEnd);
+    return start && end ? `Ferias ${start} - ${end}` : 'Ferias';
+  };
+
+  const getBankHoursDays = (emp: Employee) => {
+    const data = emp as unknown as Record<string, any>;
+    const rawValue = data.bankHoursDays ?? data.timeBankDays ?? data.bancoHorasDias ?? data.bancoDeHorasDias ?? data.bankHours;
+    const parsedValue = Number(rawValue);
+    return Number.isFinite(parsedValue) && parsedValue > 0 ? parsedValue : 0;
+  };
 
   // --- Effects ---
   
@@ -362,6 +434,7 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
     setName(''); setRole(''); setGender('M'); setContact(''); setSalary('');
     setStartDate(new Date().toISOString().split('T')[0]);
     setUniforms([]); setScheduleType('6x1'); setShiftType('Par');
+    setShiftPeriod('MANHA');
     setWorkingHours('08:00 - 16:20'); setFixedDayOff('Segunda-feira');
     setSundayOffs([]); setVacationStatus('Pendente');
     setVacationStart(''); setVacationEnd('');
@@ -406,7 +479,7 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
     setUniforms(emp.uniforms || []); 
     
     setScheduleType(emp.scheduleType || '6x1');
-    setShiftType(emp.shiftType || 'Par'); setWorkingHours(emp.workingHours || '08:00 - 16:20');
+    setShiftType(emp.shiftType || 'Par'); setShiftPeriod(getEmployeeShiftPeriod(emp)); setWorkingHours(emp.workingHours || '08:00 - 16:20');
     setFixedDayOff(emp.fixedDayOff || 'Segunda-feira');
     setSundayOffs(emp.sundayOffs || []); setVacationStatus(emp.vacationStatus || 'Pendente');
     setVacationStart(emp.vacationStart || '');
@@ -510,7 +583,7 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
 
     const newEmp: Employee = {
       id: editingEmployee?.id || `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      name: name || 'Sem Nome', 
+      name: (name || 'Sem Nome').toUpperCase(), 
       role: role || 'Cargo', 
       gender, 
       contact, 
@@ -521,6 +594,7 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
       status: 'Ativo', 
       scheduleType, 
       shiftType: scheduleType === '12x36' ? shiftType : undefined,
+      shiftPeriod,
       workingHours: scheduleType === 'Intermitente' ? '' : workingHours, 
       fixedDayOff: scheduleType === '6x1' ? fixedDayOff : '', 
       sundayOffs: scheduleType === '6x1' ? sundayOffs : [], 
@@ -541,7 +615,7 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
     e.preventDefault();
     onSaveExtra({
       id: editingExtra?.id || `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      name: extraName,
+      name: extraName.toUpperCase(),
       phone: extraPhone,
       availability: extraAvailability,
       serviceQuality: extraQuality,
@@ -595,6 +669,13 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
   const formatFixedDay = (value?: string) => normalizeWeekday(value || '-') || '-';
 
   const getShiftStatus = (emp: Employee, dayInfo: typeof scaleData[0]) => {
+    if (isVacationRegistered(emp) && emp.vacationStart && emp.vacationEnd) {
+        const date = new Date(scaleDate.getFullYear(), scaleDate.getMonth(), dayInfo.date);
+        const vacationStartDate = parseLocalDate(emp.vacationStart);
+        const vacationEndDate = parseLocalDate(emp.vacationEnd, true);
+        if (!vacationStartDate || !vacationEndDate) return '';
+        if (date >= vacationStartDate && date <= vacationEndDate) return 'FÉRIAS';
+    }
     if (emp.vacationStatus === 'Concedida' || emp.vacationStatus === 'Férias Atuais') {
         const date = new Date(scaleDate.getFullYear(), scaleDate.getMonth(), dayInfo.date);
         if (emp.vacationStart && emp.vacationEnd) {
@@ -646,13 +727,56 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
     XLSX.writeFile(workbook, `Escala_${scaleDate.toISOString().slice(0, 7)}.xlsx`);
   };
 
-  const filteredEmployees = employees.filter(e => 
-    e.sectorId === selectedSectorId && (e.name || '').toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredEmployees = employees
+    .filter(e => {
+      const matchesSector = e.sectorId === selectedSectorId;
+      const normalizedSearch = searchTerm.toLowerCase();
+      const matchesSearch = (e.name || '').toLowerCase().includes(normalizedSearch) || (e.role || '').toLowerCase().includes(normalizedSearch);
+      const matchesShift = shiftPeriodFilter === 'TODOS' || getEmployeeShiftPeriod(e) === shiftPeriodFilter;
+      return matchesSector && matchesSearch && matchesShift;
+    })
+    .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'pt-BR'));
   
-  const filteredExtras = extras.filter(ext => 
-    ext.sectorId === selectedSectorId && (ext.name || '').toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredExtras = extras
+    .filter(ext => ext.sectorId === selectedSectorId && (ext.name || '').toLowerCase().includes(searchTerm.toLowerCase()))
+    .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'pt-BR'));
+
+  const employeeOverview = useMemo(() => {
+    const activeEmployees = employees.filter(emp => emp.status !== 'Inativo');
+    return {
+      totalEmployees: employees.length,
+      activeEmployees: activeEmployees.length,
+      totalExtras: extras.length,
+      bySector: sectors.map(sector => ({
+        ...sector,
+        employees: employees.filter(emp => emp.sectorId === sector.id).length,
+        extras: extras.filter(extra => extra.sectorId === sector.id).length
+      }))
+    };
+  }, [employees, extras, sectors]);
+
+  const monthlyScaleOverview = useMemo(() => {
+    const year = scaleDate.getFullYear();
+    return monthOptions.map((month, monthIndex) => {
+      const vacationItems = filteredEmployees
+        .map(emp => ({
+          id: emp.id,
+          name: emp.name,
+          days: getVacationDaysInMonth(emp, year, monthIndex)
+        }))
+        .filter(item => item.days > 0);
+
+      const bankHourItems = filteredEmployees
+        .map(emp => ({
+          id: emp.id,
+          name: emp.name,
+          days: getBankHoursDays(emp)
+        }))
+        .filter(item => item.days > 0);
+
+      return { ...month, monthIndex, vacationItems, bankHourItems };
+    });
+  }, [filteredEmployees, monthOptions, scaleDate]);
 
   // Calculation for ORDERS view (Card Display)
   const ordersBySector = useMemo(() => {
@@ -721,6 +845,48 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
             >
               <Plus size={18} /> <span>Novo Setor</span>
             </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 flex items-center gap-4">
+            <div className="w-12 h-12 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
+              <UserIcon size={22} />
+            </div>
+            <div>
+              <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Total de funcionarios</p>
+              <p className="text-2xl font-black text-slate-900">{employeeOverview.totalEmployees}</p>
+              <p className="text-[10px] font-bold text-slate-400">{employeeOverview.activeEmployees} ativos</p>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 flex items-center gap-4">
+            <div className="w-12 h-12 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+              <Briefcase size={22} />
+            </div>
+            <div>
+              <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Extras cadastrados</p>
+              <p className="text-2xl font-black text-slate-900">{employeeOverview.totalExtras}</p>
+              <p className="text-[10px] font-bold text-slate-400">profissionais de apoio</p>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Funcionarios por setor</p>
+              <span className="text-[10px] font-black text-slate-500 bg-slate-100 px-2 py-1 rounded-lg">{sectors.length} setores</span>
+            </div>
+            <div className="space-y-2 max-h-28 overflow-y-auto pr-1">
+              {employeeOverview.bySector.map(sector => (
+                <div key={sector.id} className="flex items-center justify-between gap-3 text-xs font-bold">
+                  <span className="text-slate-600 truncate">{sector.name}</span>
+                  <span className="text-slate-900 whitespace-nowrap">{sector.employees} func. / {sector.extras} extras</span>
+                </div>
+              ))}
+              {employeeOverview.bySector.length === 0 && (
+                <p className="text-xs text-slate-300 font-bold italic">Nenhum setor cadastrado.</p>
+              )}
+            </div>
           </div>
         </div>
 
@@ -944,8 +1110,7 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
         
         <div className="flex bg-slate-50 p-1.5 rounded-2xl border border-slate-100 overflow-x-auto">
           <button onClick={() => setViewMode('LIST')} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all whitespace-nowrap ${viewMode === 'LIST' ? 'bg-white shadow-md text-slate-900' : 'text-slate-400'}`}>Listagem</button>
-          <button onClick={() => setViewMode('SCALE')} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all whitespace-nowrap ${viewMode === 'SCALE' ? 'bg-white shadow-md text-slate-900' : 'text-slate-400'}`}>Escala Mensal</button>
-          <button onClick={() => setViewMode('WEEKLY_SCALE')} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all whitespace-nowrap ${viewMode === 'WEEKLY_SCALE' ? 'bg-white shadow-md text-slate-900' : 'text-slate-400'}`}>Escala Semanal</button>
+          <button onClick={() => { setViewMode('SCALE'); setScaleView('YEAR'); }} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all whitespace-nowrap ${viewMode === 'SCALE' ? 'bg-white shadow-md text-slate-900' : 'text-slate-400'}`}>Escala Mensal</button>
           <button onClick={() => setViewMode('EXTRAS')} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all whitespace-nowrap ${viewMode === 'EXTRAS' ? 'bg-white shadow-md text-slate-900' : 'text-slate-400'}`}>Extras</button>
         </div>
 
@@ -964,15 +1129,35 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
 
       {viewMode === 'LIST' && (
         <div className="space-y-4 animate-in slide-in-from-bottom-2 print:hidden">
-          <div className="relative max-w-md">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" size={16} />
-            <input type="text" placeholder="Buscar colaborador..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-9 pr-4 py-3 rounded-xl border border-slate-100 text-sm font-bold bg-white shadow-inner" />
+          <div className="flex flex-col lg:flex-row gap-3 lg:items-center justify-between">
+            <div className="relative w-full lg:max-w-md">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" size={16} />
+              <input type="text" placeholder="Buscar colaborador..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-9 pr-4 py-3 rounded-xl border border-slate-100 text-sm font-bold bg-white shadow-inner" />
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => setShiftPeriodFilter('TODOS')}
+                className={`px-3 py-2 rounded-xl border text-[10px] font-black uppercase transition-all ${shiftPeriodFilter === 'TODOS' ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-500 border-slate-100 hover:bg-slate-50'}`}
+              >
+                Todos
+              </button>
+              {shiftPeriodOptions.map(({ value, label, Icon }) => (
+                <button
+                  key={value}
+                  onClick={() => setShiftPeriodFilter(value)}
+                  className={`inline-flex items-center gap-2 px-3 py-2 rounded-xl border text-[10px] font-black uppercase transition-all ${shiftPeriodFilter === value ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-500 border-slate-100 hover:bg-slate-50'}`}
+                >
+                  <Icon size={14} className={shiftPeriodFilter === value ? 'text-white' : 'text-slate-400'} />
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
 
           <div className="grid grid-cols-1 gap-4">
             {filteredEmployees.map(emp => (
-              <div key={emp.id} className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm flex flex-col md:flex-row items-center gap-6 group hover:border-blue-200 transition-all">
-                <div className="flex items-center space-x-4 flex-1">
+              <div key={emp.id} className="bg-white p-5 rounded-[2rem] border border-slate-100 shadow-sm grid grid-cols-1 md:grid-cols-[1fr_auto] items-center gap-5 group hover:border-blue-200 transition-all">
+                <div className="grid grid-cols-[56px_1fr] items-center gap-4 min-w-0">
                   <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shadow-md overflow-hidden ${emp.gender === 'F' ? 'bg-rose-400' : 'bg-blue-400'}`}>
                     {emp.photo ? (
                       <img src={emp.photo} alt={emp.name} className="w-full h-full object-cover" />
@@ -980,11 +1165,26 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
                       <UserIcon size={24} className="text-white" />
                     )}
                   </div>
-                  <div>
-                    <h4 className="font-black text-slate-800">{emp.name || 'Sem Nome'}</h4>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                       {emp.role} • {emp.scheduleType === 'Intermitente' ? 'Intermitente' : `Folga: ${emp.fixedDayOff || 'Rodízio'}`}
-                    </p>
+                  <div className="min-w-0">
+                    <h4 className="font-black text-slate-800 uppercase truncate">{emp.name || 'Sem Nome'}</h4>
+                    {getVacationBadgeText(emp) && (
+                      <span className="inline-flex mb-1 px-3 py-1 rounded-lg bg-blue-50 text-blue-700 text-[9px] font-black uppercase tracking-widest">
+                        {getVacationBadgeText(emp)}
+                      </span>
+                    )}
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                       <span>{emp.role}</span>
+                       <span>{emp.scheduleType === 'Intermitente' ? 'Intermitente' : `Folga: ${emp.fixedDayOff || 'Rodízio'}`}</span>
+                       {(() => {
+                         const ShiftIcon = getShiftPeriodMeta(getEmployeeShiftPeriod(emp)).Icon;
+                         return (
+                           <span className="inline-flex items-center gap-1 text-slate-400">
+                             <ShiftIcon size={13} className="text-slate-300" />
+                             {emp.workingHours || 'Sem horario'}
+                           </span>
+                         );
+                       })()}
+                    </div>
                   </div>
                 </div>
                 <div className="flex gap-4 items-center w-full md:w-auto">
@@ -1003,6 +1203,88 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
 
       {viewMode === 'SCALE' && (
         <div className="bg-white rounded-[1rem] border border-slate-200 shadow-sm overflow-hidden animate-in slide-in-from-right-2 print:border-none print:shadow-none">
+          {scaleView === 'YEAR' ? (
+            <div className="p-5 md:p-8 bg-white print:hidden">
+              <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-6">
+                <div>
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Escala mensal</p>
+                  <h3 className="text-2xl md:text-3xl font-black text-slate-900 uppercase tracking-tight">
+                    {scaleDate.getFullYear()} - {currentSector?.name || 'Setor'}
+                  </h3>
+                  <p className="text-xs font-bold text-slate-400 mt-1">
+                    Clique em um mes para abrir a planilha mensal. Ferias e banco de horas aparecem como aviso no proprio mes.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setScaleDate(new Date(scaleDate.getFullYear() - 1, scaleDate.getMonth(), 2))}
+                    className="w-10 h-10 rounded-xl bg-slate-100 text-slate-500 flex items-center justify-center hover:bg-slate-200"
+                    title="Ano anterior"
+                  >
+                    <ChevronLeft size={18} />
+                  </button>
+                  <span className="px-4 py-2 rounded-xl bg-slate-900 text-white text-sm font-black">{scaleDate.getFullYear()}</span>
+                  <button
+                    onClick={() => setScaleDate(new Date(scaleDate.getFullYear() + 1, scaleDate.getMonth(), 2))}
+                    className="w-10 h-10 rounded-xl bg-slate-100 text-slate-500 flex items-center justify-center hover:bg-slate-200"
+                    title="Proximo ano"
+                  >
+                    <ChevronLeft size={18} className="rotate-180" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+                {monthlyScaleOverview.map(month => (
+                  <button
+                    key={month.value}
+                    onClick={() => {
+                      setScaleDate(new Date(`${month.value}-02`));
+                      setScaleView('MONTH');
+                    }}
+                    className="min-h-[190px] rounded-2xl border border-slate-100 bg-slate-50 hover:bg-white hover:border-blue-200 hover:shadow-lg transition-all text-left p-5 flex flex-col"
+                  >
+                    <div className="flex items-start justify-between gap-3 mb-4">
+                      <div>
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{month.label}</p>
+                        <h4 className="text-xl font-black text-slate-900 capitalize">
+                          {new Date(scaleDate.getFullYear(), month.monthIndex, 1).toLocaleDateString('pt-BR', { month: 'long' })}
+                        </h4>
+                      </div>
+                      <CalendarDays size={22} className="text-slate-300" />
+                    </div>
+
+                    <div className="space-y-2 flex-1">
+                      {month.vacationItems.slice(0, 3).map(item => (
+                        <div key={`vacation-${item.id}`} className="rounded-xl bg-blue-50 text-blue-700 px-3 py-2">
+                          <p className="text-[10px] font-black uppercase tracking-widest">Ferias</p>
+                          <p className="text-xs font-bold truncate">{item.name}, {item.days} dias</p>
+                        </div>
+                      ))}
+                      {month.bankHourItems.slice(0, 2).map(item => (
+                        <div key={`bank-${item.id}`} className="rounded-xl bg-amber-50 text-amber-700 px-3 py-2">
+                          <p className="text-[10px] font-black uppercase tracking-widest">Banco de horas</p>
+                          <p className="text-xs font-bold truncate">{item.name}, {item.days} dias</p>
+                        </div>
+                      ))}
+                      {month.vacationItems.length === 0 && month.bankHourItems.length === 0 && (
+                        <div className="h-full min-h-16 rounded-xl border border-dashed border-slate-200 flex items-center justify-center text-[10px] font-black text-slate-300 uppercase tracking-widest">
+                          Sem avisos
+                        </div>
+                      )}
+                    </div>
+
+                    {(month.vacationItems.length + month.bankHourItems.length) > 3 && (
+                      <p className="text-[10px] font-black text-slate-400 mt-3">
+                        +{month.vacationItems.length + month.bankHourItems.length - 3} avisos na planilha
+                      </p>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : (
+          <>
            <div className="p-4 border-b border-slate-200 bg-slate-50 print:hidden space-y-4">
               <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3">
                 <div>
@@ -1010,6 +1292,9 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">Modelo mensal automatico com folgas fixas, domingos e ferias cadastradas.</p>
                 </div>
                 <div className="flex gap-2 items-center flex-wrap">
+                  <button onClick={() => setScaleView('YEAR')} className="bg-white text-slate-700 px-3 py-2 rounded border border-slate-200 font-bold flex items-center space-x-2 hover:bg-slate-100 transition-colors text-xs">
+                     <ChevronLeft size={14} /> <span>Meses</span>
+                   </button>
                   <button onClick={() => window.print()} className="bg-slate-200 text-slate-700 px-3 py-2 rounded font-bold flex items-center space-x-2 hover:bg-slate-300 transition-colors text-xs">
                      <Printer size={14} /> <span>Imprimir</span>
                    </button>
@@ -1116,7 +1401,7 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
                                      while (j < dayStatuses.length && dayStatuses[j].status === 'FÉRIAS') { j++; }
                                      const span = j - i;
                                      cells.push(
-                                        <td key={`vacation-${i}`} colSpan={span} className="text-center p-0 border border-slate-300 text-[10px] sm:text-xs font-black bg-amber-100 text-amber-600 tracking-widest relative overflow-hidden group">
+                                        <td key={`vacation-${i}`} colSpan={span} className="text-center p-0 border border-slate-300 text-[10px] sm:text-xs font-black bg-blue-100 text-blue-700 tracking-widest relative overflow-hidden group">
                                            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">FÉRIAS</div>
                                            <span className="opacity-0">F</span>
                                         </td>
@@ -1188,6 +1473,8 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
                  </table>
               </div>
            </div>
+          </>
+          )}
         </div>
       )}
 
@@ -1354,7 +1641,7 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
                        
                        <div className="col-span-2">
                           <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Nome Completo</label>
-                          <input type="text" value={name} onChange={e => setName(e.target.value)} className="w-full px-5 py-4 rounded-2xl border-2 font-bold text-slate-800" required />
+                          <input type="text" value={name} onChange={e => setName(e.target.value.toUpperCase())} className="w-full px-5 py-4 rounded-2xl border-2 font-bold text-slate-800 uppercase" required />
                        </div>
                        <div>
                           <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Gênero</label>
@@ -1454,6 +1741,23 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
                        )}
 
                        <div>
+                          <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Turno</label>
+                          <div className="grid grid-cols-3 gap-2">
+                             {shiftPeriodOptions.map(({ value, label, Icon }) => (
+                               <button
+                                 key={value}
+                                 type="button"
+                                 onClick={() => setShiftPeriod(value)}
+                                 className={`py-3 rounded-xl border-2 font-black text-[10px] uppercase transition-all flex items-center justify-center gap-2 ${shiftPeriod === value ? 'bg-slate-900 border-slate-900 text-white shadow-md' : 'bg-white text-slate-400 border-slate-100 hover:border-slate-300'}`}
+                               >
+                                 <Icon size={15} />
+                                 {label}
+                               </button>
+                             ))}
+                          </div>
+                       </div>
+
+                       <div>
                           <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Horário de Trabalho</label>
                           <input type="text" value={workingHours} onChange={e => setWorkingHours(e.target.value)} className="w-full px-5 py-4 rounded-2xl border-2 font-bold text-slate-800" placeholder="Ex: 08:00 - 16:20" />
                        </div>
@@ -1462,17 +1766,17 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
                           <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Status de Férias</label>
                           <div className="flex bg-slate-50 p-1 rounded-xl mb-4">
                              <button type="button" onClick={() => setVacationStatus('Pendente')} className={`flex-1 py-2 rounded-lg text-xs font-black uppercase transition-all ${vacationStatus === 'Pendente' ? 'bg-white shadow-sm text-slate-800' : 'text-slate-400'}`}>Trabalhando</button>
-                             <button type="button" onClick={() => setVacationStatus('Concedida')} className={`flex-1 py-2 rounded-lg text-xs font-black uppercase transition-all ${vacationStatus === 'Concedida' || vacationStatus === 'Férias Atuais' ? 'bg-amber-100 text-amber-600' : 'text-slate-400'}`}>Em Férias</button>
+                             <button type="button" onClick={() => setVacationStatus('Concedida')} className={`flex-1 py-2 rounded-lg text-xs font-black uppercase transition-all ${vacationStatus === 'Concedida' || vacationStatus === 'Férias Atuais' ? 'bg-blue-100 text-blue-700' : 'text-slate-400'}`}>Em Férias</button>
                           </div>
                           {(vacationStatus === 'Concedida' || vacationStatus === 'Férias Atuais') && (
                             <div className="grid grid-cols-2 gap-4 animate-in slide-in-from-top-2">
                                <div>
                                   <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Início</label>
-                                  <input type="date" value={vacationStart} onChange={e => setVacationStart(e.target.value)} className="w-full px-4 py-3 rounded-xl border-2 font-bold text-slate-800 focus:border-amber-500" required />
+                                  <input type="date" value={vacationStart} onChange={e => setVacationStart(e.target.value)} className="w-full px-4 py-3 rounded-xl border-2 font-bold text-slate-800 focus:border-blue-500" required />
                                </div>
                                <div>
                                   <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Fim</label>
-                                  <input type="date" value={vacationEnd} onChange={e => setVacationEnd(e.target.value)} className="w-full px-4 py-3 rounded-xl border-2 font-bold text-slate-800 focus:border-amber-500" required />
+                                  <input type="date" value={vacationEnd} onChange={e => setVacationEnd(e.target.value)} className="w-full px-4 py-3 rounded-xl border-2 font-bold text-slate-800 focus:border-blue-500" required />
                                </div>
                             </div>
                           )}
@@ -1591,7 +1895,7 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
                  <button onClick={resetExtraForm} className="text-slate-300 hover:text-slate-500 transition-colors"><X size={24}/></button>
               </div>
               <form onSubmit={handleSaveExtraSubmit} className="p-6 md:p-8 space-y-4 overflow-y-auto">
-                 <input type="text" value={extraName} onChange={e => setExtraName(e.target.value)} className="w-full px-4 py-3 rounded-xl border-2 border-slate-50 outline-none font-bold bg-white text-slate-800 placeholder:text-slate-400" placeholder="Nome Completo" required />
+                 <input type="text" value={extraName} onChange={e => setExtraName(e.target.value.toUpperCase())} className="w-full px-4 py-3 rounded-xl border-2 border-slate-50 outline-none font-bold bg-white text-slate-800 placeholder:text-slate-400 uppercase" placeholder="Nome Completo" required />
                  <input type="text" value={extraPhone} onChange={e => setExtraPhone(e.target.value)} className="w-full px-4 py-3 rounded-xl border-2 border-slate-50 outline-none font-bold bg-white text-slate-800 placeholder:text-slate-400" placeholder="Telefone" />
                  
                  <div>
@@ -1658,6 +1962,10 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
                       )}
                    </div>
                    
+                   <div className="mb-3">
+                      <Logo className="h-auto justify-center" themeColor={theme.primary} showText={false} />
+                   </div>
+
                    {/* Info */}
                    <div className="text-center w-full mb-6 space-y-1">
                       <h3 className="text-xl font-black text-slate-900 leading-tight">{selectedBadge.name}</h3>
