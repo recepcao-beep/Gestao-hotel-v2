@@ -353,8 +353,8 @@ def carregar_plano(valores: List[List[str]], registros: List[RegistroHits]) -> T
         voucher = normalizar_voucher(linha[idx_voucher] if len(linha) > idx_voucher else "")
         if not voucher:
             continue
-        acao = normalizar_texto(linha[idx_acao] if len(linha) > idx_acao else "") or "MANTER"
-        if acao not in ACOES_VALIDAS:
+        acao = normalizar_texto(linha[idx_acao] if len(linha) > idx_acao else "")
+        if acao and acao not in ACOES_VALIDAS:
             raise RuntimeError(f"Acao desconhecida na linha {n}: {acao}")
         if acao in {"REVISAR", "BLOQUEADO"}:
             raise RuntimeError(f"Plano bloqueado antes da conciliacao: linha {n}, voucher {voucher}, acao {acao}")
@@ -373,6 +373,13 @@ def carregar_plano(valores: List[List[str]], registros: List[RegistroHits]) -> T
             acao_original=acao,
             origem=origem,
         )
+        if not item.acao_original:
+            if item.atual and item.sugerido and item.atual == item.sugerido:
+                item.acao_original = "MANTER"
+            elif item.atual:
+                item.acao_original = "TROCAR"
+            else:
+                item.acao_original = "VINCULAR"
         if item.acao_original == "MANTER":
             if not item.atual:
                 raise RuntimeError(f"Linha {n}: MANTER sem apartamento atual.")
