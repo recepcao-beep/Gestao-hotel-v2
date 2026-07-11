@@ -39,11 +39,15 @@ import {
   Upload,
   Sun,
   Sunset,
-  Moon
+  Moon,
+  Users,
+  Mars,
+  Venus
 } from 'lucide-react';
 
 type ShiftPeriod = 'MANHA' | 'TARDE' | 'MADRUGADA';
 type ShiftPeriodFilter = 'TODOS' | ShiftPeriod;
+type GenderFilter = 'TODOS' | 'M' | 'F';
 
 interface EmployeesViewProps {
   employees: Employee[];
@@ -95,6 +99,7 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
 
   const [searchTerm, setSearchTerm] = useState('');
   const [shiftPeriodFilter, setShiftPeriodFilter] = useState<ShiftPeriodFilter>('TODOS');
+  const [genderFilter, setGenderFilter] = useState<GenderFilter>('TODOS');
   const [viewMode, setViewMode] = useState<'LIST' | 'SCALE' | 'TODAY' | 'EXTRAS' | 'ORDERS' | 'WEEKLY_SCALE'>('LIST');
   const [scaleView, setScaleView] = useState<'YEAR' | 'MONTH'>('YEAR');
   const [activeFormTab, setActiveFormTab] = useState<'DADOS' | 'ESCALA' | 'UNIFORMES'>('DADOS');
@@ -288,6 +293,7 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
   // Form State Employee
   const [name, setName] = useState('');
   const [role, setRole] = useState('');
+  const [newEmployeeRole, setNewEmployeeRole] = useState('');
   const [gender, setGender] = useState<'M' | 'F'>('M');
   const [contact, setContact] = useState('');
   const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
@@ -327,6 +333,22 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
     { value: 'TARDE', label: 'Tarde', Icon: Sunset },
     { value: 'MADRUGADA', label: 'Madrugada', Icon: Moon },
   ];
+  const genderFilterOptions: { value: GenderFilter; label: string; Icon: React.ElementType }[] = [
+    { value: 'TODOS', label: 'Todos', Icon: Users },
+    { value: 'M', label: 'Masculino', Icon: Mars },
+    { value: 'F', label: 'Feminino', Icon: Venus },
+  ];
+
+  const normalizeRoleName = (value?: string) => String(value || '').trim().toUpperCase();
+
+  const getSortedUniqueRoles = (roles: string[] = []) => Array.from(
+    new Map(
+      roles
+        .map(roleName => normalizeRoleName(roleName))
+        .filter(Boolean)
+        .map(roleName => [roleName, roleName])
+    ).values()
+  ).sort((a, b) => a.localeCompare(b, 'pt-BR', { sensitivity: 'base' }));
 
   const normalizeWeekday = (value?: string) => String(value || '')
     .normalize('NFD')
@@ -431,7 +453,7 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
 
 
   const resetEmployeeForm = () => {
-    setName(''); setRole(''); setGender('M'); setContact(''); setSalary('');
+    setName(''); setRole(''); setNewEmployeeRole(''); setGender('M'); setContact(''); setSalary('');
     setStartDate(new Date().toISOString().split('T')[0]);
     setUniforms([]); setScheduleType('6x1'); setShiftType('Par');
     setShiftPeriod('MANHA');
@@ -462,7 +484,7 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
   const handleEditSector = (sec: Sector) => {
     setEditingSector(sec);
     setSectorName(sec.name);
-    setSectorRoles(sec.roles || []);
+    setSectorRoles(getSortedUniqueRoles(sec.roles || []));
     setSectorUniforms(sec.standardUniform || []);
     setIsSectorModalOpen(true);
   };
@@ -472,6 +494,7 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
     setName(emp.name || ''); 
     // Important: Set Role first to trigger effect, but we need the existing uniforms to merge correctly
     setRole(emp.role || ''); 
+    setNewEmployeeRole('');
     setGender(emp.gender || 'M');
     setContact(emp.contact || ''); setStartDate(emp.startDate || ''); setSalary((emp.salary || 0).toString());
     
@@ -530,9 +553,19 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
 
   // Sector Modal Handlers
   const handleAddSectorRole = () => {
-    if(!newRole.trim()) return;
-    setSectorRoles([...sectorRoles, newRole]);
+    const roleName = normalizeRoleName(newRole);
+    if(!roleName) return;
+    setSectorRoles(getSortedUniqueRoles([...sectorRoles, roleName]));
     setNewRole('');
+  };
+
+  const handleAddEmployeeRoleToSector = () => {
+    const roleName = normalizeRoleName(newEmployeeRole);
+    if (!currentSector || !roleName) return;
+    const updatedRoles = getSortedUniqueRoles([...(currentSector.roles || []), roleName]);
+    onSaveSector({ ...currentSector, roles: updatedRoles });
+    setRole(roleName);
+    setNewEmployeeRole('');
   };
 
   const handleRemoveSectorRole = (index: number) => {
@@ -562,9 +595,9 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
     e.preventDefault();
     onSaveSector({ 
       id: editingSector?.id || `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`, 
-      name: sectorName, 
+      name: sectorName.trim(),
       standardUniform: sectorUniforms,
-      roles: sectorRoles
+      roles: getSortedUniqueRoles(sectorRoles)
     });
     resetSectorForm();
   };
@@ -581,10 +614,19 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
         finalPhoto = photoPreview; 
     }
 
+    const selectedRole = normalizeRoleName(role);
+    const activeSector = currentSector || sectors.find(sec => sec.id === (editingEmployee?.sectorId || selectedSectorId));
+    if (activeSector && selectedRole) {
+      const updatedRoles = getSortedUniqueRoles([...(activeSector.roles || []), selectedRole]);
+      if (updatedRoles.join('|') !== getSortedUniqueRoles(activeSector.roles || []).join('|')) {
+        onSaveSector({ ...activeSector, roles: updatedRoles });
+      }
+    }
+
     const newEmp: Employee = {
       id: editingEmployee?.id || `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       name: (name || 'Sem Nome').toUpperCase(), 
-      role: role || 'Cargo', 
+      role: selectedRole || 'CARGO',
       gender, 
       contact, 
       startDate,
@@ -626,6 +668,12 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
   };
 
   const currentSector = sectors.find(s => s.id === selectedSectorId);
+  const currentSectorRoles = getSortedUniqueRoles(currentSector?.roles || []);
+  const availableEmployeeRoles = getSortedUniqueRoles([...currentSectorRoles, role]);
+  const sortedSectors = useMemo(
+    () => [...sectors].sort((a, b) => (a.name || '').localeCompare(b.name || '', 'pt-BR', { sensitivity: 'base' })),
+    [sectors]
+  );
 
   const scaleData = useMemo(() => {
     const year = scaleDate.getFullYear();
@@ -733,9 +781,14 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
       const normalizedSearch = searchTerm.toLowerCase();
       const matchesSearch = (e.name || '').toLowerCase().includes(normalizedSearch) || (e.role || '').toLowerCase().includes(normalizedSearch);
       const matchesShift = shiftPeriodFilter === 'TODOS' || getEmployeeShiftPeriod(e) === shiftPeriodFilter;
-      return matchesSector && matchesSearch && matchesShift;
+      const employeeGender = String(e.gender || 'M').toUpperCase();
+      const matchesGender = genderFilter === 'TODOS' || employeeGender === genderFilter;
+      return matchesSector && matchesSearch && matchesShift && matchesGender;
     })
-    .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'pt-BR'));
+    .sort((a, b) =>
+      (a.name || '').localeCompare(b.name || '', 'pt-BR', { sensitivity: 'base' }) ||
+      (a.role || '').localeCompare(b.role || '', 'pt-BR', { sensitivity: 'base' })
+    );
   
   const filteredExtras = extras
     .filter(ext => ext.sectorId === selectedSectorId && (ext.name || '').toLowerCase().includes(searchTerm.toLowerCase()))
@@ -747,13 +800,13 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
       totalEmployees: employees.length,
       activeEmployees: activeEmployees.length,
       totalExtras: extras.length,
-      bySector: sectors.map(sector => ({
+      bySector: sortedSectors.map(sector => ({
         ...sector,
         employees: employees.filter(emp => emp.sectorId === sector.id).length,
         extras: extras.filter(extra => extra.sectorId === sector.id).length
       }))
     };
-  }, [employees, extras, sectors]);
+  }, [employees, extras, sortedSectors]);
 
   const monthlyScaleOverview = useMemo(() => {
     const year = scaleDate.getFullYear();
@@ -891,7 +944,7 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-          {sectors.map((sec) => (
+          {sortedSectors.map((sec) => (
             <div key={sec.id} className="relative group">
               <div className="absolute top-4 right-4 z-10 flex gap-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
                 <button 
@@ -948,9 +1001,9 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
                          <input 
                            type="text" 
                            value={newRole} 
-                           onChange={e => setNewRole(e.target.value)} 
+                           onChange={e => setNewRole(e.target.value.toUpperCase())}
                            placeholder="Novo Cargo (Ex: Recepcionista)" 
-                           className="flex-1 px-4 py-2 rounded-xl border-2 font-bold text-sm" 
+                           className="flex-1 px-4 py-2 rounded-xl border-2 font-bold text-sm uppercase"
                          />
                          <button type="button" onClick={handleAddSectorRole} className="p-2 bg-slate-800 text-white rounded-xl"><Plus size={20}/></button>
                       </div>
@@ -1135,22 +1188,36 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
               <input type="text" placeholder="Buscar colaborador..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-9 pr-4 py-3 rounded-xl border border-slate-100 text-sm font-bold bg-white shadow-inner" />
             </div>
             <div className="flex flex-wrap gap-2">
-              <button
-                onClick={() => setShiftPeriodFilter('TODOS')}
-                className={`px-3 py-2 rounded-xl border text-[10px] font-black uppercase transition-all ${shiftPeriodFilter === 'TODOS' ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-500 border-slate-100 hover:bg-slate-50'}`}
-              >
-                Todos
-              </button>
-              {shiftPeriodOptions.map(({ value, label, Icon }) => (
+              <div className="flex flex-wrap gap-2">
                 <button
-                  key={value}
-                  onClick={() => setShiftPeriodFilter(value)}
-                  className={`inline-flex items-center gap-2 px-3 py-2 rounded-xl border text-[10px] font-black uppercase transition-all ${shiftPeriodFilter === value ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-500 border-slate-100 hover:bg-slate-50'}`}
+                  onClick={() => setShiftPeriodFilter('TODOS')}
+                  className={`px-3 py-2 rounded-xl border text-[10px] font-black uppercase transition-all ${shiftPeriodFilter === 'TODOS' ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-500 border-slate-100 hover:bg-slate-50'}`}
                 >
-                  <Icon size={14} className={shiftPeriodFilter === value ? 'text-white' : 'text-slate-400'} />
-                  {label}
+                  Todos
                 </button>
-              ))}
+                {shiftPeriodOptions.map(({ value, label, Icon }) => (
+                  <button
+                    key={value}
+                    onClick={() => setShiftPeriodFilter(value)}
+                    className={`inline-flex items-center gap-2 px-3 py-2 rounded-xl border text-[10px] font-black uppercase transition-all ${shiftPeriodFilter === value ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-500 border-slate-100 hover:bg-slate-50'}`}
+                  >
+                    <Icon size={14} className={shiftPeriodFilter === value ? 'text-white' : 'text-slate-400'} />
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {genderFilterOptions.map(({ value, label, Icon }) => (
+                  <button
+                    key={value}
+                    onClick={() => setGenderFilter(value)}
+                    className={`inline-flex items-center gap-2 px-3 py-2 rounded-xl border text-[10px] font-black uppercase transition-all ${genderFilter === value ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-500 border-slate-100 hover:bg-slate-50'}`}
+                  >
+                    <Icon size={14} className={genderFilter === value ? 'text-white' : 'text-slate-400'} />
+                    {label}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 
@@ -1307,41 +1374,6 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
                      onChange={(e) => setScaleDate(new Date(e.target.value + '-02'))}
                      className="px-4 py-2 rounded border border-slate-300 font-bold text-xs outline-none"
                   />
-                </div>
-              </div>
-              <div className="rounded-[2rem] bg-slate-900 p-4 md:p-6 text-white">
-                <div className="flex items-center justify-between mb-5">
-                  <button
-                    onClick={() => setScaleDate(new Date(scaleDate.getFullYear() - 1, scaleDate.getMonth(), 2))}
-                    className="w-10 h-10 rounded-full border border-white/20 flex items-center justify-center hover:bg-white/10"
-                    title="Ano anterior"
-                  >
-                    <ChevronLeft size={20} />
-                  </button>
-                  <div className="text-3xl font-light tracking-wide">{scaleDate.getFullYear()}</div>
-                  <button
-                    onClick={() => setScaleDate(new Date(scaleDate.getFullYear() + 1, scaleDate.getMonth(), 2))}
-                    className="w-10 h-10 rounded-full border border-white/20 flex items-center justify-center hover:bg-white/10"
-                    title="Proximo ano"
-                  >
-                    <ChevronLeft size={20} className="rotate-180" />
-                  </button>
-                </div>
-                <div className="grid grid-cols-3 sm:grid-cols-4 gap-4 md:gap-6 place-items-center">
-                {monthOptions.map((month) => {
-                  const active = scaleDate.toISOString().slice(0, 7) === month.value;
-                  return (
-                    <button
-                      key={month.value}
-                      onClick={() => setScaleDate(new Date(`${month.value}-02`))}
-                      className={`w-20 h-20 rounded-full border-2 text-xl font-black lowercase transition-all ${active ? 'bg-white/60 text-white border-white/60 shadow-md' : 'bg-white/10 text-white/70 border-white hover:bg-white/15'}`}
-                      style={active ? { backgroundColor: theme.primary, borderColor: theme.primary } : undefined}
-                      title={month.longLabel}
-                    >
-                      {month.label}
-                    </button>
-                  );
-                })}
                 </div>
               </div>
            </div>
@@ -1652,13 +1684,33 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
                        </div>
                        <div>
                           <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Cargo / Função</label>
-                          {currentSector && currentSector.roles && currentSector.roles.length > 0 ? (
+                          {availableEmployeeRoles.length > 0 ? (
                              <select value={role} onChange={e => setRole(e.target.value)} className="w-full px-5 py-4 rounded-2xl border-2 font-bold text-slate-800 bg-white" required>
                                 <option value="">Selecione...</option>
-                                {currentSector.roles.map(r => <option key={r} value={r}>{r}</option>)}
+                                {availableEmployeeRoles.map(r => <option key={r} value={r}>{r}</option>)}
                              </select>
                           ) : (
-                             <input type="text" value={role} onChange={e => setRole(e.target.value)} className="w-full px-5 py-4 rounded-2xl border-2 font-bold text-slate-800" required />
+                             <input type="text" value={role} onChange={e => setRole(e.target.value.toUpperCase())} className="w-full px-5 py-4 rounded-2xl border-2 font-bold text-slate-800 uppercase" required />
+                          )}
+                          {currentSector && (
+                            <div className="mt-2 flex gap-2">
+                              <input
+                                type="text"
+                                value={newEmployeeRole}
+                                onChange={e => setNewEmployeeRole(e.target.value.toUpperCase())}
+                                placeholder="Novo cargo"
+                                className="min-w-0 flex-1 px-4 py-2 rounded-xl border-2 font-bold text-xs text-slate-800 uppercase"
+                              />
+                              <button
+                                type="button"
+                                onClick={handleAddEmployeeRoleToSector}
+                                disabled={!newEmployeeRole.trim()}
+                                className="px-3 py-2 bg-slate-800 text-white rounded-xl disabled:opacity-40"
+                                title="Adicionar cargo ao setor"
+                              >
+                                <Plus size={18}/>
+                              </button>
+                            </div>
                           )}
                        </div>
                        <div>
