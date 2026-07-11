@@ -22,7 +22,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.keys import Keys
-from selenium.common.exceptions import NoSuchElementException
+from selenium.common.exceptions import NoSuchElementException, StaleElementReferenceException
 from speed import configure_fast_sleep
 
 
@@ -272,6 +272,12 @@ class RoboHITS:
     def exportar_linhas_extraidas(self, caminho, linhas_planilha):
         if not self.no_write and not self.diagnostico:
             raise RuntimeError("--exportar-linhas só pode ser usado com --diagnostico ou --no-write.")
+
+        if any(
+            metrica.get("erros_reais_extracao", metrica.get("erros_extracao", 0)) > 0
+            for metrica in self.metricas_por_data
+        ):
+            raise RuntimeError("Artifact bloqueado por erro real de extracao.")
 
         payload = self.montar_payload_linhas_extraidas(linhas_planilha)
         self.validar_payload_sem_credenciais(payload)
@@ -646,6 +652,36 @@ class RoboHITS:
             pass
         return self.hash_json(textos)
 
+    def aguardar_tabela_estavel_para_extracao(self, xpath_tbodies, verificacoes=3, timeout=20):
+        assinaturas_iguais = 0
+        assinatura_anterior = None
+        ultima_quantidade = 0
+        limite = time.time() + timeout
+
+        while time.time() < limite:
+            try:
+                tbodies = self.driver.find_elements(By.XPATH, xpath_tbodies)
+                textos = [corpo.text.strip() for corpo in tbodies]
+                assinatura_atual = self.hash_json({"qtd": len(tbodies), "textos": textos})
+                ultima_quantidade = len(tbodies)
+            except StaleElementReferenceException:
+                assinaturas_iguais = 0
+                assinatura_anterior = None
+                time.sleep(0.5)
+                continue
+
+            if assinatura_atual and assinatura_atual == assinatura_anterior:
+                assinaturas_iguais += 1
+            else:
+                assinaturas_iguais = 1
+                assinatura_anterior = assinatura_atual
+
+            if assinaturas_iguais >= verificacoes:
+                return ultima_quantidade
+            time.sleep(0.5)
+
+        raise RuntimeError("Tabela OBS nao estabilizou antes da extracao.")
+
     def texto_filtro_data_atual(self):
         textos = []
         seletores = [
@@ -874,26 +910,18 @@ class RoboHITS:
 
     def extrair_dados_pagina_atual(self, data_atual_loop):
         xpath_tbodies = "//*[@id='arrivalsDeparturesReport']//table[1]/tbody"
-        pedidos_do_dia = []
-        vouchers_brutos = []
-        textos_brutos = []
-        linhas_brutas = 0
-        erros_extracao = []
-        blocos_estruturais_ignorados = 0
-        blocos_processados = 0
-        com_solicitacao = 0
-        sem_solicitacao = 0
-        categorias_preenchidas = 0
-        categorias_ausentes = 0
-        tbodies = []
 
-        def registrar_erro(indice, etapa, erro, voucher=""):
+        class TabelaRecarregada(Exception):
+            pass
+
+        def registrar_erro(erros_extracao, indice, etapa, erro, voucher="", real=True):
             erros_extracao.append(
                 {
                     "bloco": indice,
                     "voucher": voucher or "",
                     "etapa": etapa,
                     "tipo": type(erro).__name__,
+                    "real": bool(real),
                 }
             )
             voucher_log = voucher if voucher else "indisponivel"
@@ -902,68 +930,126 @@ class RoboHITS:
                 f"voucher={voucher_log}, etapa={etapa}, tipo={type(erro).__name__}"
             )
 
-        if self.focar_quadro(xpath_tbodies):
-            tbodies = self.driver.find_elements(By.XPATH, xpath_tbodies)
-            for indice, corpo in enumerate(tbodies, start=1):
-                voucher = ""
-                try:
-                    etapa = "texto_bloco"
-                    texto_corpo = corpo.text.strip()
-                    if texto_corpo:
-                        textos_brutos.append(texto_corpo)
-                        linhas_brutas += len([linha for linha in texto_corpo.splitlines() if linha.strip()])
+        if not self.focar_quadro(xpath_tbodies):
+            raise RuntimeError("Tabela OBS nao encontrada para extracao.")
 
-                    etapa = "voucher"
-                    try:
-                        voucher = corpo.find_element(By.XPATH, "./tr[1]/td[7]").text.strip()
-                    except NoSuchElementException:
-                        blocos_estruturais_ignorados += 1
-                        continue
-                    if not voucher:
-                        raise ValueError("voucher vazio")
-                    vouchers_brutos.append(voucher)
-                    
-                    etapa = "pax"
-                    pax_raw = corpo.find_element(By.XPATH, "./tr[1]/td[4]").text.strip()
+        reinicios = 0
+        while reinicios <= 2:
+            pedidos_do_dia = []
+            vouchers_brutos = []
+            textos_brutos = []
+            linhas_brutas = 0
+            erros_extracao = []
+            blocos_estruturais_ignorados = 0
+            blocos_processados = 0
+            com_solicitacao = 0
+            sem_solicitacao = 0
+            categorias_preenchidas = 0
+            categorias_ausentes = 0
+            quantidade_tbodies = self.aguardar_tabela_estavel_para_extracao(xpath_tbodies)
 
-                    etapa = "categoria"
-                    apto_categoria_raw = corpo.find_element(By.XPATH, "./tr[1]/td[6]").text.strip().upper()
-                    match_categoria = re.search(r'\b(1CC|1CSS|2CC|2CSS)\b', apto_categoria_raw)
-                    cat_sistema = match_categoria.group(1) if match_categoria else apto_categoria_raw
-                    if not cat_sistema:
-                        categorias_ausentes += 1
-                        raise ValueError("categoria ausente")
+            try:
+                for indice_zero in range(quantidade_tbodies):
+                    indice = indice_zero + 1
+                    voucher = ""
+                    etapa = "inicio"
+                    ultimo_stale = None
 
-                    etapa = "observacao"
-                    partes_obs = []
-                    try:
-                        elementos_obs = corpo.find_elements(By.XPATH, "./tr[position() > 1]/td")
-                        for elemento_obs in elementos_obs:
-                            texto_linha = elemento_obs.text.strip()
-                            if texto_linha:
-                                partes_obs.append(texto_linha)
-                    except Exception as erro_obs:
-                        registrar_erro(indice, etapa, erro_obs, voucher)
-                    obs_raw = " | ".join(partes_obs)
+                    for tentativa in range(1, 4):
+                        try:
+                            tbodies_atuais = self.driver.find_elements(By.XPATH, xpath_tbodies)
+                            if len(tbodies_atuais) != quantidade_tbodies:
+                                raise TabelaRecarregada(
+                                    f"Quantidade de blocos mudou de {quantidade_tbodies} para {len(tbodies_atuais)}"
+                                )
+                            corpo = tbodies_atuais[indice_zero]
 
-                    etapa = "analise_observacao"
-                    andar, vinculo, texto_limpo = self.analisar_texto_e_extrair(obs_raw)
+                            etapa = "texto_bloco"
+                            texto_corpo = corpo.text.strip()
+                            linhas_texto_corpo = len([linha for linha in texto_corpo.splitlines() if linha.strip()])
 
-                    etapa = "categoria_verificada"
-                    cat_verificada = self.calcular_categoria_verificada(obs_raw, pax_raw, cat_sistema)
-                    if not cat_verificada:
-                        categorias_ausentes += 1
-                        raise ValueError("categoria verificada ausente")
+                            etapa = "voucher"
+                            try:
+                                voucher = corpo.find_element(By.XPATH, "./tr[1]/td[7]").text.strip()
+                            except NoSuchElementException:
+                                blocos_estruturais_ignorados += 1
+                                break
+                            if not voucher:
+                                raise ValueError("voucher vazio")
 
-                    categorias_preenchidas += 1
-                    blocos_processados += 1
-                    if texto_limpo:
-                        com_solicitacao += 1
+                            etapa = "pax"
+                            pax_raw = corpo.find_element(By.XPATH, "./tr[1]/td[4]").text.strip()
+
+                            etapa = "categoria"
+                            apto_categoria_raw = corpo.find_element(By.XPATH, "./tr[1]/td[6]").text.strip().upper()
+                            match_categoria = re.search(r'\b(1CC|1CSS|2CC|2CSS)\b', apto_categoria_raw)
+                            cat_sistema = match_categoria.group(1) if match_categoria else apto_categoria_raw
+                            if not cat_sistema:
+                                categorias_ausentes += 1
+                                raise ValueError("categoria ausente")
+
+                            etapa = "observacao"
+                            partes_obs = []
+                            try:
+                                elementos_obs = corpo.find_elements(By.XPATH, "./tr[position() > 1]/td")
+                                for elemento_obs in elementos_obs:
+                                    texto_linha = elemento_obs.text.strip()
+                                    if texto_linha:
+                                        partes_obs.append(texto_linha)
+                            except StaleElementReferenceException:
+                                raise
+                            except Exception as erro_obs:
+                                registrar_erro(erros_extracao, indice, etapa, erro_obs, voucher, real=False)
+                            obs_raw = " | ".join(partes_obs)
+
+                            etapa = "analise_observacao"
+                            andar, vinculo, texto_limpo = self.analisar_texto_e_extrair(obs_raw)
+
+                            etapa = "categoria_verificada"
+                            cat_verificada = self.calcular_categoria_verificada(obs_raw, pax_raw, cat_sistema)
+                            if not cat_verificada:
+                                categorias_ausentes += 1
+                                raise ValueError("categoria verificada ausente")
+
+                            if texto_corpo:
+                                textos_brutos.append(texto_corpo)
+                                linhas_brutas += linhas_texto_corpo
+                            vouchers_brutos.append(voucher)
+                            categorias_preenchidas += 1
+                            blocos_processados += 1
+                            if texto_limpo:
+                                com_solicitacao += 1
+                            else:
+                                sem_solicitacao += 1
+                            pedidos_do_dia.append([data_atual_loop, voucher, andar, vinculo, cat_verificada, texto_limpo])
+                            break
+                        except TabelaRecarregada:
+                            raise
+                        except StaleElementReferenceException as erro_stale:
+                            ultimo_stale = erro_stale
+                            if tentativa >= 3:
+                                registrar_erro(erros_extracao, indice, etapa, erro_stale, voucher, real=True)
+                                raise RuntimeError(
+                                    f"Falha ao extrair bloco {indice} apos 3 tentativas por DOM recarregado."
+                                ) from erro_stale
+                            time.sleep(0.5)
+                        except Exception as erro:
+                            registrar_erro(erros_extracao, indice, etapa, erro, voucher, real=True)
+                            raise RuntimeError(
+                                f"Erro real de extracao no bloco {indice}, etapa {etapa}: {type(erro).__name__}"
+                            ) from erro
                     else:
-                        sem_solicitacao += 1
-                    pedidos_do_dia.append([data_atual_loop, voucher, andar, vinculo, cat_verificada, texto_limpo])
-                except Exception as erro:
-                    registrar_erro(indice, etapa, erro, voucher)
+                        raise RuntimeError(
+                            f"Falha ao extrair bloco {indice} apos 3 tentativas: {type(ultimo_stale).__name__}"
+                        )
+                break
+            except TabelaRecarregada as erro_recarga:
+                reinicios += 1
+                print(f"Tabela OBS recarregou durante a extracao ({erro_recarga}). Reinicio {reinicios}/2.")
+                if reinicios > 2:
+                    raise RuntimeError("Tabela OBS mudou de tamanho repetidamente durante a extracao.") from erro_recarga
+                time.sleep(1)
+
         vouchers_ordenados = sorted(set(vouchers_brutos))
         ocorrencias_voucher_repetido = len(pedidos_do_dia) - len(vouchers_ordenados)
         observacoes_sem_data = [linha[1:] for linha in pedidos_do_dia]
@@ -975,7 +1061,7 @@ class RoboHITS:
         self.ultima_metrica_extracao = {
             "data_solicitada": data_atual_loop,
             "data_confirmada": data_atual_loop,
-            "blocos_encontrados": len(tbodies),
+            "blocos_encontrados": quantidade_tbodies,
             "blocos_processados": blocos_processados,
             "linhas_brutas": linhas_brutas,
             "vouchers_unicos": len(vouchers_ordenados),
@@ -986,7 +1072,7 @@ class RoboHITS:
             "categorias_preenchidas": categorias_preenchidas,
             "categorias_ausentes": categorias_ausentes,
             "erros_extracao": len(erros_extracao),
-            "erros_reais_extracao": len(erros_extracao),
+            "erros_reais_extracao": len([erro for erro in erros_extracao if erro.get("real")]),
             "blocos_estruturais_ignorados": blocos_estruturais_ignorados,
             "erros": erros_extracao,
             "vouchers": vouchers_ordenados,

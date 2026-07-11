@@ -354,6 +354,19 @@ class ElementoFake:
         self.text = texto
 
 
+class ElementoStaleUmaVez:
+    def __init__(self, texto=""):
+        self.texto = texto
+        self.chamadas = 0
+
+    @property
+    def text(self):
+        self.chamadas += 1
+        if self.chamadas == 1:
+            raise obs.StaleElementReferenceException("stale texto")
+        return self.texto
+
+
 class CorpoFake:
     def __init__(
         self,
@@ -364,6 +377,9 @@ class CorpoFake:
         erro_obs=None,
         erro_voucher=None,
         erro_categoria=None,
+        stale_texto=False,
+        stale_voucher=False,
+        stale_obs=False,
     ):
         self.voucher = voucher
         self.pax = pax
@@ -372,14 +388,26 @@ class CorpoFake:
         self.erro_obs = erro_obs
         self.erro_voucher = erro_voucher
         self.erro_categoria = erro_categoria
+        self.stale_texto = stale_texto
+        self.stale_voucher = stale_voucher
+        self.stale_obs = stale_obs
+        self._texto_chamadas = 0
+        self._voucher_chamadas = 0
+        self._obs_chamadas = 0
 
     @property
     def text(self):
+        self._texto_chamadas += 1
+        if self.stale_texto and self._texto_chamadas == 1:
+            raise obs.StaleElementReferenceException("stale bloco")
         partes = [self.voucher, self.pax, self.categoria, *self.observacoes]
         return "\n".join(str(parte) for parte in partes if parte)
 
     def find_element(self, _by, xpath):
         if xpath == "./tr[1]/td[7]":
+            self._voucher_chamadas += 1
+            if self.stale_voucher and self._voucher_chamadas == 1:
+                raise obs.StaleElementReferenceException("stale voucher")
             if self.erro_voucher:
                 raise self.erro_voucher
             return ElementoFake(self.voucher)
@@ -393,6 +421,9 @@ class CorpoFake:
 
     def find_elements(self, _by, xpath):
         if xpath == "./tr[position() > 1]/td":
+            self._obs_chamadas += 1
+            if self.stale_obs and self._obs_chamadas == 1:
+                raise obs.StaleElementReferenceException("stale obs")
             if self.erro_obs:
                 raise self.erro_obs
             return [ElementoFake(texto) for texto in self.observacoes]
@@ -407,11 +438,88 @@ class DriverFake:
         return self.corpos
 
 
+class DriverSequencial:
+    def __init__(self, sequencias):
+        self.sequencias = list(sequencias)
+        self.ultima = self.sequencias[-1] if self.sequencias else []
+
+    def find_elements(self, *_args):
+        if self.sequencias:
+            self.ultima = self.sequencias.pop(0)
+        return self.ultima
+
+
+class CorpoSempreStale(CorpoFake):
+    @property
+    def text(self):
+        raise obs.StaleElementReferenceException("stale permanente")
+
+
 def robo_com_corpos(corpos):
     robo = robo_sem_chrome()
     robo.driver = DriverFake(corpos)
     robo.focar_quadro = lambda _xpath: True
+    robo.aguardar_tabela_estavel_para_extracao = lambda _xpath: len(corpos)
     return robo
+
+
+def test_stale_no_voucher_e_recuperado_rebuscando_dom():
+    corpo = CorpoFake(voucher="120", stale_voucher=True, observacoes=["Berco"])
+    robo = robo_com_corpos([corpo])
+
+    linhas = robo.extrair_dados_pagina_atual("12/07/2026")
+
+    assert linhas == [["12/07/2026", "120", "", "", "1CC", "BERCO"]]
+    assert corpo._voucher_chamadas == 2
+
+
+def test_stale_no_texto_e_recuperado_rebuscando_dom():
+    corpo = CorpoFake(voucher="121", stale_texto=True, observacoes=[])
+    robo = robo_com_corpos([corpo])
+
+    linhas = robo.extrair_dados_pagina_atual("12/07/2026")
+
+    assert linhas == [["12/07/2026", "121", "", "", "1CC", ""]]
+    assert corpo._texto_chamadas == 2
+
+
+def test_stale_por_tres_tentativas_falha():
+    robo = robo_com_corpos([CorpoSempreStale(voucher="122")])
+
+    with pytest.raises(RuntimeError, match="3 tentativas"):
+        robo.extrair_dados_pagina_atual("12/07/2026")
+
+
+def test_mudanca_da_quantidade_reinicia_o_dia_e_descarta_parcial():
+    corpo_1 = CorpoFake(voucher="123")
+    corpo_2 = CorpoFake(voucher="124", observacoes=["Berco"])
+    robo = robo_sem_chrome()
+    robo.driver = DriverSequencial([
+        [corpo_1, corpo_2],
+        [corpo_1],
+        [corpo_1, corpo_2],
+        [corpo_1, corpo_2],
+    ])
+    robo.focar_quadro = lambda _xpath: True
+    robo.aguardar_tabela_estavel_para_extracao = lambda _xpath: 2
+
+    linhas = robo.extrair_dados_pagina_atual("12/07/2026")
+
+    assert linhas == [
+        ["12/07/2026", "123", "", "", "1CC", ""],
+        ["12/07/2026", "124", "", "", "1CC", "BERCO"],
+    ]
+
+
+def test_erro_real_impede_artifact(tmp_path):
+    robo = robo_sem_chrome(no_write=True, dias=1)
+    robo.metricas_por_data = [{"data_confirmada": "12/07/2026", "erros_reais_extracao": 1}]
+    caminho = tmp_path / "obs_linhas_extraidas.json"
+
+    with pytest.raises(RuntimeError, match="Artifact bloqueado"):
+        robo.exportar_linhas_extraidas(caminho, [["12/07/2026", "125", "", "", "1CC", ""]])
+
+    assert not caminho.exists()
 
 
 def test_reserva_com_solicitacao_especial_entra_com_observacao():
@@ -503,11 +611,8 @@ def test_erro_ao_ler_observacao_nao_elimina_reserva():
 def test_erro_ao_ler_voucher_registra_erro_sem_linha_invalida():
     robo = robo_com_corpos([CorpoFake(erro_voucher=RuntimeError("voucher indisponivel"))])
 
-    linhas = robo.extrair_dados_pagina_atual("12/07/2026")
-
-    assert linhas == []
-    assert robo.ultima_metrica_extracao["erros_extracao"] == 1
-    assert robo.ultima_metrica_extracao["registros_exportados"] == 0
+    with pytest.raises(RuntimeError, match="Erro real de extracao"):
+        robo.extrair_dados_pagina_atual("12/07/2026")
 
 
 def test_tbody_sem_celula_voucher_conta_como_bloco_estrutural():
@@ -523,18 +628,15 @@ def test_tbody_sem_celula_voucher_conta_como_bloco_estrutural():
 def test_tbody_com_voucher_e_falha_categoria_conta_como_erro_real():
     robo = robo_com_corpos([CorpoFake(voucher="112", erro_categoria=RuntimeError("categoria indisponivel"))])
 
-    linhas = robo.extrair_dados_pagina_atual("12/07/2026")
-
-    assert linhas == []
-    assert robo.ultima_metrica_extracao["blocos_estruturais_ignorados"] == 0
-    assert robo.ultima_metrica_extracao["erros_reais_extracao"] == 1
+    with pytest.raises(RuntimeError, match="Erro real de extracao"):
+        robo.extrair_dados_pagina_atual("12/07/2026")
 
 
 def test_metricas_totalizam_com_e_sem_solicitacao_descontando_erros():
     corpos = [
         CorpoFake(voucher="108", observacoes=["Berco"]),
         CorpoFake(voucher="109", observacoes=[]),
-        CorpoFake(erro_voucher=RuntimeError("voucher indisponivel")),
+        CorpoFake(erro_voucher=obs.NoSuchElementException("sem td7")),
     ]
     robo = robo_com_corpos(corpos)
 
@@ -546,7 +648,8 @@ def test_metricas_totalizam_com_e_sem_solicitacao_descontando_erros():
     assert metrica_extraida["registros_exportados"] == (
         metrica_extraida["com_solicitacao"] + metrica_extraida["sem_solicitacao"]
     )
-    assert metrica_extraida["erros_extracao"] == 1
+    assert metrica_extraida["erros_extracao"] == 0
+    assert metrica_extraida["blocos_estruturais_ignorados"] == 1
 
 
 def test_artifact_inclui_registros_com_observacao_vazia(tmp_path):
