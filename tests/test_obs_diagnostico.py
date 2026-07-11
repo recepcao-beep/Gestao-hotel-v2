@@ -1,3 +1,5 @@
+import inspect
+import json
 import sys
 from pathlib import Path
 
@@ -16,6 +18,7 @@ def robo_sem_chrome(**attrs):
     robo.dias = attrs.pop("dias", 2)
     robo.diagnostico = attrs.pop("diagnostico", False)
     robo.no_write = attrs.pop("no_write", False)
+    robo.exportar_linhas = attrs.pop("exportar_linhas", None)
     robo.metricas_por_data = []
     robo.ultima_metrica_extracao = None
     robo.salvar_screenshot = lambda nome: Path(nome)
@@ -234,3 +237,113 @@ def test_configurar_console_utf8_usa_replace_e_ignora_fluxo_sem_reconfigure(monk
     obs.configurar_console_utf8()
 
     assert stdout_fake.chamadas == [{"encoding": "utf-8", "errors": "replace"}]
+
+
+def linhas_exportacao():
+    return [
+        ["11/07/2026", "4055717", "300", "RES1", "BASE", "mimo"],
+        ["", "", "", "", "", ""],
+        ["12/07/2026", "4071561", "301", "", "BASE", "berco"],
+    ]
+
+
+def test_exportar_linhas_exige_no_write_ou_diagnostico(tmp_path):
+    robo = robo_sem_chrome(no_write=False, diagnostico=False)
+
+    with pytest.raises(RuntimeError, match="--exportar-linhas"):
+        robo.exportar_linhas_extraidas(tmp_path / "linhas.json", linhas_exportacao())
+
+
+def test_exportacao_contem_todas_as_linhas_validas(tmp_path):
+    robo = robo_sem_chrome(no_write=True, dias=2)
+    caminho = tmp_path / "obs_linhas_extraidas.json"
+
+    payload = robo.exportar_linhas_extraidas(caminho, linhas_exportacao())
+    relido = json.loads(caminho.read_text(encoding="utf-8"))
+
+    assert relido == payload
+    assert relido["linhas_extraidas"] == [linhas_exportacao()[0], linhas_exportacao()[2]]
+    assert relido["quantidade_registros"] == 2
+    assert relido["quantidade_por_data"] == {"11/07/2026": 1, "12/07/2026": 1}
+
+
+def test_exportacao_quantidade_e_hash_correspondem_as_linhas(tmp_path):
+    robo = robo_sem_chrome(no_write=True, dias=2)
+    caminho = tmp_path / "obs_linhas_extraidas.json"
+
+    payload = robo.exportar_linhas_extraidas(caminho, linhas_exportacao())
+
+    assert payload["quantidade_registros"] == len(payload["linhas_extraidas"])
+    assert payload["hash_linhas"] == obs.RoboHITS.hash_linhas(payload["linhas_extraidas"])
+
+
+def test_exportacao_substitui_tmp_pelo_final(tmp_path):
+    robo = robo_sem_chrome(no_write=True, dias=2)
+    caminho = tmp_path / "obs_linhas_extraidas.json"
+
+    robo.exportar_linhas_extraidas(caminho, linhas_exportacao())
+
+    assert caminho.exists()
+    assert not caminho.with_name(f"{caminho.name}.tmp").exists()
+
+
+def test_erro_de_escrita_nao_deixa_arquivo_final_invalido(tmp_path):
+    robo = robo_sem_chrome(no_write=True, dias=2)
+    caminho = tmp_path / "destino_como_diretorio"
+    caminho.mkdir()
+
+    with pytest.raises(Exception):
+        robo.exportar_linhas_extraidas(caminho, linhas_exportacao())
+
+    assert caminho.is_dir()
+    assert not caminho.with_name(f"{caminho.name}.tmp").exists()
+
+
+def test_exportacao_no_processamento_nao_chama_google_sheets_ou_webhook(tmp_path):
+    metricas = [
+        metrica("11/07/2026", "4055717", "mimo"),
+        metrica("12/07/2026", "4071561", "berco"),
+    ]
+    linhas = [
+        ["11/07/2026", "4055717", "300", "RES1", "BASE", "mimo"],
+        ["12/07/2026", "4071561", "301", "", "BASE", "berco"],
+    ]
+    caminho = tmp_path / "obs_linhas_extraidas.json"
+    robo = robo_sem_chrome(dias=2, no_write=True, exportar_linhas=str(caminho))
+    robo.mudar_data_para = lambda dias_para_frente, assinatura_anterior=None: (
+        metricas[dias_para_frente]["data_confirmada"],
+        f"sig-{dias_para_frente}",
+    )
+
+    def extrair(_data):
+        indice = len(robo.metricas_por_data)
+        robo.ultima_metrica_extracao = metricas[indice]
+        return [linhas[indice]]
+
+    robo.extrair_dados_pagina_atual = extrair
+    robo.abrir_aba_solicitacoes = lambda: pytest.fail("nao deveria abrir Google Sheets")
+    robo.acionar_webhook_e_validar = lambda *_: pytest.fail("nao deveria chamar webhook")
+
+    robo.processar_semana_e_salvar()
+
+    assert caminho.exists()
+
+
+def test_exportacao_nao_altera_funcoes_dos_filtros():
+    fonte = inspect.getsource(obs.RoboHITS.aplicar_filtros_e_obs)
+
+    assert "span[8]/one-translate" in fonte
+    assert "span[10]/one-translate" in fonte
+    assert "button[17]" in fonte
+    assert "aplicar_filtro_obrigatorio" not in fonte
+
+
+def test_campos_proibidos_nao_aparecem_no_json(tmp_path):
+    robo = robo_sem_chrome(no_write=True, dias=2)
+    caminho = tmp_path / "obs_linhas_extraidas.json"
+
+    payload = robo.exportar_linhas_extraidas(caminho, linhas_exportacao())
+    texto = json.dumps(payload, ensure_ascii=False)
+
+    for proibido in ["HITS_EMAIL", "HITS_PASSWORD", "client_secret", "token.json", "Bearer "]:
+        assert proibido not in texto

@@ -41,6 +41,7 @@ configure_fast_sleep()
 
 ID_PLANILHA = "1oMKFu9aobTP5sBuF0jjSR4In3Z6EcWfATCe_9ijNFXA"
 NOME_ABA_SOLICITACOES = "SOLICITAÇÕES"
+CABECALHOS_SOLICITACOES = ["Data", "Voucher", "Andar", "Vínculo", "Categoria", "Observação"]
 ARTIFACTS_DIR = Path("artifacts") / "verificacao_diaria"
 WEBHOOK_SOLICITACOES_URL = (
     "https://script.google.com/macros/s/"
@@ -48,10 +49,11 @@ WEBHOOK_SOLICITACOES_URL = (
 )
 
 class RoboHITS:
-    def __init__(self, dias=7, diagnostico=False, no_write=False):
+    def __init__(self, dias=7, diagnostico=False, no_write=False, exportar_linhas=None):
         self.dias = dias
         self.diagnostico = diagnostico
         self.no_write = no_write or diagnostico
+        self.exportar_linhas = exportar_linhas
         self.metricas_por_data = []
         self.ultima_metrica_extracao = None
         ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -139,6 +141,88 @@ class RoboHITS:
             ])
         txt_path.write_text("\n".join(linhas), encoding="utf-8")
         print(f"Relatorios gerados: {json_path} | {txt_path}")
+
+    def montar_linhas_para_planilha(self, dados_extraidos):
+        linhas = self.normalizar_linhas(dados_extraidos)
+        return [linha for linha in linhas if any(celula.strip() for celula in linha)]
+
+    def montar_payload_linhas_extraidas(self, linhas_planilha):
+        linhas = self.montar_linhas_para_planilha(linhas_planilha)
+        quantidade_por_data = {}
+        vouchers = set()
+        for linha in linhas:
+            data = linha[0]
+            voucher = linha[1]
+            quantidade_por_data[data] = quantidade_por_data.get(data, 0) + 1
+            if voucher:
+                vouchers.add(voucher)
+
+        datas = sorted(quantidade_por_data.keys())
+        return {
+            "schema_version": 1,
+            "gerado_em": datetime.datetime.now().isoformat(timespec="seconds"),
+            "periodo": {
+                "inicio": datas[0] if datas else "",
+                "fim": datas[-1] if datas else "",
+                "dias": self.dias,
+            },
+            "cabecalhos": CABECALHOS_SOLICITACOES,
+            "quantidade_registros": len(linhas),
+            "vouchers_unicos": len(vouchers),
+            "quantidade_por_data": dict(sorted(quantidade_por_data.items())),
+            "hash_linhas": self.hash_linhas(linhas),
+            "linhas_extraidas": linhas,
+        }
+
+    @staticmethod
+    def validar_payload_sem_credenciais(payload):
+        proibidos = (
+            "HITS_EMAIL",
+            "HITS_PASSWORD",
+            "BEGIN PRIVATE KEY",
+            "Bearer ",
+            "client_secret",
+            "token.json",
+            "cookie",
+            "authorization",
+        )
+        texto = json.dumps(payload, ensure_ascii=False)
+        for proibido in proibidos:
+            if proibido in texto:
+                raise RuntimeError(f"Campo proibido encontrado no artifact: {proibido}")
+
+    def escrever_json_atomico(self, caminho_final, payload):
+        caminho_final = Path(caminho_final)
+        caminho_final.parent.mkdir(parents=True, exist_ok=True)
+        caminho_tmp = caminho_final.with_name(f"{caminho_final.name}.tmp")
+
+        texto = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
+        try:
+            caminho_tmp.write_text(texto, encoding="utf-8")
+            relido = json.loads(caminho_tmp.read_text(encoding="utf-8"))
+            if relido.get("hash_linhas") != payload.get("hash_linhas"):
+                raise RuntimeError("JSON temporário relido com hash divergente.")
+            caminho_tmp.replace(caminho_final)
+        except Exception:
+            if caminho_tmp.exists():
+                try:
+                    caminho_tmp.unlink()
+                except OSError:
+                    pass
+            raise
+        return caminho_final
+
+    def exportar_linhas_extraidas(self, caminho, linhas_planilha):
+        if not self.no_write and not self.diagnostico:
+            raise RuntimeError("--exportar-linhas só pode ser usado com --diagnostico ou --no-write.")
+
+        payload = self.montar_payload_linhas_extraidas(linhas_planilha)
+        self.validar_payload_sem_credenciais(payload)
+        caminho_final = self.escrever_json_atomico(caminho, payload)
+        print(f"Linhas completas exportadas: {caminho_final}")
+        print(f"Quantidade exportada: {payload['quantidade_registros']}")
+        print(f"Hash das linhas exportadas: {payload['hash_linhas']}")
+        return payload
 
     def force_click(self, elemento):
         try:
@@ -1100,6 +1184,9 @@ class RoboHITS:
             self.validar_datas_extraidas()
             self.validar_repeticao_suspeita()
             self.salvar_relatorio_diagnostico()
+            linhas_para_planilha = self.montar_linhas_para_planilha(dados_totais_semana)
+            if self.exportar_linhas:
+                self.exportar_linhas_extraidas(self.exportar_linhas, linhas_para_planilha)
 
             if not dados_totais_semana:
                 print("⚠️ Nenhuma observação especial relevante na semana.")
@@ -1134,9 +1221,10 @@ class RoboHITS:
             aba.batch_clear(["A2:F2000"])
             
             print("📝 Escrevendo os novos dados atualizados na planilha...")
-            aba.update(values=dados_totais_semana, range_name="A2", value_input_option='USER_ENTERED')
-            self.reler_e_validar_solicitacoes(aba, dados_totais_semana, "apos_escrita")
-            self.acionar_webhook_e_validar(aba, dados_totais_semana)
+            linhas_para_planilha = self.montar_linhas_para_planilha(dados_totais_semana)
+            aba.update(values=linhas_para_planilha, range_name="A2", value_input_option='USER_ENTERED')
+            self.reler_e_validar_solicitacoes(aba, linhas_para_planilha, "apos_escrita")
+            self.acionar_webhook_e_validar(aba, linhas_para_planilha)
             print("✅ SUCESSO: SOLICITAÇÕES atualizada, relida e validada.")
 
         except Exception as e:
@@ -1150,6 +1238,7 @@ def parse_args():
     parser.add_argument("--dias", type=int, default=7, help="Quantidade de dias para extrair.")
     parser.add_argument("--no-write", action="store_true", help="Nao limpa, nao escreve e nao chama webhook.")
     parser.add_argument("--headless", choices=["0", "1"], help="Sobrescreve ROBOT_HEADLESS para esta execucao.")
+    parser.add_argument("--exportar-linhas", help="Exporta as linhas completas extraidas para um JSON local.")
     return parser.parse_args()
 
 
@@ -1157,10 +1246,17 @@ if __name__ == "__main__":
     args = parse_args()
     if args.dias < 1:
         raise SystemExit("--dias deve ser maior ou igual a 1.")
+    if args.exportar_linhas and not (args.diagnostico or args.no_write):
+        raise RuntimeError("--exportar-linhas só pode ser usado com --diagnostico ou --no-write.")
     if args.headless is not None:
         os.environ["ROBOT_HEADLESS"] = args.headless
 
-    robo = RoboHITS(dias=args.dias, diagnostico=args.diagnostico, no_write=args.no_write)
+    robo = RoboHITS(
+        dias=args.dias,
+        diagnostico=args.diagnostico,
+        no_write=args.no_write,
+        exportar_linhas=args.exportar_linhas,
+    )
     try:
         robo.realizar_login()
         robo.navegar_ate_relatorio()
