@@ -355,13 +355,23 @@ class ElementoFake:
 
 
 class CorpoFake:
-    def __init__(self, voucher="100", pax="1/0", categoria="101 1CC", observacoes=None, erro_obs=None, erro_voucher=None):
+    def __init__(
+        self,
+        voucher="100",
+        pax="1/0",
+        categoria="101 1CC",
+        observacoes=None,
+        erro_obs=None,
+        erro_voucher=None,
+        erro_categoria=None,
+    ):
         self.voucher = voucher
         self.pax = pax
         self.categoria = categoria
         self.observacoes = observacoes or []
         self.erro_obs = erro_obs
         self.erro_voucher = erro_voucher
+        self.erro_categoria = erro_categoria
 
     @property
     def text(self):
@@ -376,6 +386,8 @@ class CorpoFake:
         if xpath == "./tr[1]/td[4]":
             return ElementoFake(self.pax)
         if xpath == "./tr[1]/td[6]":
+            if self.erro_categoria:
+                raise self.erro_categoria
             return ElementoFake(self.categoria)
         raise LookupError(xpath)
 
@@ -461,17 +473,22 @@ def test_categoria_identificada_e_observacao_vazia_exporta_registro():
     assert robo.ultima_metrica_extracao["categorias_preenchidas"] == 1
 
 
-def test_voucher_duplicado_exporta_uma_linha_e_contabiliza_duplicado():
+def test_voucher_duplicado_exporta_duas_linhas_e_contabiliza_repeticao():
     corpos = [
         CorpoFake(voucher="106", observacoes=["Berco"]),
-        CorpoFake(voucher="106", observacoes=["Berco"]),
+        CorpoFake(voucher="106", categoria="202 2CC", observacoes=["Berco"]),
     ]
     robo = robo_com_corpos(corpos)
 
     linhas = robo.extrair_dados_pagina_atual("12/07/2026")
 
-    assert len(linhas) == 1
-    assert robo.ultima_metrica_extracao["duplicados_ignorados"] == 1
+    assert linhas == [
+        ["12/07/2026", "106", "", "", "1CC", "BERCO"],
+        ["12/07/2026", "106", "", "", "2CC", "BERCO"],
+    ]
+    assert robo.ultima_metrica_extracao["registros_exportados"] == 2
+    assert robo.ultima_metrica_extracao["vouchers_unicos"] == 1
+    assert robo.ultima_metrica_extracao["ocorrencias_voucher_repetido"] == 1
 
 
 def test_erro_ao_ler_observacao_nao_elimina_reserva():
@@ -491,6 +508,26 @@ def test_erro_ao_ler_voucher_registra_erro_sem_linha_invalida():
     assert linhas == []
     assert robo.ultima_metrica_extracao["erros_extracao"] == 1
     assert robo.ultima_metrica_extracao["registros_exportados"] == 0
+
+
+def test_tbody_sem_celula_voucher_conta_como_bloco_estrutural():
+    robo = robo_com_corpos([CorpoFake(erro_voucher=obs.NoSuchElementException("sem td7"))])
+
+    linhas = robo.extrair_dados_pagina_atual("12/07/2026")
+
+    assert linhas == []
+    assert robo.ultima_metrica_extracao["blocos_estruturais_ignorados"] == 1
+    assert robo.ultima_metrica_extracao["erros_reais_extracao"] == 0
+
+
+def test_tbody_com_voucher_e_falha_categoria_conta_como_erro_real():
+    robo = robo_com_corpos([CorpoFake(voucher="112", erro_categoria=RuntimeError("categoria indisponivel"))])
+
+    linhas = robo.extrair_dados_pagina_atual("12/07/2026")
+
+    assert linhas == []
+    assert robo.ultima_metrica_extracao["blocos_estruturais_ignorados"] == 0
+    assert robo.ultima_metrica_extracao["erros_reais_extracao"] == 1
 
 
 def test_metricas_totalizam_com_e_sem_solicitacao_descontando_erros():
@@ -526,7 +563,11 @@ def test_artifact_inclui_registros_com_observacao_vazia(tmp_path):
             "registros_exportados": 1,
             "com_solicitacao": 0,
             "sem_solicitacao": 1,
+            "vouchers_unicos": 1,
+            "ocorrencias_voucher_repetido": 0,
             "erros_extracao": 0,
+            "erros_reais_extracao": 0,
+            "blocos_estruturais_ignorados": 0,
         }
     ]
 
@@ -539,3 +580,88 @@ def test_hash_inclui_linhas_com_ultimo_campo_vazio():
     assert obs.RoboHITS.hash_linhas(com_vazio) != obs.RoboHITS.hash_linhas(
         [["12/07/2026", "111", "", "", "1CC", "late checkout"]]
     )
+
+
+def test_quatro_blocos_com_mesmo_voucher_geram_quatro_linhas():
+    corpos = [CorpoFake(voucher="200", categoria=f"{andar} 1CC") for andar in ["101", "102", "103", "104"]]
+    robo = robo_com_corpos(corpos)
+
+    linhas = robo.extrair_dados_pagina_atual("12/07/2026")
+
+    assert len(linhas) == 4
+    assert [linha[1] for linha in linhas] == ["200", "200", "200", "200"]
+    assert robo.ultima_metrica_extracao["vouchers_unicos"] == 1
+    assert robo.ultima_metrica_extracao["ocorrencias_voucher_repetido"] == 3
+
+
+def test_mesmo_voucher_com_categorias_diferentes_preserva_ambas_as_linhas():
+    robo = robo_com_corpos([
+        CorpoFake(voucher="201", categoria="101 1CC"),
+        CorpoFake(voucher="201", categoria="202 2CSS"),
+    ])
+
+    linhas = robo.extrair_dados_pagina_atual("12/07/2026")
+
+    assert [linha[4] for linha in linhas] == ["1CC", "2CC"]
+    assert len(linhas) == 2
+
+
+def test_mesmo_voucher_com_e_sem_observacao_preserva_ambas_as_linhas():
+    robo = robo_com_corpos([
+        CorpoFake(voucher="202", observacoes=["Berco"]),
+        CorpoFake(voucher="202", observacoes=[]),
+    ])
+
+    linhas = robo.extrair_dados_pagina_atual("12/07/2026")
+
+    assert linhas == [
+        ["12/07/2026", "202", "", "", "1CC", "BERCO"],
+        ["12/07/2026", "202", "", "", "1CC", ""],
+    ]
+    assert robo.ultima_metrica_extracao["com_solicitacao"] == 1
+    assert robo.ultima_metrica_extracao["sem_solicitacao"] == 1
+
+
+def test_metricas_24_registros_21_vouchers_unicos_e_3_repeticoes():
+    corpos = [CorpoFake(voucher=f"{300 + indice}") for indice in range(21)]
+    corpos.extend([CorpoFake(voucher="300"), CorpoFake(voucher="301"), CorpoFake(voucher="302")])
+    robo = robo_com_corpos(corpos)
+
+    linhas = robo.extrair_dados_pagina_atual("11/07/2026")
+
+    assert len(linhas) == 24
+    assert robo.ultima_metrica_extracao["registros_exportados"] == 24
+    assert robo.ultima_metrica_extracao["vouchers_unicos"] == 21
+    assert robo.ultima_metrica_extracao["ocorrencias_voucher_repetido"] == 3
+
+
+def test_inclusao_nao_depende_de_voucher_ja_processado():
+    fonte = inspect.getsource(obs.RoboHITS.extrair_dados_pagina_atual)
+
+    assert "vouchers_processados" not in fonte
+    assert "voucher in" not in fonte
+
+
+def test_artifact_aceita_vouchers_repetidos(tmp_path):
+    robo = robo_sem_chrome(no_write=True, dias=1)
+    caminho = tmp_path / "obs_linhas_extraidas.json"
+    linhas = [
+        ["12/07/2026", "400", "", "", "1CC", ""],
+        ["12/07/2026", "400", "", "", "2CC", ""],
+    ]
+
+    payload = robo.exportar_linhas_extraidas(caminho, linhas)
+
+    assert payload["quantidade_registros"] == 2
+    assert payload["vouchers_unicos"] == 1
+    assert payload["metricas_por_data"][0]["ocorrencias_voucher_repetido"] == 1
+
+
+def test_hash_considera_todas_as_linhas_com_vouchers_repetidos():
+    uma_linha = [["12/07/2026", "401", "", "", "1CC", ""]]
+    duas_linhas_repetidas = [
+        ["12/07/2026", "401", "", "", "1CC", ""],
+        ["12/07/2026", "401", "", "", "1CC", ""],
+    ]
+
+    assert obs.RoboHITS.hash_linhas(uma_linha) != obs.RoboHITS.hash_linhas(duas_linhas_repetidas)

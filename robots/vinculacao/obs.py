@@ -22,6 +22,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.keys import Keys
+from selenium.common.exceptions import NoSuchElementException
 from speed import configure_fast_sleep
 
 
@@ -138,10 +139,11 @@ class RoboHITS:
                 f"Com solicitacao especial: {metrica.get('com_solicitacao', 0)}",
                 f"Sem solicitacao especial: {metrica.get('sem_solicitacao', 0)}",
                 f"Vouchers unicos: {metrica['vouchers_unicos']}",
+                f"Ocorrencias de voucher repetido: {metrica.get('ocorrencias_voucher_repetido', 0)}",
                 f"Categorias preenchidas: {metrica.get('categorias_preenchidas', 0)}",
                 f"Categorias ausentes: {metrica.get('categorias_ausentes', 0)}",
-                f"Erros de extracao: {metrica.get('erros_extracao', 0)}",
-                f"Duplicados ignorados: {metrica.get('duplicados_ignorados', 0)}",
+                f"Blocos estruturais ignorados: {metrica.get('blocos_estruturais_ignorados', 0)}",
+                f"Erros reais de extracao: {metrica.get('erros_reais_extracao', metrica.get('erros_extracao', 0))}",
                 f"Hash: {metrica['hash']}",
                 f"Primeiros vouchers: {', '.join(metrica['primeiros_vouchers'])}",
                 "",
@@ -171,22 +173,45 @@ class RoboHITS:
                     "registros_exportados": 0,
                     "com_solicitacao": 0,
                     "sem_solicitacao": 0,
+                    "vouchers_unicos": 0,
+                    "ocorrencias_voucher_repetido": 0,
+                    "_vouchers": set(),
                     "erros_extracao": 0,
+                    "erros_reais_extracao": 0,
+                    "blocos_estruturais_ignorados": 0,
                 },
             )
             metrica["registros_exportados"] += 1
+            if voucher:
+                metrica["_vouchers"].add(voucher)
             if len(linha) > 5 and str(linha[5]).strip():
                 metrica["com_solicitacao"] += 1
             else:
                 metrica["sem_solicitacao"] += 1
 
         erros_por_data = {
-            metrica.get("data_confirmada") or metrica.get("data_solicitada"): metrica.get("erros_extracao", 0)
+            metrica.get("data_confirmada") or metrica.get("data_solicitada"): metrica
             for metrica in self.metricas_por_data
         }
-        for data, erros in erros_por_data.items():
+        for data, metrica_extracao in erros_por_data.items():
             if data in metricas_por_data:
-                metricas_por_data[data]["erros_extracao"] = erros
+                metricas_por_data[data]["erros_extracao"] = metrica_extracao.get("erros_extracao", 0)
+                metricas_por_data[data]["erros_reais_extracao"] = metrica_extracao.get(
+                    "erros_reais_extracao", metrica_extracao.get("erros_extracao", 0)
+                )
+                metricas_por_data[data]["blocos_estruturais_ignorados"] = metrica_extracao.get(
+                    "blocos_estruturais_ignorados", 0
+                )
+
+        metricas_serializadas = []
+        for data in sorted(metricas_por_data):
+            metrica = metricas_por_data[data]
+            metrica["vouchers_unicos"] = len(metrica["_vouchers"])
+            metrica["ocorrencias_voucher_repetido"] = (
+                metrica["registros_exportados"] - metrica["vouchers_unicos"]
+            )
+            metrica.pop("_vouchers", None)
+            metricas_serializadas.append(metrica)
 
         datas = sorted(quantidade_por_data.keys())
         return {
@@ -201,7 +226,7 @@ class RoboHITS:
             "quantidade_registros": len(linhas),
             "vouchers_unicos": len(vouchers),
             "quantidade_por_data": dict(sorted(quantidade_por_data.items())),
-            "metricas_por_data": [metricas_por_data[data] for data in sorted(metricas_por_data)],
+            "metricas_por_data": metricas_serializadas,
             "hash_linhas": self.hash_linhas(linhas),
             "linhas_extraidas": linhas,
         }
@@ -850,13 +875,12 @@ class RoboHITS:
     def extrair_dados_pagina_atual(self, data_atual_loop):
         xpath_tbodies = "//*[@id='arrivalsDeparturesReport']//table[1]/tbody"
         pedidos_do_dia = []
-        vouchers_processados = set()
         vouchers_brutos = []
         textos_brutos = []
         linhas_brutas = 0
         erros_extracao = []
+        blocos_estruturais_ignorados = 0
         blocos_processados = 0
-        duplicados_ignorados = 0
         com_solicitacao = 0
         sem_solicitacao = 0
         categorias_preenchidas = 0
@@ -890,14 +914,14 @@ class RoboHITS:
                         linhas_brutas += len([linha for linha in texto_corpo.splitlines() if linha.strip()])
 
                     etapa = "voucher"
-                    voucher = corpo.find_element(By.XPATH, "./tr[1]/td[7]").text.strip()
+                    try:
+                        voucher = corpo.find_element(By.XPATH, "./tr[1]/td[7]").text.strip()
+                    except NoSuchElementException:
+                        blocos_estruturais_ignorados += 1
+                        continue
                     if not voucher:
                         raise ValueError("voucher vazio")
                     vouchers_brutos.append(voucher)
-
-                    if voucher in vouchers_processados:
-                        duplicados_ignorados += 1
-                        continue
                     
                     etapa = "pax"
                     pax_raw = corpo.find_element(By.XPATH, "./tr[1]/td[4]").text.strip()
@@ -938,10 +962,10 @@ class RoboHITS:
                     else:
                         sem_solicitacao += 1
                     pedidos_do_dia.append([data_atual_loop, voucher, andar, vinculo, cat_verificada, texto_limpo])
-                    vouchers_processados.add(voucher)
                 except Exception as erro:
                     registrar_erro(indice, etapa, erro, voucher)
         vouchers_ordenados = sorted(set(vouchers_brutos))
+        ocorrencias_voucher_repetido = len(pedidos_do_dia) - len(vouchers_ordenados)
         observacoes_sem_data = [linha[1:] for linha in pedidos_do_dia]
         assinatura_payload = {
             "vouchers": vouchers_ordenados,
@@ -956,13 +980,15 @@ class RoboHITS:
             "linhas_brutas": linhas_brutas,
             "vouchers_unicos": len(vouchers_ordenados),
             "registros_exportados": len(pedidos_do_dia),
+            "ocorrencias_voucher_repetido": ocorrencias_voucher_repetido,
             "com_solicitacao": com_solicitacao,
             "sem_solicitacao": sem_solicitacao,
             "categorias_preenchidas": categorias_preenchidas,
             "categorias_ausentes": categorias_ausentes,
             "erros_extracao": len(erros_extracao),
+            "erros_reais_extracao": len(erros_extracao),
+            "blocos_estruturais_ignorados": blocos_estruturais_ignorados,
             "erros": erros_extracao,
-            "duplicados_ignorados": duplicados_ignorados,
             "vouchers": vouchers_ordenados,
             "textos": sorted(textos_brutos),
             "hash": self.hash_json(assinatura_payload),
@@ -1264,9 +1290,10 @@ class RoboHITS:
                 print(f"Com solicitação especial: {metrica.get('com_solicitacao', 0)}")
                 print(f"Sem solicitação especial: {metrica.get('sem_solicitacao', 0)}")
                 print(f"Vouchers únicos: {metrica['vouchers_unicos']}")
+                print(f"Ocorrências de voucher repetido: {metrica.get('ocorrencias_voucher_repetido', 0)}")
                 print(f"Categorias preenchidas: {metrica.get('categorias_preenchidas', 0)}")
-                print(f"Erros de extração: {metrica.get('erros_extracao', 0)}")
-                print(f"Duplicados ignorados: {metrica.get('duplicados_ignorados', 0)}")
+                print(f"Blocos estruturais ignorados: {metrica.get('blocos_estruturais_ignorados', 0)}")
+                print(f"Erros reais de extração: {metrica.get('erros_reais_extracao', metrica.get('erros_extracao', 0))}")
                 print(f"Hash: {metrica['hash']}")
                 print(f"Primeiros vouchers: {', '.join(metrica['primeiros_vouchers'])}")
                 
