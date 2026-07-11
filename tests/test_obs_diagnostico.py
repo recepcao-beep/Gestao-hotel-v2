@@ -1,0 +1,236 @@
+import sys
+from pathlib import Path
+
+import pytest
+
+
+ROOT = Path(__file__).resolve().parents[1]
+ROBOTS_DIR = ROOT / "robots" / "vinculacao"
+sys.path.insert(0, str(ROBOTS_DIR))
+
+import obs  # noqa: E402
+
+
+def robo_sem_chrome(**attrs):
+    robo = object.__new__(obs.RoboHITS)
+    robo.dias = attrs.pop("dias", 2)
+    robo.diagnostico = attrs.pop("diagnostico", False)
+    robo.no_write = attrs.pop("no_write", False)
+    robo.metricas_por_data = []
+    robo.ultima_metrica_extracao = None
+    robo.salvar_screenshot = lambda nome: Path(nome)
+    robo.salvar_relatorio_diagnostico = lambda *args, **kwargs: None
+    for nome, valor in attrs.items():
+        setattr(robo, nome, valor)
+    return robo
+
+
+def metrica(data, voucher="100", texto="obs", observacoes=1):
+    payload = {
+        "vouchers": [voucher] if voucher else [],
+        "textos": [texto] if texto else [],
+        "observacoes": [[voucher, "", "", "", texto]] if observacoes else [],
+    }
+    return {
+        "data_solicitada": data,
+        "data_confirmada": data,
+        "linhas_brutas": 1 if texto else 0,
+        "vouchers_unicos": 1 if voucher else 0,
+        "observacoes_validas": observacoes,
+        "vouchers": [voucher] if voucher else [],
+        "textos": [texto] if texto else [],
+        "hash": obs.RoboHITS.hash_json(payload),
+        "primeiros_vouchers": [voucher] if voucher else [],
+    }
+
+
+def test_duas_datas_diferentes_com_conteudos_diferentes_validam():
+    robo = robo_sem_chrome()
+    robo.metricas_por_data = [
+        metrica("10/07/2026", "100", "mimo"),
+        metrica("11/07/2026", "101", "berco"),
+    ]
+
+    robo.validar_datas_extraidas()
+    robo.validar_repeticao_suspeita()
+
+
+def test_repeticao_suspeita_faz_nova_tentativa_e_falha_se_persistir():
+    chamadas = []
+    metricas = [
+        metrica("10/07/2026", "100", "mimo"),
+        metrica("11/07/2026", "100", "mimo"),
+        metrica("11/07/2026", "100", "mimo"),
+    ]
+
+    def mudar_data_para(dias_para_frente, assinatura_anterior=None):
+        chamadas.append(dias_para_frente)
+        return metricas[len(chamadas) - 1]["data_confirmada"], f"sig-{len(chamadas)}"
+
+    def extrair(_data):
+        robo.ultima_metrica_extracao = metricas[len(chamadas) - 1]
+        return [["linha"]]
+
+    robo = robo_sem_chrome(dias=2, no_write=True)
+    robo.mudar_data_para = mudar_data_para
+    robo.extrair_dados_pagina_atual = extrair
+
+    with pytest.raises(RuntimeError, match="Repetição suspeita confirmada"):
+        robo.processar_semana_e_salvar()
+
+    assert chamadas == [0, 1, 1]
+
+
+def test_duas_datas_sem_observacoes_nao_sao_repeticao_suspeita():
+    robo = robo_sem_chrome()
+    robo.metricas_por_data = [
+        metrica("10/07/2026", "", "", observacoes=0),
+        metrica("11/07/2026", "", "", observacoes=0),
+    ]
+
+    robo.validar_repeticao_suspeita()
+
+
+def test_primeiro_filtro_falhou_lanca_runtime_error():
+    robo = robo_sem_chrome()
+    robo.clicar_com_espera = lambda xpath: False
+
+    with pytest.raises(RuntimeError, match="Primeiro filtro obrigatório"):
+        robo.aplicar_filtros_e_obs()
+
+
+def test_segundo_filtro_falhou_lanca_runtime_error():
+    respostas = iter([True, True, True, False])
+    robo = robo_sem_chrome()
+    robo.clicar_com_espera = lambda xpath: next(respostas)
+
+    with pytest.raises(RuntimeError, match="Segundo filtro obrigatório"):
+        robo.aplicar_filtros_e_obs()
+
+
+def test_data_esperada_diferente_da_exibida_lanca_runtime_error():
+    robo = robo_sem_chrome()
+    robo.texto_filtro_data_atual = lambda: "11/07/2026 - 11/07/2026"
+
+    with pytest.raises(RuntimeError, match="não confere"):
+        robo.confirmar_data_aplicada("10/07/2026")
+
+
+def test_data_esperada_igual_a_exibida_continua():
+    robo = robo_sem_chrome()
+    robo.texto_filtro_data_atual = lambda: "10/07/2026 - 10/07/2026"
+
+    assert robo.confirmar_data_aplicada("10/07/2026") == "10/07/2026"
+
+
+def test_hash_normaliza_entrada_e_diferencia_conteudo():
+    linhas_a = [[" 10/07/2026 ", "100", None]]
+    linhas_b = [["10/07/2026", "100", ""]]
+    linhas_c = [["10/07/2026", "101", ""]]
+
+    assert obs.RoboHITS.hash_linhas(linhas_a) == obs.RoboHITS.hash_linhas(linhas_b)
+    assert obs.RoboHITS.hash_linhas(linhas_b) != obs.RoboHITS.hash_linhas(linhas_c)
+
+
+def test_no_write_nao_chama_clear_update_ou_webhook():
+    metricas = [
+        metrica("10/07/2026", "100", "mimo"),
+        metrica("11/07/2026", "101", "berco"),
+    ]
+
+    def mudar_data_para(dias_para_frente, assinatura_anterior=None):
+        return metricas[dias_para_frente]["data_confirmada"], f"sig-{dias_para_frente}"
+
+    def extrair(_data):
+        indice = len(robo.metricas_por_data)
+        robo.ultima_metrica_extracao = metricas[indice]
+        return [[metricas[indice]["data_confirmada"], "100", "", "", "", "obs"]]
+
+    robo = robo_sem_chrome(dias=2, no_write=True)
+    robo.mudar_data_para = mudar_data_para
+    robo.extrair_dados_pagina_atual = extrair
+    robo.abrir_aba_solicitacoes = lambda: pytest.fail("nao deveria abrir a planilha")
+    robo.acionar_webhook_e_validar = lambda *_: pytest.fail("nao deveria chamar webhook")
+
+    robo.processar_semana_e_salvar()
+
+
+class AbaFake:
+    def __init__(self, relido):
+        self.relido = relido
+
+    def get(self, faixa):
+        return self.relido
+
+
+def test_escrita_releitura_igual_valida():
+    robo = robo_sem_chrome()
+    dados = [["10/07/2026", "100", "", "", "", "mimo"]]
+
+    robo.reler_e_validar_solicitacoes(AbaFake(dados), dados, "teste")
+
+
+def test_escrita_releitura_diferente_lanca_runtime_error():
+    robo = robo_sem_chrome()
+    dados = [["10/07/2026", "100", "", "", "", "mimo"]]
+    relido = [["10/07/2026", "999", "", "", "", "mimo"]]
+
+    with pytest.raises(RuntimeError, match="não conferem"):
+        robo.reler_e_validar_solicitacoes(AbaFake(relido), dados, "teste")
+
+
+def test_falha_no_webhook_propaga_excecao(monkeypatch):
+    robo = robo_sem_chrome()
+
+    def falha(*args, **kwargs):
+        raise RuntimeError("webhook caiu")
+
+    monkeypatch.setattr(obs.requests, "get", falha)
+
+    with pytest.raises(RuntimeError, match="webhook caiu"):
+        robo.acionar_webhook_e_validar(AbaFake([]), [])
+
+
+def test_status_http_erro_propaga_raise_for_status(monkeypatch):
+    robo = robo_sem_chrome()
+
+    class Resposta:
+        status_code = 500
+        text = "erro"
+
+        def raise_for_status(self):
+            raise RuntimeError("500")
+
+    monkeypatch.setattr(obs.requests, "get", lambda *args, **kwargs: Resposta())
+
+    with pytest.raises(RuntimeError, match="500"):
+        robo.acionar_webhook_e_validar(AbaFake([]), [])
+
+
+def test_excecao_critica_nao_vira_apenas_print():
+    robo = robo_sem_chrome(dias=1)
+    robo.mudar_data_para = lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("falha critica"))
+
+    with pytest.raises(RuntimeError, match="falha critica"):
+        robo.processar_semana_e_salvar()
+
+
+def test_configurar_console_utf8_usa_replace_e_ignora_fluxo_sem_reconfigure(monkeypatch):
+    class FluxoLimitado:
+        def __init__(self):
+            self.chamadas = []
+
+        def reconfigure(self, **kwargs):
+            self.chamadas.append(kwargs)
+
+    class FluxoSemReconfigure:
+        pass
+
+    stdout_fake = FluxoLimitado()
+    stderr_fake = FluxoSemReconfigure()
+    monkeypatch.setattr(obs.sys, "stdout", stdout_fake)
+    monkeypatch.setattr(obs.sys, "stderr", stderr_fake)
+
+    obs.configurar_console_utf8()
+
+    assert stdout_fake.chamadas == [{"encoding": "utf-8", "errors": "replace"}]

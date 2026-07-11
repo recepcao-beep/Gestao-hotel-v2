@@ -9,6 +9,8 @@ lerna-debug.log*
 
 node_modules
 .npm-cache
+.venv-verificacao/
+artifacts/
 dist
 dist-ssr
 *.local
@@ -17,6 +19,9 @@ robot/token.json
 robot/Downloads_Hospedes/
 robot/debug/
 robot/__pycache__/
+__pycache__/
+*.py[cod]
+.pytest_cache/
 
 # Editor directories and files
 .vscode/*
