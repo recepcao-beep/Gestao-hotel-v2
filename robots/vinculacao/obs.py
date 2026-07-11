@@ -3,6 +3,11 @@ import re
 import os
 import random
 import datetime
+import argparse
+import hashlib
+import json
+import sys
+from pathlib import Path
 import gspread
 import requests
 from google.auth.transport.requests import Request
@@ -17,14 +22,42 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.keys import Keys
+from selenium.common.exceptions import NoSuchElementException
 from speed import configure_fast_sleep
+
+
+def configurar_console_utf8():
+    for fluxo in (sys.stdout, sys.stderr):
+        try:
+            fluxo.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError, OSError):
+            pass
+
+
+configurar_console_utf8()
 
 os.environ.setdefault("ROBOT_SLEEP_FACTOR", "0.60")
 os.environ.setdefault("ROBOT_SLEEP_MAX_SECONDS", "6")
 configure_fast_sleep()
 
+ID_PLANILHA = "1oMKFu9aobTP5sBuF0jjSR4In3Z6EcWfATCe_9ijNFXA"
+NOME_ABA_SOLICITACOES = "SOLICITAÇÕES"
+CABECALHOS_SOLICITACOES = ["Data", "Voucher", "Andar", "Vínculo", "Categoria", "Observação"]
+ARTIFACTS_DIR = Path("artifacts") / "verificacao_diaria"
+WEBHOOK_SOLICITACOES_URL = (
+    "https://script.google.com/macros/s/"
+    "AKfycbwcfhQySj2OoJVSzaWnjMCHZzfHPCQHc5fZHKt5sLmhJ7wTtD24SvR-kk-at7lFo_31EA/exec"
+)
+
 class RoboHITS:
-    def __init__(self):
+    def __init__(self, dias=7, diagnostico=False, no_write=False, exportar_linhas=None):
+        self.dias = dias
+        self.diagnostico = diagnostico
+        self.no_write = no_write or diagnostico
+        self.exportar_linhas = exportar_linhas
+        self.metricas_por_data = []
+        self.ultima_metrica_extracao = None
+        ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
         print("🤖 Inicializando Robô HITS - Previsão de 7 Dias (Com Busca Avançada de Vouchers)...")
         chrome_options = Options()
         if os.environ.get("ROBOT_HEADLESS", "1") != "0":
@@ -37,6 +70,216 @@ class RoboHITS:
         
         self.driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
         self.wait = WebDriverWait(self.driver, 30)
+
+    def salvar_screenshot(self, nome):
+        caminho = ARTIFACTS_DIR / nome
+        try:
+            self.driver.save_screenshot(str(caminho))
+            print(f"Screenshot salvo: {caminho}")
+        except Exception as erro:
+            print(f"Falha ao salvar screenshot {caminho}: {erro}")
+        return caminho
+
+    @staticmethod
+    def hash_json(valor):
+        texto = json.dumps(valor, ensure_ascii=False, sort_keys=True)
+        return hashlib.sha256(texto.encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def normalizar_linha(linha, colunas=6):
+        valores = [str(celula or "").strip() for celula in linha[:colunas]]
+        return valores + [""] * (colunas - len(valores))
+
+    @classmethod
+    def normalizar_linhas(cls, linhas, colunas=6):
+        return [cls.normalizar_linha(linha, colunas) for linha in linhas]
+
+    @classmethod
+    def hash_linhas(cls, linhas):
+        return cls.hash_json(cls.normalizar_linhas(linhas))
+
+    @staticmethod
+    def normalizar_data(texto):
+        match = re.search(r"\b(\d{1,2})/(\d{1,2})/(\d{2,4})\b", str(texto or ""))
+        if not match:
+            return ""
+        dia, mes, ano = match.groups()
+        ano_int = int(ano)
+        if ano_int < 100:
+            ano_int += 2000
+        try:
+            data = datetime.date(ano_int, int(mes), int(dia))
+            return data.strftime("%d/%m/%Y")
+        except ValueError:
+            return ""
+
+    def salvar_relatorio_diagnostico(self, nome_base="obs_diagnostico", extra=None):
+        payload = {
+            "diagnostico": self.diagnostico,
+            "no_write": self.no_write,
+            "dias": self.dias,
+            "gerado_em": datetime.datetime.now().isoformat(timespec="seconds"),
+            "metricas": self.metricas_por_data,
+        }
+        if extra:
+            payload.update(extra)
+
+        json_path = ARTIFACTS_DIR / f"{nome_base}.json"
+        txt_path = ARTIFACTS_DIR / f"{nome_base}.txt"
+        json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        linhas = []
+        for metrica in self.metricas_por_data:
+            linhas.extend([
+                f"Data solicitada: {metrica['data_solicitada']}",
+                f"Data confirmada: {metrica['data_confirmada']}",
+                f"Reservas encontradas: {metrica.get('blocos_encontrados', metrica.get('linhas_brutas', 0))}",
+                f"Blocos processados: {metrica.get('blocos_processados', 0)}",
+                f"Registros exportados: {metrica.get('registros_exportados', metrica.get('observacoes_validas', 0))}",
+                f"Com solicitacao especial: {metrica.get('com_solicitacao', 0)}",
+                f"Sem solicitacao especial: {metrica.get('sem_solicitacao', 0)}",
+                f"Vouchers unicos: {metrica['vouchers_unicos']}",
+                f"Ocorrencias de voucher repetido: {metrica.get('ocorrencias_voucher_repetido', 0)}",
+                f"Categorias preenchidas: {metrica.get('categorias_preenchidas', 0)}",
+                f"Categorias ausentes: {metrica.get('categorias_ausentes', 0)}",
+                f"Blocos estruturais ignorados: {metrica.get('blocos_estruturais_ignorados', 0)}",
+                f"Erros reais de extracao: {metrica.get('erros_reais_extracao', metrica.get('erros_extracao', 0))}",
+                f"Hash: {metrica['hash']}",
+                f"Primeiros vouchers: {', '.join(metrica['primeiros_vouchers'])}",
+                "",
+            ])
+        txt_path.write_text("\n".join(linhas), encoding="utf-8")
+        print(f"Relatorios gerados: {json_path} | {txt_path}")
+
+    def montar_linhas_para_planilha(self, dados_extraidos):
+        linhas = self.normalizar_linhas(dados_extraidos)
+        return [linha for linha in linhas if any(celula.strip() for celula in linha)]
+
+    def montar_payload_linhas_extraidas(self, linhas_planilha):
+        linhas = self.montar_linhas_para_planilha(linhas_planilha)
+        quantidade_por_data = {}
+        vouchers = set()
+        metricas_por_data = {}
+        for linha in linhas:
+            data = linha[0]
+            voucher = linha[1]
+            quantidade_por_data[data] = quantidade_por_data.get(data, 0) + 1
+            if voucher:
+                vouchers.add(voucher)
+            metrica = metricas_por_data.setdefault(
+                data,
+                {
+                    "data": data,
+                    "registros_exportados": 0,
+                    "com_solicitacao": 0,
+                    "sem_solicitacao": 0,
+                    "vouchers_unicos": 0,
+                    "ocorrencias_voucher_repetido": 0,
+                    "_vouchers": set(),
+                    "erros_extracao": 0,
+                    "erros_reais_extracao": 0,
+                    "blocos_estruturais_ignorados": 0,
+                },
+            )
+            metrica["registros_exportados"] += 1
+            if voucher:
+                metrica["_vouchers"].add(voucher)
+            if len(linha) > 5 and str(linha[5]).strip():
+                metrica["com_solicitacao"] += 1
+            else:
+                metrica["sem_solicitacao"] += 1
+
+        erros_por_data = {
+            metrica.get("data_confirmada") or metrica.get("data_solicitada"): metrica
+            for metrica in self.metricas_por_data
+        }
+        for data, metrica_extracao in erros_por_data.items():
+            if data in metricas_por_data:
+                metricas_por_data[data]["erros_extracao"] = metrica_extracao.get("erros_extracao", 0)
+                metricas_por_data[data]["erros_reais_extracao"] = metrica_extracao.get(
+                    "erros_reais_extracao", metrica_extracao.get("erros_extracao", 0)
+                )
+                metricas_por_data[data]["blocos_estruturais_ignorados"] = metrica_extracao.get(
+                    "blocos_estruturais_ignorados", 0
+                )
+
+        metricas_serializadas = []
+        for data in sorted(metricas_por_data):
+            metrica = metricas_por_data[data]
+            metrica["vouchers_unicos"] = len(metrica["_vouchers"])
+            metrica["ocorrencias_voucher_repetido"] = (
+                metrica["registros_exportados"] - metrica["vouchers_unicos"]
+            )
+            metrica.pop("_vouchers", None)
+            metricas_serializadas.append(metrica)
+
+        datas = sorted(quantidade_por_data.keys())
+        return {
+            "schema_version": 1,
+            "gerado_em": datetime.datetime.now().isoformat(timespec="seconds"),
+            "periodo": {
+                "inicio": datas[0] if datas else "",
+                "fim": datas[-1] if datas else "",
+                "dias": self.dias,
+            },
+            "cabecalhos": CABECALHOS_SOLICITACOES,
+            "quantidade_registros": len(linhas),
+            "vouchers_unicos": len(vouchers),
+            "quantidade_por_data": dict(sorted(quantidade_por_data.items())),
+            "metricas_por_data": metricas_serializadas,
+            "hash_linhas": self.hash_linhas(linhas),
+            "linhas_extraidas": linhas,
+        }
+
+    @staticmethod
+    def validar_payload_sem_credenciais(payload):
+        proibidos = (
+            "HITS_EMAIL",
+            "HITS_PASSWORD",
+            "BEGIN PRIVATE KEY",
+            "Bearer ",
+            "client_secret",
+            "token.json",
+            "cookie",
+            "authorization",
+        )
+        texto = json.dumps(payload, ensure_ascii=False)
+        for proibido in proibidos:
+            if proibido in texto:
+                raise RuntimeError(f"Campo proibido encontrado no artifact: {proibido}")
+
+    def escrever_json_atomico(self, caminho_final, payload):
+        caminho_final = Path(caminho_final)
+        caminho_final.parent.mkdir(parents=True, exist_ok=True)
+        caminho_tmp = caminho_final.with_name(f"{caminho_final.name}.tmp")
+
+        texto = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
+        try:
+            caminho_tmp.write_text(texto, encoding="utf-8")
+            relido = json.loads(caminho_tmp.read_text(encoding="utf-8"))
+            if relido.get("hash_linhas") != payload.get("hash_linhas"):
+                raise RuntimeError("JSON temporário relido com hash divergente.")
+            caminho_tmp.replace(caminho_final)
+        except Exception:
+            if caminho_tmp.exists():
+                try:
+                    caminho_tmp.unlink()
+                except OSError:
+                    pass
+            raise
+        return caminho_final
+
+    def exportar_linhas_extraidas(self, caminho, linhas_planilha):
+        if not self.no_write and not self.diagnostico:
+            raise RuntimeError("--exportar-linhas só pode ser usado com --diagnostico ou --no-write.")
+
+        payload = self.montar_payload_linhas_extraidas(linhas_planilha)
+        self.validar_payload_sem_credenciais(payload)
+        caminho_final = self.escrever_json_atomico(caminho, payload)
+        print(f"Linhas completas exportadas: {caminho_final}")
+        print(f"Quantidade exportada: {payload['quantidade_registros']}")
+        print(f"Hash das linhas exportadas: {payload['hash_linhas']}")
+        return payload
 
     def force_click(self, elemento):
         try:
@@ -346,24 +589,23 @@ class RoboHITS:
     def aplicar_filtros_e_obs(self):
         try:
             print("🔍 Aplicando filtros inteligentes...")
-            filtros_ok = 0
             
             # --- PRIMEIRO FILTRO ---
             xpath_btn1 = "//*[@id='one-search-filters-container']/div[2]/span[8]/one-translate"
             xpath_opt1 = "//*[@id='one-search-modal-content']/div/div/div[1]"
             xpath_ok = "/html/body/div[1]/div/div/div[4]/button"
 
+            filtro_1_ok = False
             if self.clicar_com_espera(xpath_btn1):
                 time.sleep(1)
                 if self.clicar_com_espera(xpath_opt1):
                     time.sleep(1)
-                    self.clicar_com_espera(xpath_ok)
-                    filtros_ok += 1
+                    filtro_1_ok = self.clicar_com_espera(xpath_ok)
                     time.sleep(3)
-                else:
-                    print("⚠️ Modal do 1º filtro não carregou a tempo.")
-            else:
-                print("⚠️ Botão do 1º filtro não encontrado.")
+
+            if not filtro_1_ok:
+                self.salvar_screenshot("obs_filtro_1_falhou.png")
+                raise RuntimeError("Primeiro filtro obrigatório não foi aplicado.")
 
             # --- SEGUNDO FILTRO ---
             xpath_btn2 = "//*[@id='one-search-filters-container']/div[2]/span[10]"
@@ -371,35 +613,99 @@ class RoboHITS:
             # CORREÇÃO AQUI: Alterado para button[17]
             xpath_opt2 = "//*[@id='one-search-modal-content']/div/div[1]/button[17]"
 
+            filtro_2_ok = False
             if self.clicar_com_espera(xpath_btn2):
                 time.sleep(1)
                 if self.clicar_com_espera(xpath_btn2_expand):
                     time.sleep(1)
                     if self.clicar_com_espera(xpath_opt2):
                         time.sleep(1)
-                        # Clica no botão de confirmar após selecionar o button[17]
-                        self.clicar_com_espera(xpath_ok)
-                        print("🎯 Filtros OK. Iniciando extração...")
-                        filtros_ok += 1
+                        filtro_2_ok = self.clicar_com_espera(xpath_ok)
                         time.sleep(6)
-                    else:
-                        print("⚠️ Opção dentro do 2º filtro não carregou.")
-                else:
-                    print("⚠️ Menu do 2º filtro não expandiu.")
-            else:
-                print("⚠️ Botão principal do 2º filtro não encontrado.")
 
-            if filtros_ok == 0:
-                raise RuntimeError("Nenhum filtro foi aplicado. Provavelmente o relatório correto não carregou.")
+            if not filtro_2_ok:
+                self.salvar_screenshot("obs_filtro_2_falhou.png")
+                raise RuntimeError("Segundo filtro obrigatório não foi aplicado.")
+
+            print("🎯 Dois filtros obrigatórios confirmados. Iniciando extração...")
             return True
 
         except Exception as e:
             print(f"❌ Erro crítico nos Filtros: {e}")
             raise
 
-    def mudar_data_para(self, dias_para_frente):
+    def assinatura_tabela_atual(self):
+        textos = []
+        try:
+            tbodies = self.driver.find_elements(By.XPATH, "//*[@id='arrivalsDeparturesReport']//table[1]/tbody")
+            for corpo in tbodies:
+                texto = corpo.text.strip()
+                if texto:
+                    textos.append(texto)
+        except Exception:
+            pass
+        return self.hash_json(textos)
+
+    def texto_filtro_data_atual(self):
+        textos = []
+        seletores = [
+            (By.XPATH, '//*[@id="one-search-filters-container"]/div[1]/button[1]'),
+            (By.CSS_SELECTOR, "input.form-control.report-range-picker"),
+            (By.XPATH, "//*[@id='one-search-modal-content']//input"),
+            (By.XPATH, "//input[contains(@ng-model, 'datePicker.date')]"),
+            (By.XPATH, "//input[contains(@class, 'form-control')]"),
+        ]
+        for seletor in seletores:
+            try:
+                for elemento in self.driver.find_elements(*seletor):
+                    if not elemento.is_displayed():
+                        continue
+                    texto = " ".join([
+                        elemento.text or "",
+                        elemento.get_attribute("value") or "",
+                        elemento.get_attribute("title") or "",
+                    ]).strip()
+                    if texto:
+                        textos.append(texto)
+            except Exception:
+                continue
+        return " | ".join(textos)
+
+    def confirmar_data_aplicada(self, data_esperada):
+        data_esperada_norm = self.normalizar_data(data_esperada)
+        texto_filtro = self.texto_filtro_data_atual()
+        datas_exibidas = [self.normalizar_data(valor) for valor in re.findall(r"\d{1,2}/\d{1,2}/\d{2,4}", texto_filtro)]
+        datas_exibidas = [data for data in datas_exibidas if data]
+        data_confirmada = datas_exibidas[0] if datas_exibidas else ""
+
+        if data_confirmada != data_esperada_norm:
+            self.salvar_screenshot("obs_data_divergente.png")
+            raise RuntimeError(
+                f"Data exibida no HITS ({data_confirmada or texto_filtro or 'vazia'}) "
+                f"não confere com a data solicitada ({data_esperada_norm})."
+            )
+        return data_confirmada
+
+    def aguardar_tabela_mudar(self, assinatura_anterior):
+        if not assinatura_anterior:
+            return self.assinatura_tabela_atual()
+
+        limite = time.time() + 35
+        assinatura_atual = self.assinatura_tabela_atual()
+        while time.time() < limite:
+            assinatura_atual = self.assinatura_tabela_atual()
+            if assinatura_atual and assinatura_atual != assinatura_anterior:
+                return assinatura_atual
+            time.sleep(1)
+
+        self.salvar_screenshot("obs_tabela_nao_mudou.png")
+        print("⚠️ A tabela não mudou dentro do tempo; a assinatura da extração será validada antes de qualquer escrita.")
+        return assinatura_atual
+
+    def mudar_data_para(self, dias_para_frente, assinatura_anterior=None):
         data_alvo = datetime.datetime.now() + datetime.timedelta(days=dias_para_frente)
         data_f = data_alvo.strftime("%d/%m/%y")
+        data_esperada = data_alvo.strftime("%d/%m/%Y")
         texto_data = f"{data_f} - {data_f}"
         
         print(f"➡️ Alterando data para: {texto_data}")
@@ -455,14 +761,16 @@ class RoboHITS:
                 botao_confirmar = self.driver.find_element(By.XPATH, "/html/body/div[1]/div/div/div[4]/button")
                 self.force_click(botao_confirmar)
                 
-                print("⏳ Recarregando tabela (10s)...")
-                time.sleep(10) 
-                return True
+                print("⏳ Confirmando data aplicada e aguardando tabela mudar...")
+                assinatura_atual = self.aguardar_tabela_mudar(assinatura_anterior)
+                data_confirmada = self.confirmar_data_aplicada(data_esperada)
+                return data_confirmada, assinatura_atual
             else:
-                return False
+                self.salvar_screenshot("obs_botao_periodo_nao_encontrado.png")
+                raise RuntimeError("Botão do período não encontrado.")
         except Exception as e:
             print(f"❌ Falha ao interagir com campo de data: {e}")
-            return False
+            raise
 
     def analisar_texto_e_extrair(self, obs_raw):
         partes = re.split(r'[\n;\|]|\s{4,}', obs_raw)
@@ -567,38 +875,125 @@ class RoboHITS:
     def extrair_dados_pagina_atual(self, data_atual_loop):
         xpath_tbodies = "//*[@id='arrivalsDeparturesReport']//table[1]/tbody"
         pedidos_do_dia = []
-        vouchers_processados = set()
+        vouchers_brutos = []
+        textos_brutos = []
+        linhas_brutas = 0
+        erros_extracao = []
+        blocos_estruturais_ignorados = 0
+        blocos_processados = 0
+        com_solicitacao = 0
+        sem_solicitacao = 0
+        categorias_preenchidas = 0
+        categorias_ausentes = 0
+        tbodies = []
+
+        def registrar_erro(indice, etapa, erro, voucher=""):
+            erros_extracao.append(
+                {
+                    "bloco": indice,
+                    "voucher": voucher or "",
+                    "etapa": etapa,
+                    "tipo": type(erro).__name__,
+                }
+            )
+            voucher_log = voucher if voucher else "indisponivel"
+            print(
+                f"Erro de extracao no bloco {indice}: "
+                f"voucher={voucher_log}, etapa={etapa}, tipo={type(erro).__name__}"
+            )
 
         if self.focar_quadro(xpath_tbodies):
             tbodies = self.driver.find_elements(By.XPATH, xpath_tbodies)
-            for corpo in tbodies:
+            for indice, corpo in enumerate(tbodies, start=1):
+                voucher = ""
                 try:
-                    voucher = corpo.find_element(By.XPATH, "./tr[1]/td[7]").text.strip()
+                    etapa = "texto_bloco"
+                    texto_corpo = corpo.text.strip()
+                    if texto_corpo:
+                        textos_brutos.append(texto_corpo)
+                        linhas_brutas += len([linha for linha in texto_corpo.splitlines() if linha.strip()])
+
+                    etapa = "voucher"
+                    try:
+                        voucher = corpo.find_element(By.XPATH, "./tr[1]/td[7]").text.strip()
+                    except NoSuchElementException:
+                        blocos_estruturais_ignorados += 1
+                        continue
+                    if not voucher:
+                        raise ValueError("voucher vazio")
+                    vouchers_brutos.append(voucher)
                     
+                    etapa = "pax"
                     pax_raw = corpo.find_element(By.XPATH, "./tr[1]/td[4]").text.strip()
+
+                    etapa = "categoria"
                     apto_categoria_raw = corpo.find_element(By.XPATH, "./tr[1]/td[6]").text.strip().upper()
                     match_categoria = re.search(r'\b(1CC|1CSS|2CC|2CSS)\b', apto_categoria_raw)
                     cat_sistema = match_categoria.group(1) if match_categoria else apto_categoria_raw
-                    
+                    if not cat_sistema:
+                        categorias_ausentes += 1
+                        raise ValueError("categoria ausente")
+
+                    etapa = "observacao"
                     partes_obs = []
-                    for linha_obs in corpo.find_elements(By.XPATH, "./tr[position() > 1]"):
-                        texto_linha = linha_obs.text.strip()
-                        if texto_linha:
-                            partes_obs.append(texto_linha)
+                    try:
+                        elementos_obs = corpo.find_elements(By.XPATH, "./tr[position() > 1]/td")
+                        for elemento_obs in elementos_obs:
+                            texto_linha = elemento_obs.text.strip()
+                            if texto_linha:
+                                partes_obs.append(texto_linha)
+                    except Exception as erro_obs:
+                        registrar_erro(indice, etapa, erro_obs, voucher)
                     obs_raw = " | ".join(partes_obs)
-                    
-                    if not obs_raw or len(obs_raw) < 5: continue
-                    
+
+                    etapa = "analise_observacao"
                     andar, vinculo, texto_limpo = self.analisar_texto_e_extrair(obs_raw)
-                    
+
+                    etapa = "categoria_verificada"
                     cat_verificada = self.calcular_categoria_verificada(obs_raw, pax_raw, cat_sistema)
-                    
-                    if not texto_limpo and not cat_verificada: continue
-                        
-                    if voucher not in vouchers_processados:
-                        pedidos_do_dia.append([data_atual_loop, voucher, andar, vinculo, cat_verificada, texto_limpo])
-                        vouchers_processados.add(voucher)
-                except: continue
+                    if not cat_verificada:
+                        categorias_ausentes += 1
+                        raise ValueError("categoria verificada ausente")
+
+                    categorias_preenchidas += 1
+                    blocos_processados += 1
+                    if texto_limpo:
+                        com_solicitacao += 1
+                    else:
+                        sem_solicitacao += 1
+                    pedidos_do_dia.append([data_atual_loop, voucher, andar, vinculo, cat_verificada, texto_limpo])
+                except Exception as erro:
+                    registrar_erro(indice, etapa, erro, voucher)
+        vouchers_ordenados = sorted(set(vouchers_brutos))
+        ocorrencias_voucher_repetido = len(pedidos_do_dia) - len(vouchers_ordenados)
+        observacoes_sem_data = [linha[1:] for linha in pedidos_do_dia]
+        assinatura_payload = {
+            "vouchers": vouchers_ordenados,
+            "textos": sorted(textos_brutos),
+            "observacoes": self.normalizar_linhas(observacoes_sem_data, colunas=5),
+        }
+        self.ultima_metrica_extracao = {
+            "data_solicitada": data_atual_loop,
+            "data_confirmada": data_atual_loop,
+            "blocos_encontrados": len(tbodies),
+            "blocos_processados": blocos_processados,
+            "linhas_brutas": linhas_brutas,
+            "vouchers_unicos": len(vouchers_ordenados),
+            "registros_exportados": len(pedidos_do_dia),
+            "ocorrencias_voucher_repetido": ocorrencias_voucher_repetido,
+            "com_solicitacao": com_solicitacao,
+            "sem_solicitacao": sem_solicitacao,
+            "categorias_preenchidas": categorias_preenchidas,
+            "categorias_ausentes": categorias_ausentes,
+            "erros_extracao": len(erros_extracao),
+            "erros_reais_extracao": len(erros_extracao),
+            "blocos_estruturais_ignorados": blocos_estruturais_ignorados,
+            "erros": erros_extracao,
+            "vouchers": vouchers_ordenados,
+            "textos": sorted(textos_brutos),
+            "hash": self.hash_json(assinatura_payload),
+            "primeiros_vouchers": vouchers_ordenados[:10],
+        }
         return pedidos_do_dia
 
     def buscar_vouchers_de_res(self, res_codes):
@@ -726,18 +1121,181 @@ class RoboHITS:
             
         return mapa_res
 
+    def autenticar_google_sheets(self):
+        print("☁️ Autenticando no Google Sheets via OAuth...")
+        escopos = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+        creds = None
+
+        diretorio_atual = os.path.dirname(os.path.abspath(__file__))
+        caminho_token = os.path.join(diretorio_atual, 'token.json')
+        caminho_secret = os.path.join(diretorio_atual, 'client_secret.json')
+
+        if os.path.exists(caminho_token):
+            creds = Credentials.from_authorized_user_file(caminho_token, escopos)
+
+        if not creds or not creds.valid:
+            if creds and creds.expired and creds.refresh_token:
+                creds.refresh(Request())
+            else:
+                flow = InstalledAppFlow.from_client_secrets_file(caminho_secret, escopos)
+                creds = flow.run_local_server(port=0)
+
+            with open(caminho_token, 'w') as token:
+                token.write(creds.to_json())
+
+        return gspread.authorize(creds)
+
+    def abrir_aba_solicitacoes(self):
+        gc = self.autenticar_google_sheets()
+        print("🔍 Abrindo planilha por ID fixo...")
+        planilha = gc.open_by_key(ID_PLANILHA)
+        aba = planilha.worksheet(NOME_ABA_SOLICITACOES)
+        print(f"Planilha: {planilha.title}")
+        print(f"ID confirmado: {ID_PLANILHA}")
+        print(f"Aba: {aba.title}")
+        return aba
+
+    def validar_repeticao_suspeita(self):
+        vistas = {}
+        for metrica in self.metricas_por_data:
+            if metrica.get("registros_exportados", metrica.get("observacoes_validas", 0)) == 0:
+                continue
+            chave = (
+                metrica["hash"],
+                tuple(metrica["vouchers"]),
+                tuple(metrica["textos"]),
+            )
+            anterior = vistas.get(chave)
+            if anterior and anterior["data_confirmada"] != metrica["data_confirmada"]:
+                self.salvar_screenshot("obs_repeticao_suspeita.png")
+                self.salvar_relatorio_diagnostico(
+                    "obs_repeticao_suspeita",
+                    {
+                        "erro": "Datas diferentes com hash, vouchers e textos identicos.",
+                        "data_1": anterior["data_confirmada"],
+                        "data_2": metrica["data_confirmada"],
+                    },
+                )
+                raise RuntimeError(
+                    "Repetição suspeita detectada entre datas diferentes. "
+                    "Dados não foram gravados em SOLICITAÇÕES."
+                )
+            vistas[chave] = metrica
+
+    def encontrar_repeticao_suspeita(self, metrica):
+        if metrica.get("registros_exportados", metrica.get("observacoes_validas", 0)) == 0:
+            return None
+        for anterior in self.metricas_por_data:
+            if anterior["data_confirmada"] == metrica["data_confirmada"]:
+                continue
+            if (
+                anterior["hash"] == metrica["hash"]
+                and anterior["vouchers"] == metrica["vouchers"]
+                and anterior["textos"] == metrica["textos"]
+            ):
+                return anterior
+        return None
+
+    def validar_datas_extraidas(self):
+        datas = [metrica["data_confirmada"] for metrica in self.metricas_por_data]
+        if len(datas) != self.dias:
+            raise RuntimeError(f"Quantidade de datas extraidas ({len(datas)}) diferente do esperado ({self.dias}).")
+        if len(set(datas)) != len(datas):
+            raise RuntimeError(f"Datas repetidas na extracao: {datas}")
+
+    def reler_e_validar_solicitacoes(self, aba, dados_esperados, contexto):
+        if not dados_esperados:
+            return
+        ultima_linha = len(dados_esperados) + 1
+        relidos = aba.get(f"A2:F{ultima_linha}")
+        dados_norm = self.normalizar_linhas(dados_esperados)
+        relidos_norm = self.normalizar_linhas(relidos)
+        hash_escrito = self.hash_linhas(dados_norm)
+        hash_relido = self.hash_linhas(relidos_norm)
+        if len(relidos_norm) != len(dados_norm) or hash_relido != hash_escrito:
+            raise RuntimeError(
+                f"Dados escritos em SOLICITAÇÕES não conferem com a releitura ({contexto}). "
+                f"esperado={len(dados_norm)}/{hash_escrito} relido={len(relidos_norm)}/{hash_relido}"
+            )
+        print(f"Releitura OK ({contexto}): {len(relidos_norm)} linhas, hash {hash_relido}")
+
+    def acionar_webhook_e_validar(self, aba, dados_esperados):
+        print("🚀 Acionando webhook do Google Sheets...")
+        inicio = time.monotonic()
+        resposta = requests.get(WEBHOOK_SOLICITACOES_URL, timeout=30)
+        duracao = time.monotonic() - inicio
+        resposta.raise_for_status()
+        print(
+            f"Webhook OK: status={resposta.status_code}, "
+            f"duracao={duracao:.2f}s, tamanho_resposta={len(resposta.text)}"
+        )
+        self.reler_e_validar_solicitacoes(aba, dados_esperados, "apos_webhook")
+
     def processar_semana_e_salvar(self):
         try:
             dados_totais_semana = []
-            for dia in range(7):
-                if dia > 0:
-                    sucesso = self.mudar_data_para(dias_para_frente=dia)
-                    if not sucesso: continue
+            assinatura_tabela_anterior = None
+            self.metricas_por_data = []
 
-                data_atual_loop = (datetime.datetime.now() + datetime.timedelta(days=dia)).strftime("%d/%m/%y")
+            for dia in range(self.dias):
+                data_confirmada, assinatura_tabela_anterior = self.mudar_data_para(
+                    dias_para_frente=dia,
+                    assinatura_anterior=assinatura_tabela_anterior,
+                )
+
+                data_atual_loop = (datetime.datetime.now() + datetime.timedelta(days=dia)).strftime("%d/%m/%Y")
                 print(f"📅 Lendo dados e filtrando de: {data_atual_loop} ...")
                 
                 pedidos_hoje = self.extrair_dados_pagina_atual(data_atual_loop)
+                metrica = dict(self.ultima_metrica_extracao or {})
+                metrica["data_confirmada"] = data_confirmada
+
+                repetida = self.encontrar_repeticao_suspeita(metrica)
+                if repetida:
+                    print(
+                        "⚠️ Repetição suspeita detectada na primeira leitura. "
+                        f"Repetindo troca de data para {data_atual_loop}."
+                    )
+                    data_confirmada, assinatura_tabela_anterior = self.mudar_data_para(
+                        dias_para_frente=dia,
+                        assinatura_anterior=None,
+                    )
+                    pedidos_hoje = self.extrair_dados_pagina_atual(data_atual_loop)
+                    metrica = dict(self.ultima_metrica_extracao or {})
+                    metrica["data_confirmada"] = data_confirmada
+                    repetida = self.encontrar_repeticao_suspeita(metrica)
+                    if repetida:
+                        self.salvar_screenshot("obs_repeticao_suspeita.png")
+                        self.metricas_por_data.append(metrica)
+                        self.salvar_relatorio_diagnostico(
+                            "obs_repeticao_suspeita",
+                            {
+                                "erro": "Segunda tentativa manteve dados identicos em datas diferentes.",
+                                "data_1": repetida["data_confirmada"],
+                                "data_2": metrica["data_confirmada"],
+                            },
+                        )
+                        raise RuntimeError(
+                            "Repetição suspeita confirmada após segunda tentativa. "
+                            "Dados não foram gravados em SOLICITAÇÕES."
+                        )
+
+                self.metricas_por_data.append(metrica)
+
+                print(f"Data solicitada: {metrica['data_solicitada']}")
+                print(f"Data confirmada: {metrica['data_confirmada']}")
+                print(f"Reservas encontradas: {metrica.get('blocos_encontrados', metrica.get('linhas_brutas', 0))}")
+                print(f"Blocos processados: {metrica.get('blocos_processados', 0)}")
+                print(f"Registros exportados: {metrica.get('registros_exportados', metrica.get('observacoes_validas', 0))}")
+                print(f"Com solicitação especial: {metrica.get('com_solicitacao', 0)}")
+                print(f"Sem solicitação especial: {metrica.get('sem_solicitacao', 0)}")
+                print(f"Vouchers únicos: {metrica['vouchers_unicos']}")
+                print(f"Ocorrências de voucher repetido: {metrica.get('ocorrencias_voucher_repetido', 0)}")
+                print(f"Categorias preenchidas: {metrica.get('categorias_preenchidas', 0)}")
+                print(f"Blocos estruturais ignorados: {metrica.get('blocos_estruturais_ignorados', 0)}")
+                print(f"Erros reais de extração: {metrica.get('erros_reais_extracao', metrica.get('erros_extracao', 0))}")
+                print(f"Hash: {metrica['hash']}")
+                print(f"Primeiros vouchers: {', '.join(metrica['primeiros_vouchers'])}")
                 
                 if pedidos_hoje:
                     if dados_totais_semana: 
@@ -746,8 +1304,22 @@ class RoboHITS:
                     dados_totais_semana.extend(pedidos_hoje)
                     print(f"✔️ {len(pedidos_hoje)} observações especiais identificadas.")
 
+            self.validar_datas_extraidas()
+            self.validar_repeticao_suspeita()
+            self.salvar_relatorio_diagnostico()
+            linhas_para_planilha = self.montar_linhas_para_planilha(dados_totais_semana)
+            if self.exportar_linhas:
+                self.exportar_linhas_extraidas(self.exportar_linhas, linhas_para_planilha)
+
             if not dados_totais_semana:
                 print("⚠️ Nenhuma observação especial relevante na semana.")
+                if self.no_write:
+                    print("Modo diagnostico/no-write: nada sera gravado.")
+                    return
+                return
+
+            if self.no_write:
+                print("Modo diagnostico/no-write: extracao validada, sem limpar, sem escrever e sem webhook.")
                 return
 
             codigos_res_pendentes = set()
@@ -764,55 +1336,50 @@ class RoboHITS:
                         if vinculo_atual in mapa_vouchers:
                             dados_totais_semana[i][3] = mapa_vouchers[vinculo_atual]
 
-            # --- INÍCIO DA NOVA AUTENTICAÇÃO OAUTH ---
-            print("☁️ Autenticando no Google Sheets via OAuth...")
-            escopos = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
-            creds = None
-            
-            diretorio_atual = os.path.dirname(os.path.abspath(__file__))
-            caminho_token = os.path.join(diretorio_atual, 'token.json')
-            caminho_secret = os.path.join(diretorio_atual, 'client_secret.json')
-            
-            if os.path.exists(caminho_token):
-                creds = Credentials.from_authorized_user_file(caminho_token, escopos)
-                
-            if not creds or not creds.valid:
-                if creds and creds.expired and creds.refresh_token:
-                    creds.refresh(Request())
-                else:
-                    flow = InstalledAppFlow.from_client_secrets_file(caminho_secret, escopos)
-                    creds = flow.run_local_server(port=0)
-                    
-                with open(caminho_token, 'w') as token:
-                    token.write(creds.to_json())
+            self.salvar_relatorio_diagnostico()
 
-            gc = gspread.authorize(creds)
-            # --- FIM DA NOVA AUTENTICAÇÃO OAUTH ---
-            
-            print("🔍 Abrindo a planilha e a aba...")
-            planilha = gc.open("Controle de ocupantes (mapinha)")
-            aba = planilha.worksheet("SOLICITAÇÕES")
+            aba = self.abrir_aba_solicitacoes()
             
             print("🧹 Limpando os dados antigos (da linha 2 para baixo)...")
             aba.batch_clear(["A2:F2000"])
             
             print("📝 Escrevendo os novos dados atualizados na planilha...")
-            aba.update(values=dados_totais_semana, range_name="A2", value_input_option='USER_ENTERED')
-            print("✅ SUCESSO ABSOLUTO! Planilha limpa e atualizada com os novos 7 dias.")
-
-            print("🚀 Acionando o Google Sheets para processar as solicitações especiais e atualizar o mapa...")
-            try:
-                url_webhook = "https://script.google.com/macros/s/AKfycbwcfhQySj2OoJVSzaWnjMCHZzfHPCQHc5fZHKt5sLmhJ7wTtD24SvR-kk-at7lFo_31EA/exec"
-                resposta = requests.get(url_webhook)
-                print(f"🤖 Resposta do Google Sheets: {resposta.text}")
-            except Exception as e_web:
-                print(f"⚠️ Erro ao acionar o Webhook: {e_web}")
+            linhas_para_planilha = self.montar_linhas_para_planilha(dados_totais_semana)
+            aba.update(values=linhas_para_planilha, range_name="A2", value_input_option='USER_ENTERED')
+            self.reler_e_validar_solicitacoes(aba, linhas_para_planilha, "apos_escrita")
+            self.acionar_webhook_e_validar(aba, linhas_para_planilha)
+            print("✅ SUCESSO: SOLICITAÇÕES atualizada, relida e validada.")
 
         except Exception as e:
             print(f"❌ Erro na etapa do Google Sheets: {e}")
+            self.salvar_relatorio_diagnostico("obs_erro", {"erro": str(e)})
+            raise
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Extrai observacoes do HITS para SOLICITAÇÕES.")
+    parser.add_argument("--diagnostico", action="store_true", help="Executa extracao sem escrita e sem webhook.")
+    parser.add_argument("--dias", type=int, default=7, help="Quantidade de dias para extrair.")
+    parser.add_argument("--no-write", action="store_true", help="Nao limpa, nao escreve e nao chama webhook.")
+    parser.add_argument("--headless", choices=["0", "1"], help="Sobrescreve ROBOT_HEADLESS para esta execucao.")
+    parser.add_argument("--exportar-linhas", help="Exporta as linhas completas extraidas para um JSON local.")
+    return parser.parse_args()
+
 
 if __name__ == "__main__":
-    robo = RoboHITS()
+    args = parse_args()
+    if args.dias < 1:
+        raise SystemExit("--dias deve ser maior ou igual a 1.")
+    if args.exportar_linhas and not (args.diagnostico or args.no_write):
+        raise RuntimeError("--exportar-linhas só pode ser usado com --diagnostico ou --no-write.")
+    if args.headless is not None:
+        os.environ["ROBOT_HEADLESS"] = args.headless
+
+    robo = RoboHITS(
+        dias=args.dias,
+        diagnostico=args.diagnostico,
+        no_write=args.no_write,
+        exportar_linhas=args.exportar_linhas,
+    )
     try:
         robo.realizar_login()
         robo.navegar_ate_relatorio()

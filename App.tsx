@@ -135,6 +135,14 @@ const safeJSONParse = (value: any, defaultValue: any) => {
   return parsed || defaultValue;
 };
 
+const normalizeTextList = (value: any) => {
+  const parsed = safeJSONParse(value, []);
+  return Array.isArray(parsed)
+    ? Array.from(new Set(parsed.map(item => String(item || '').trim().toUpperCase()).filter(Boolean)))
+      .sort((a, b) => a.localeCompare(b, 'pt-BR', { sensitivity: 'base' }))
+    : [];
+};
+
 const safeGetTime = (val: any) => {
   if (!val) return Date.now() + Math.floor(Math.random() * 1000);
   if (typeof val === 'number') return val;
@@ -371,7 +379,8 @@ const App: React.FC = () => {
           ...sec,
           id: sec.id?.toString() || `sec-${Date.now()}-${idx}-${Math.random().toString(36).substr(2, 5)}`,
           name: sec.name || 'Setor Sem Nome',
-          standardUniform: safeJSONParse(sec.standardUniform, [])
+          standardUniform: safeJSONParse(sec.standardUniform, []),
+          roles: normalizeTextList(sec.roles)
         })));
 
         // NORMALIZAÇÃO DE ORÇAMENTOS
