@@ -126,31 +126,66 @@ jobs:
           python robots/vinculacao/testar_escrita_obs.py \
             --arquivo-dados artifacts/verificacao_diaria/obs_linhas_extraidas.json
 
-      - name: Verificar artifacts sem secrets
+      - name: Verificar e aprovar artifacts
+        id: scan_artifacts
         if: always()
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          GOOGLE_OAUTH_CLIENT_SECRET_JSON: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET_JSON }}
+          GOOGLE_OAUTH_TOKEN_JSON: ${{ secrets.GOOGLE_OAUTH_TOKEN_JSON }}
         run: |
+          rm -rf artifacts_upload
           python - <<'PY'
+          import os
+          import shutil
           from pathlib import Path
 
           base = Path("artifacts/verificacao_diaria")
+          destino = Path("artifacts_upload")
           padroes = ["*.json", "*.txt", "*.log", "*.png"]
           proibidos = [
               "HITS_EMAIL",
               "HITS_PASSWORD",
+              os.environ.get("HITS_EMAIL", ""),
+              os.environ.get("HITS_PASSWORD", ""),
+              os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", ""),
+              os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET_JSON", ""),
+              os.environ.get("GOOGLE_OAUTH_TOKEN_JSON", ""),
+              "GOOGLE_SERVICE_ACCOUNT_JSON",
+              "GOOGLE_OAUTH_CLIENT_SECRET_JSON",
+              "GOOGLE_OAUTH_TOKEN_JSON",
               "client_secret",
               "refresh_token",
               "access_token",
+              "private_key",
+              "private_key_id",
+              "Authorization",
+              "Bearer",
+              "Cookie:",
+              "Set-Cookie:",
+              "sessionid",
+              "authorized_user",
+              "service_account",
           ]
+          proibidos = [valor for valor in proibidos if str(valor).strip()]
           arquivos = []
           for padrao in padroes:
-              arquivos.extend(base.glob(padrao))
+              arquivos.extend(sorted(base.glob(padrao)))
           for caminho in arquivos:
-              if caminho.suffix.lower() == ".png":
-                  continue
-              texto = caminho.read_text(encoding="utf-8", errors="ignore")
-              if any(proibido in texto for proibido in proibidos):
-                  raise SystemExit(f"Artifact contem marcador sensivel: {caminho}")
-          print(f"Artifacts verificados sem marcadores sensiveis: {len(arquivos)}")
+              conteudo = caminho.read_bytes()
+              if any(str(proibido).encode("utf-8") in conteudo for proibido in proibidos):
+                  raise SystemExit(f"Artifact bloqueado por conteudo sensivel: {caminho.name}")
+              texto = conteudo.decode("utf-8", errors="ignore")
+              texto_lower = texto.lower()
+              if "client_id" in texto_lower and ("oauth" in texto_lower or "client_secret" in texto_lower):
+                  raise SystemExit(f"Artifact bloqueado por conteudo sensivel: {caminho.name}")
+              if any(nome in caminho.name.lower() for nome in ("client_secret", "token", "credential", "service_account")):
+                  raise SystemExit(f"Artifact bloqueado por conteudo sensivel: {caminho.name}")
+
+          destino.mkdir(parents=True, exist_ok=True)
+          for caminho in arquivos:
+              shutil.copy2(caminho, destino / caminho.name)
+          print(f"Artifacts aprovados para upload: {len(arquivos)}")
           PY
 
       - name: Remover credenciais temporarias
@@ -165,12 +200,9 @@ jobs:
           echo "Credenciais temporarias removidas."
 
       - name: Upload artifacts
-        if: always()
+        if: ${{ always() && steps.scan_artifacts.outcome == 'success' }}
         uses: actions/upload-artifact@v4
         with:
           name: obs-escrita-teste-${{ github.run_id }}
-          path: |
-            artifacts/verificacao_diaria/*.json
-            artifacts/verificacao_diaria/*.txt
-            artifacts/verificacao_diaria/*.log
-            artifacts/verificacao_diaria/*.png
+          path: artifacts_upload/
+          if-no-files-found: warn
