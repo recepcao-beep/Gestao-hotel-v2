@@ -132,9 +132,16 @@ class RoboHITS:
             linhas.extend([
                 f"Data solicitada: {metrica['data_solicitada']}",
                 f"Data confirmada: {metrica['data_confirmada']}",
-                f"Linhas brutas: {metrica['linhas_brutas']}",
+                f"Reservas encontradas: {metrica.get('blocos_encontrados', metrica.get('linhas_brutas', 0))}",
+                f"Blocos processados: {metrica.get('blocos_processados', 0)}",
+                f"Registros exportados: {metrica.get('registros_exportados', metrica.get('observacoes_validas', 0))}",
+                f"Com solicitacao especial: {metrica.get('com_solicitacao', 0)}",
+                f"Sem solicitacao especial: {metrica.get('sem_solicitacao', 0)}",
                 f"Vouchers unicos: {metrica['vouchers_unicos']}",
-                f"Observacoes validas: {metrica['observacoes_validas']}",
+                f"Categorias preenchidas: {metrica.get('categorias_preenchidas', 0)}",
+                f"Categorias ausentes: {metrica.get('categorias_ausentes', 0)}",
+                f"Erros de extracao: {metrica.get('erros_extracao', 0)}",
+                f"Duplicados ignorados: {metrica.get('duplicados_ignorados', 0)}",
                 f"Hash: {metrica['hash']}",
                 f"Primeiros vouchers: {', '.join(metrica['primeiros_vouchers'])}",
                 "",
@@ -150,12 +157,36 @@ class RoboHITS:
         linhas = self.montar_linhas_para_planilha(linhas_planilha)
         quantidade_por_data = {}
         vouchers = set()
+        metricas_por_data = {}
         for linha in linhas:
             data = linha[0]
             voucher = linha[1]
             quantidade_por_data[data] = quantidade_por_data.get(data, 0) + 1
             if voucher:
                 vouchers.add(voucher)
+            metrica = metricas_por_data.setdefault(
+                data,
+                {
+                    "data": data,
+                    "registros_exportados": 0,
+                    "com_solicitacao": 0,
+                    "sem_solicitacao": 0,
+                    "erros_extracao": 0,
+                },
+            )
+            metrica["registros_exportados"] += 1
+            if len(linha) > 5 and str(linha[5]).strip():
+                metrica["com_solicitacao"] += 1
+            else:
+                metrica["sem_solicitacao"] += 1
+
+        erros_por_data = {
+            metrica.get("data_confirmada") or metrica.get("data_solicitada"): metrica.get("erros_extracao", 0)
+            for metrica in self.metricas_por_data
+        }
+        for data, erros in erros_por_data.items():
+            if data in metricas_por_data:
+                metricas_por_data[data]["erros_extracao"] = erros
 
         datas = sorted(quantidade_por_data.keys())
         return {
@@ -170,6 +201,7 @@ class RoboHITS:
             "quantidade_registros": len(linhas),
             "vouchers_unicos": len(vouchers),
             "quantidade_por_data": dict(sorted(quantidade_por_data.items())),
+            "metricas_por_data": [metricas_por_data[data] for data in sorted(metricas_por_data)],
             "hash_linhas": self.hash_linhas(linhas),
             "linhas_extraidas": linhas,
         }
@@ -822,44 +854,93 @@ class RoboHITS:
         vouchers_brutos = []
         textos_brutos = []
         linhas_brutas = 0
+        erros_extracao = []
+        blocos_processados = 0
+        duplicados_ignorados = 0
+        com_solicitacao = 0
+        sem_solicitacao = 0
+        categorias_preenchidas = 0
+        categorias_ausentes = 0
+        tbodies = []
+
+        def registrar_erro(indice, etapa, erro, voucher=""):
+            erros_extracao.append(
+                {
+                    "bloco": indice,
+                    "voucher": voucher or "",
+                    "etapa": etapa,
+                    "tipo": type(erro).__name__,
+                }
+            )
+            voucher_log = voucher if voucher else "indisponivel"
+            print(
+                f"Erro de extracao no bloco {indice}: "
+                f"voucher={voucher_log}, etapa={etapa}, tipo={type(erro).__name__}"
+            )
 
         if self.focar_quadro(xpath_tbodies):
             tbodies = self.driver.find_elements(By.XPATH, xpath_tbodies)
-            for corpo in tbodies:
+            for indice, corpo in enumerate(tbodies, start=1):
+                voucher = ""
                 try:
+                    etapa = "texto_bloco"
                     texto_corpo = corpo.text.strip()
                     if texto_corpo:
                         textos_brutos.append(texto_corpo)
                         linhas_brutas += len([linha for linha in texto_corpo.splitlines() if linha.strip()])
 
+                    etapa = "voucher"
                     voucher = corpo.find_element(By.XPATH, "./tr[1]/td[7]").text.strip()
-                    if voucher:
-                        vouchers_brutos.append(voucher)
+                    if not voucher:
+                        raise ValueError("voucher vazio")
+                    vouchers_brutos.append(voucher)
+
+                    if voucher in vouchers_processados:
+                        duplicados_ignorados += 1
+                        continue
                     
+                    etapa = "pax"
                     pax_raw = corpo.find_element(By.XPATH, "./tr[1]/td[4]").text.strip()
+
+                    etapa = "categoria"
                     apto_categoria_raw = corpo.find_element(By.XPATH, "./tr[1]/td[6]").text.strip().upper()
                     match_categoria = re.search(r'\b(1CC|1CSS|2CC|2CSS)\b', apto_categoria_raw)
                     cat_sistema = match_categoria.group(1) if match_categoria else apto_categoria_raw
-                    
+                    if not cat_sistema:
+                        categorias_ausentes += 1
+                        raise ValueError("categoria ausente")
+
+                    etapa = "observacao"
                     partes_obs = []
-                    for linha_obs in corpo.find_elements(By.XPATH, "./tr[position() > 1]"):
-                        texto_linha = linha_obs.text.strip()
-                        if texto_linha:
-                            partes_obs.append(texto_linha)
+                    try:
+                        elementos_obs = corpo.find_elements(By.XPATH, "./tr[position() > 1]/td")
+                        for elemento_obs in elementos_obs:
+                            texto_linha = elemento_obs.text.strip()
+                            if texto_linha:
+                                partes_obs.append(texto_linha)
+                    except Exception as erro_obs:
+                        registrar_erro(indice, etapa, erro_obs, voucher)
                     obs_raw = " | ".join(partes_obs)
-                    
-                    if not obs_raw or len(obs_raw) < 5: continue
-                    
+
+                    etapa = "analise_observacao"
                     andar, vinculo, texto_limpo = self.analisar_texto_e_extrair(obs_raw)
-                    
+
+                    etapa = "categoria_verificada"
                     cat_verificada = self.calcular_categoria_verificada(obs_raw, pax_raw, cat_sistema)
-                    
-                    if not texto_limpo and not cat_verificada: continue
-                        
-                    if voucher not in vouchers_processados:
-                        pedidos_do_dia.append([data_atual_loop, voucher, andar, vinculo, cat_verificada, texto_limpo])
-                        vouchers_processados.add(voucher)
-                except: continue
+                    if not cat_verificada:
+                        categorias_ausentes += 1
+                        raise ValueError("categoria verificada ausente")
+
+                    categorias_preenchidas += 1
+                    blocos_processados += 1
+                    if texto_limpo:
+                        com_solicitacao += 1
+                    else:
+                        sem_solicitacao += 1
+                    pedidos_do_dia.append([data_atual_loop, voucher, andar, vinculo, cat_verificada, texto_limpo])
+                    vouchers_processados.add(voucher)
+                except Exception as erro:
+                    registrar_erro(indice, etapa, erro, voucher)
         vouchers_ordenados = sorted(set(vouchers_brutos))
         observacoes_sem_data = [linha[1:] for linha in pedidos_do_dia]
         assinatura_payload = {
@@ -870,9 +951,18 @@ class RoboHITS:
         self.ultima_metrica_extracao = {
             "data_solicitada": data_atual_loop,
             "data_confirmada": data_atual_loop,
+            "blocos_encontrados": len(tbodies),
+            "blocos_processados": blocos_processados,
             "linhas_brutas": linhas_brutas,
             "vouchers_unicos": len(vouchers_ordenados),
-            "observacoes_validas": len(pedidos_do_dia),
+            "registros_exportados": len(pedidos_do_dia),
+            "com_solicitacao": com_solicitacao,
+            "sem_solicitacao": sem_solicitacao,
+            "categorias_preenchidas": categorias_preenchidas,
+            "categorias_ausentes": categorias_ausentes,
+            "erros_extracao": len(erros_extracao),
+            "erros": erros_extracao,
+            "duplicados_ignorados": duplicados_ignorados,
             "vouchers": vouchers_ordenados,
             "textos": sorted(textos_brutos),
             "hash": self.hash_json(assinatura_payload),
@@ -1042,7 +1132,7 @@ class RoboHITS:
     def validar_repeticao_suspeita(self):
         vistas = {}
         for metrica in self.metricas_por_data:
-            if metrica["observacoes_validas"] == 0:
+            if metrica.get("registros_exportados", metrica.get("observacoes_validas", 0)) == 0:
                 continue
             chave = (
                 metrica["hash"],
@@ -1067,7 +1157,7 @@ class RoboHITS:
             vistas[chave] = metrica
 
     def encontrar_repeticao_suspeita(self, metrica):
-        if metrica["observacoes_validas"] == 0:
+        if metrica.get("registros_exportados", metrica.get("observacoes_validas", 0)) == 0:
             return None
         for anterior in self.metricas_por_data:
             if anterior["data_confirmada"] == metrica["data_confirmada"]:
@@ -1168,9 +1258,15 @@ class RoboHITS:
 
                 print(f"Data solicitada: {metrica['data_solicitada']}")
                 print(f"Data confirmada: {metrica['data_confirmada']}")
-                print(f"Linhas brutas: {metrica['linhas_brutas']}")
+                print(f"Reservas encontradas: {metrica.get('blocos_encontrados', metrica.get('linhas_brutas', 0))}")
+                print(f"Blocos processados: {metrica.get('blocos_processados', 0)}")
+                print(f"Registros exportados: {metrica.get('registros_exportados', metrica.get('observacoes_validas', 0))}")
+                print(f"Com solicitação especial: {metrica.get('com_solicitacao', 0)}")
+                print(f"Sem solicitação especial: {metrica.get('sem_solicitacao', 0)}")
                 print(f"Vouchers únicos: {metrica['vouchers_unicos']}")
-                print(f"Observações válidas: {metrica['observacoes_validas']}")
+                print(f"Categorias preenchidas: {metrica.get('categorias_preenchidas', 0)}")
+                print(f"Erros de extração: {metrica.get('erros_extracao', 0)}")
+                print(f"Duplicados ignorados: {metrica.get('duplicados_ignorados', 0)}")
                 print(f"Hash: {metrica['hash']}")
                 print(f"Primeiros vouchers: {', '.join(metrica['primeiros_vouchers'])}")
                 

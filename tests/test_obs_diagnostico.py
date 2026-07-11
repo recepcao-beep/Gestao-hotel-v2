@@ -347,3 +347,195 @@ def test_campos_proibidos_nao_aparecem_no_json(tmp_path):
 
     for proibido in ["HITS_EMAIL", "HITS_PASSWORD", "client_secret", "token.json", "Bearer "]:
         assert proibido not in texto
+
+
+class ElementoFake:
+    def __init__(self, texto=""):
+        self.text = texto
+
+
+class CorpoFake:
+    def __init__(self, voucher="100", pax="1/0", categoria="101 1CC", observacoes=None, erro_obs=None, erro_voucher=None):
+        self.voucher = voucher
+        self.pax = pax
+        self.categoria = categoria
+        self.observacoes = observacoes or []
+        self.erro_obs = erro_obs
+        self.erro_voucher = erro_voucher
+
+    @property
+    def text(self):
+        partes = [self.voucher, self.pax, self.categoria, *self.observacoes]
+        return "\n".join(str(parte) for parte in partes if parte)
+
+    def find_element(self, _by, xpath):
+        if xpath == "./tr[1]/td[7]":
+            if self.erro_voucher:
+                raise self.erro_voucher
+            return ElementoFake(self.voucher)
+        if xpath == "./tr[1]/td[4]":
+            return ElementoFake(self.pax)
+        if xpath == "./tr[1]/td[6]":
+            return ElementoFake(self.categoria)
+        raise LookupError(xpath)
+
+    def find_elements(self, _by, xpath):
+        if xpath == "./tr[position() > 1]/td":
+            if self.erro_obs:
+                raise self.erro_obs
+            return [ElementoFake(texto) for texto in self.observacoes]
+        return []
+
+
+class DriverFake:
+    def __init__(self, corpos):
+        self.corpos = corpos
+
+    def find_elements(self, *_args):
+        return self.corpos
+
+
+def robo_com_corpos(corpos):
+    robo = robo_sem_chrome()
+    robo.driver = DriverFake(corpos)
+    robo.focar_quadro = lambda _xpath: True
+    return robo
+
+
+def test_reserva_com_solicitacao_especial_entra_com_observacao():
+    robo = robo_com_corpos([CorpoFake(observacoes=["Berco no quarto 300"])])
+
+    linhas = robo.extrair_dados_pagina_atual("12/07/2026")
+
+    assert linhas == [["12/07/2026", "100", "300", "", "1CC", "BERCO NO QUARTO 300"]]
+    assert robo.ultima_metrica_extracao["com_solicitacao"] == 1
+    assert robo.ultima_metrica_extracao["sem_solicitacao"] == 0
+
+
+def test_reserva_com_texto_generico_entra_com_observacao_vazia():
+    robo = robo_com_corpos([CorpoFake(voucher="101", observacoes=["texto administrativo simples"])])
+
+    linhas = robo.extrair_dados_pagina_atual("12/07/2026")
+
+    assert linhas == [["12/07/2026", "101", "", "", "1CC", ""]]
+    assert robo.ultima_metrica_extracao["sem_solicitacao"] == 1
+
+
+def test_reserva_com_tr_observacao_vazio_entra():
+    robo = robo_com_corpos([CorpoFake(voucher="102", observacoes=[""])])
+
+    linhas = robo.extrair_dados_pagina_atual("12/07/2026")
+
+    assert linhas == [["12/07/2026", "102", "", "", "1CC", ""]]
+
+
+def test_reserva_sem_tr_observacao_entra():
+    robo = robo_com_corpos([CorpoFake(voucher="103", observacoes=[])])
+
+    linhas = robo.extrair_dados_pagina_atual("12/07/2026")
+
+    assert linhas == [["12/07/2026", "103", "", "", "1CC", ""]]
+
+
+def test_analise_sem_texto_relevante_nao_impede_exportacao(monkeypatch):
+    robo = robo_com_corpos([CorpoFake(voucher="104", observacoes=["qualquer coisa"])])
+    monkeypatch.setattr(robo, "analisar_texto_e_extrair", lambda _obs_raw: ("", "", ""))
+
+    linhas = robo.extrair_dados_pagina_atual("12/07/2026")
+
+    assert linhas == [["12/07/2026", "104", "", "", "1CC", ""]]
+
+
+def test_obs_raw_vazio_calcula_categoria_verificada():
+    robo = robo_sem_chrome()
+
+    assert robo.calcular_categoria_verificada("", "2/1", "1CC") == "1CC"
+
+
+def test_categoria_identificada_e_observacao_vazia_exporta_registro():
+    robo = robo_com_corpos([CorpoFake(voucher="105", categoria="Apartamento 2CSS", observacoes=[])])
+
+    linhas = robo.extrair_dados_pagina_atual("12/07/2026")
+
+    assert linhas == [["12/07/2026", "105", "", "", "2CC", ""]]
+    assert robo.ultima_metrica_extracao["categorias_preenchidas"] == 1
+
+
+def test_voucher_duplicado_exporta_uma_linha_e_contabiliza_duplicado():
+    corpos = [
+        CorpoFake(voucher="106", observacoes=["Berco"]),
+        CorpoFake(voucher="106", observacoes=["Berco"]),
+    ]
+    robo = robo_com_corpos(corpos)
+
+    linhas = robo.extrair_dados_pagina_atual("12/07/2026")
+
+    assert len(linhas) == 1
+    assert robo.ultima_metrica_extracao["duplicados_ignorados"] == 1
+
+
+def test_erro_ao_ler_observacao_nao_elimina_reserva():
+    robo = robo_com_corpos([CorpoFake(voucher="107", erro_obs=RuntimeError("obs indisponivel"))])
+
+    linhas = robo.extrair_dados_pagina_atual("12/07/2026")
+
+    assert linhas == [["12/07/2026", "107", "", "", "1CC", ""]]
+    assert robo.ultima_metrica_extracao["erros_extracao"] == 1
+
+
+def test_erro_ao_ler_voucher_registra_erro_sem_linha_invalida():
+    robo = robo_com_corpos([CorpoFake(erro_voucher=RuntimeError("voucher indisponivel"))])
+
+    linhas = robo.extrair_dados_pagina_atual("12/07/2026")
+
+    assert linhas == []
+    assert robo.ultima_metrica_extracao["erros_extracao"] == 1
+    assert robo.ultima_metrica_extracao["registros_exportados"] == 0
+
+
+def test_metricas_totalizam_com_e_sem_solicitacao_descontando_erros():
+    corpos = [
+        CorpoFake(voucher="108", observacoes=["Berco"]),
+        CorpoFake(voucher="109", observacoes=[]),
+        CorpoFake(erro_voucher=RuntimeError("voucher indisponivel")),
+    ]
+    robo = robo_com_corpos(corpos)
+
+    linhas = robo.extrair_dados_pagina_atual("12/07/2026")
+    metrica_extraida = robo.ultima_metrica_extracao
+
+    assert len(linhas) == 2
+    assert metrica_extraida["registros_exportados"] == 2
+    assert metrica_extraida["registros_exportados"] == (
+        metrica_extraida["com_solicitacao"] + metrica_extraida["sem_solicitacao"]
+    )
+    assert metrica_extraida["erros_extracao"] == 1
+
+
+def test_artifact_inclui_registros_com_observacao_vazia(tmp_path):
+    robo = robo_sem_chrome(no_write=True, dias=1)
+    caminho = tmp_path / "obs_linhas_extraidas.json"
+    linhas = [["12/07/2026", "110", "", "", "1CC", ""]]
+
+    payload = robo.exportar_linhas_extraidas(caminho, linhas)
+
+    assert payload["linhas_extraidas"] == linhas
+    assert payload["metricas_por_data"] == [
+        {
+            "data": "12/07/2026",
+            "registros_exportados": 1,
+            "com_solicitacao": 0,
+            "sem_solicitacao": 1,
+            "erros_extracao": 0,
+        }
+    ]
+
+
+def test_hash_inclui_linhas_com_ultimo_campo_vazio():
+    com_vazio = [["12/07/2026", "111", "", "", "1CC", ""]]
+    sem_coluna = [["12/07/2026", "111", "", "", "1CC"]]
+
+    assert obs.RoboHITS.hash_linhas(com_vazio) == obs.RoboHITS.hash_linhas(sem_coluna)
+    assert obs.RoboHITS.hash_linhas(com_vazio) != obs.RoboHITS.hash_linhas(
+        [["12/07/2026", "111", "", "", "1CC", "late checkout"]]
+    )
