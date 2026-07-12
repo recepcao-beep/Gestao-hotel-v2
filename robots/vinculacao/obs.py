@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import json
 import sys
+import unicodedata
 from pathlib import Path
 import gspread
 import requests
@@ -596,18 +597,41 @@ class RoboHITS:
         try:
             print("🔍 Aplicando filtros inteligentes...")
             
+            def normalizar_texto_filtro(texto):
+                texto = unicodedata.normalize("NFD", str(texto or ""))
+                texto = "".join(ch for ch in texto if unicodedata.category(ch) != "Mn")
+                return re.sub(r"\s+", " ", texto).strip().upper()
+
+            def texto_container_filtros():
+                try:
+                    container = self.driver.find_element(By.CSS_SELECTOR, "#one-search-filters-container")
+                    return normalizar_texto_filtro(container.text)
+                except Exception:
+                    return ""
+
+            def filtro_status_pendente_ok():
+                texto = texto_container_filtros()
+                return "STATUS" in texto and "PENDENTE" in texto
+
+            def filtro_resumo_chegadas_ok():
+                texto = texto_container_filtros()
+                return "RESUMO" in texto and "CHEGADAS POR DATA" in texto
+
             # --- PRIMEIRO FILTRO ---
             xpath_btn1 = "//*[@id='one-search-filters-container']/div[2]/span[8]/one-translate"
             xpath_opt1 = "//*[@id='one-search-modal-content']/div/div/div[1]"
             xpath_ok = "/html/body/div[1]/div/div/div[4]/button"
 
-            filtro_1_ok = False
-            if self.clicar_com_espera(xpath_btn1):
-                time.sleep(1)
-                if self.clicar_com_espera(xpath_opt1):
+            filtro_1_ok = filtro_status_pendente_ok()
+            if filtro_1_ok:
+                print("Filtro Status/Pendente ja aplicado.")
+            else:
+                if self.clicar_com_espera(xpath_btn1):
                     time.sleep(1)
-                    filtro_1_ok = self.clicar_com_espera(xpath_ok)
-                    time.sleep(3)
+                    if self.clicar_com_espera(xpath_opt1):
+                        time.sleep(1)
+                        filtro_1_ok = self.clicar_com_espera(xpath_ok)
+                        time.sleep(3)
 
             if not filtro_1_ok:
                 self.salvar_screenshot("obs_filtro_1_falhou.png")
@@ -619,19 +643,26 @@ class RoboHITS:
             # CORREÇÃO AQUI: Alterado para button[17]
             xpath_opt2 = "//*[@id='one-search-modal-content']/div/div[1]/button[17]"
 
-            filtro_2_ok = False
-            if self.clicar_com_espera(xpath_btn2):
-                time.sleep(1)
-                if self.clicar_com_espera(xpath_btn2_expand):
+            filtro_2_ok = filtro_resumo_chegadas_ok()
+            if filtro_2_ok:
+                print("Filtro Resumo/Chegadas por Data ja aplicado.")
+            else:
+                if self.clicar_com_espera(xpath_btn2):
                     time.sleep(1)
-                    if self.clicar_com_espera(xpath_opt2):
+                    if self.clicar_com_espera(xpath_btn2_expand):
                         time.sleep(1)
-                        filtro_2_ok = self.clicar_com_espera(xpath_ok)
-                        time.sleep(6)
+                        if self.clicar_com_espera(xpath_opt2):
+                            time.sleep(1)
+                            filtro_2_ok = self.clicar_com_espera(xpath_ok)
+                            time.sleep(6)
 
             if not filtro_2_ok:
                 self.salvar_screenshot("obs_filtro_2_falhou.png")
                 raise RuntimeError("Segundo filtro obrigatório não foi aplicado.")
+
+            if not (filtro_status_pendente_ok() and filtro_resumo_chegadas_ok()):
+                self.salvar_screenshot("obs_filtros_estado_final_incorreto.png")
+                raise RuntimeError("Estado final dos filtros obrigatorios incorreto.")
 
             print("🎯 Dois filtros obrigatórios confirmados. Iniciando extração...")
             return True

@@ -94,6 +94,115 @@ def test_duas_datas_sem_observacoes_nao_sao_repeticao_suspeita():
     robo.validar_repeticao_suspeita()
 
 
+class ContainerFiltrosFake:
+    def __init__(self, driver):
+        self.driver = driver
+
+    @property
+    def text(self):
+        return self.driver.texto
+
+
+class DriverFiltrosFake:
+    def __init__(self, texto):
+        self.texto = texto
+
+    def find_element(self, by, seletor):
+        if by == obs.By.CSS_SELECTOR and seletor == "#one-search-filters-container":
+            return ContainerFiltrosFake(self)
+        raise LookupError(seletor)
+
+
+def configurar_robo_filtros(monkeypatch, texto_inicial, atualizar_status=True, atualizar_resumo=True):
+    robo = robo_sem_chrome()
+    driver = DriverFiltrosFake(texto_inicial)
+    cliques = []
+    xpath_ok = "/html/body/div[1]/div/div/div[4]/button"
+    xpath_opt1 = "//*[@id='one-search-modal-content']/div/div/div[1]"
+    xpath_opt2 = "//*[@id='one-search-modal-content']/div/div[1]/button[17]"
+    estado = {"ultimo": ""}
+
+    def clicar(xpath):
+        cliques.append(xpath)
+        if xpath == xpath_opt1:
+            estado["ultimo"] = "status"
+        elif xpath == xpath_opt2:
+            estado["ultimo"] = "resumo"
+        elif xpath == xpath_ok:
+            if estado["ultimo"] == "status" and atualizar_status:
+                driver.texto = f"{driver.texto} Status Pendente"
+            if estado["ultimo"] == "resumo" and atualizar_resumo:
+                driver.texto = f"{driver.texto} Resumo Chegadas por Data"
+            estado["ultimo"] = ""
+        return True
+
+    robo.driver = driver
+    robo.clicar_com_espera = clicar
+    robo.salvar_screenshot = lambda _nome: None
+    monkeypatch.setattr(obs.time, "sleep", lambda _segundos: None)
+    return robo, cliques, driver
+
+
+def test_filtros_ja_corretos_nao_clica_e_continua(monkeypatch):
+    robo, cliques, _driver = configurar_robo_filtros(
+        monkeypatch,
+        "Status (Pendente) Resumo (Chegadas por Data)",
+    )
+
+    assert robo.aplicar_filtros_e_obs() is True
+    assert cliques == []
+
+
+def test_status_correto_resumo_incorreto_aplica_somente_resumo(monkeypatch):
+    robo, cliques, _driver = configurar_robo_filtros(monkeypatch, "Status Pendente")
+
+    assert robo.aplicar_filtros_e_obs() is True
+    assert "span[8]/one-translate" not in " ".join(cliques)
+    assert "span[10]" in " ".join(cliques)
+    assert "button[17]" in " ".join(cliques)
+
+
+def test_status_incorreto_resumo_correto_aplica_somente_status(monkeypatch):
+    robo, cliques, _driver = configurar_robo_filtros(monkeypatch, "Resumo Chegadas por Data")
+
+    assert robo.aplicar_filtros_e_obs() is True
+    assert "span[8]/one-translate" in " ".join(cliques)
+    assert "span[10]" not in " ".join(cliques)
+    assert "button[17]" not in " ".join(cliques)
+
+
+def test_filtros_incorretos_aplica_dois_fluxos_antigos(monkeypatch):
+    robo, cliques, _driver = configurar_robo_filtros(monkeypatch, "")
+
+    assert robo.aplicar_filtros_e_obs() is True
+    texto_cliques = " ".join(cliques)
+    assert "span[8]/one-translate" in texto_cliques
+    assert "span[10]" in texto_cliques
+    assert "button[17]" in texto_cliques
+
+
+def test_estado_final_incorreto_falha(monkeypatch):
+    robo, _cliques, _driver = configurar_robo_filtros(
+        monkeypatch,
+        "",
+        atualizar_status=True,
+        atualizar_resumo=False,
+    )
+
+    with pytest.raises(RuntimeError, match="Estado final"):
+        robo.aplicar_filtros_e_obs()
+
+
+def test_filtros_ativos_renderizados_como_button_continuam(monkeypatch):
+    robo, cliques, _driver = configurar_robo_filtros(
+        monkeypatch,
+        "button Status Pendente button Resumo Chegadas por Data",
+    )
+
+    assert robo.aplicar_filtros_e_obs() is True
+    assert cliques == []
+
+
 def test_primeiro_filtro_falhou_lanca_runtime_error():
     robo = robo_sem_chrome()
     robo.clicar_com_espera = lambda xpath: False
