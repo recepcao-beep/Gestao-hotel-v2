@@ -825,8 +825,11 @@ class RoboHITS:
                     """, campo_data, texto_data)
                 time.sleep(1) 
                 
-                botao_confirmar = self.driver.find_element(By.XPATH, "/html/body/div[1]/div/div/div[4]/button")
-                self.force_click(botao_confirmar)
+                xpath_confirmar = "/html/body/div[1]/div/div/div[4]/button"
+                if not self.clicar_com_espera(xpath_confirmar, timeout=15):
+                    raise RuntimeError(
+                        "Botão de confirmação da alteração de data não foi encontrado."
+                    )
                 
                 print("⏳ Confirmando data aplicada e aguardando tabela mudar...")
                 assinatura_atual = self.aguardar_tabela_mudar(assinatura_anterior)

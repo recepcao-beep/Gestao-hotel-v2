@@ -235,6 +235,73 @@ def test_data_esperada_igual_a_exibida_continua():
     assert robo.confirmar_data_aplicada("10/07/2026") == "10/07/2026"
 
 
+class CampoDataFake:
+    def __init__(self):
+        self.teclas = []
+
+    def is_displayed(self):
+        return True
+
+    def click(self):
+        pass
+
+    def send_keys(self, valor):
+        self.teclas.append(valor)
+
+
+class DriverMudarDataFake:
+    def __init__(self):
+        self.campo = CampoDataFake()
+
+    def find_element(self, _by, _xpath):
+        return object()
+
+    def find_elements(self, _by, _seletor):
+        return [self.campo]
+
+    def execute_script(self, *_args):
+        pass
+
+
+def robo_mudar_data(monkeypatch, clique_confirmar=True):
+    robo = robo_sem_chrome()
+    robo.driver = DriverMudarDataFake()
+    robo.focar_quadro = lambda _xpath: True
+    robo.force_click = lambda _elemento: None
+    robo.fechar_popup_hits = lambda: None
+    robo.aguardar_tabela_mudar = lambda assinatura_anterior: "assinatura-atual"
+    robo.confirmar_data_aplicada = lambda data_esperada: data_esperada
+    robo.salvar_screenshot = lambda _nome: None
+    chamadas = []
+
+    def clicar(xpath, timeout=10):
+        chamadas.append((xpath, timeout))
+        return clique_confirmar
+
+    robo.clicar_com_espera = clicar
+    monkeypatch.setattr(obs.time, "sleep", lambda _segundos: None)
+    return robo, chamadas
+
+
+def test_mudar_data_aguarda_botao_confirmar_e_continua(monkeypatch):
+    robo, chamadas = robo_mudar_data(monkeypatch, clique_confirmar=True)
+
+    data_confirmada, assinatura = robo.mudar_data_para(0, assinatura_anterior="anterior")
+
+    assert data_confirmada
+    assert assinatura == "assinatura-atual"
+    assert ("/html/body/div[1]/div/div/div[4]/button", 15) in chamadas
+
+
+def test_mudar_data_sem_botao_confirmar_lanca_runtime_error(monkeypatch):
+    robo, chamadas = robo_mudar_data(monkeypatch, clique_confirmar=False)
+
+    with pytest.raises(RuntimeError, match="confirmação da alteração de data"):
+        robo.mudar_data_para(0)
+
+    assert ("/html/body/div[1]/div/div/div[4]/button", 15) in chamadas
+
+
 def test_hash_normaliza_entrada_e_diferencia_conteudo():
     linhas_a = [[" 10/07/2026 ", "100", None]]
     linhas_b = [["10/07/2026", "100", ""]]
