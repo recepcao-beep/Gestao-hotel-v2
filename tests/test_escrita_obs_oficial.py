@@ -168,7 +168,23 @@ def test_escrita_e_releitura_iguais(tmp_path, monkeypatch):
     assert cliente.opened_keys == [oficial.ID_PLANILHA]
 
 
-def test_hash_divergente_restaura_backup(tmp_path, monkeypatch):
+def test_data_ddmmaaaa_versus_ddmmaa_deve_passar(tmp_path, monkeypatch):
+    caminho = gravar_json(tmp_path, artifact_valido())
+    relidas_com_data_curta = [
+        ["11/07/26", "4055717", "300", "RES1", "1CC", "mimo"],
+        ["12/07/26", "4071561", "", "", "2CC", ""],
+    ]
+    aba = AbaOficialFake(reler_override=relidas_com_data_curta)
+    cliente, _planilha = cliente_fake(aba)
+    monkeypatch.setattr(oficial, "BACKUP_PATH", tmp_path / "backup.json")
+
+    resultado = oficial.executar(oficial.CONFIRMACAO_EXATA, caminho, autenticar_fn=lambda: cliente)
+
+    assert resultado["hash_bruto_preparado"] != resultado["hash_bruto_relido"]
+    assert resultado["hash_normalizado_preparado"] == resultado["hash_normalizado_relido"]
+
+
+def test_voucher_diferente_deve_falhar_e_restaurar_backup(tmp_path, monkeypatch, capsys):
     caminho = gravar_json(tmp_path, artifact_valido())
     aba = AbaOficialFake(reler_override=[linhas_validas()[0], ["12/07/2026", "999", "", "", "2CC", ""]])
     cliente, _planilha = cliente_fake(aba)
@@ -179,6 +195,52 @@ def test_hash_divergente_restaura_backup(tmp_path, monkeypatch):
 
     assert aba.clear_count == 1
     assert aba.valores == [["Data", "Voucher", "Andar", "Vínculo", "Categoria", "Observação"], ["antigo"]]
+    assert "Backup oficial restaurado com sucesso." in capsys.readouterr().out
+
+
+def test_categoria_diferente_deve_falhar(tmp_path, monkeypatch):
+    caminho = gravar_json(tmp_path, artifact_valido())
+    aba = AbaOficialFake(reler_override=[
+        linhas_validas()[0],
+        ["12/07/26", "4071561", "", "", "1CC", ""],
+    ])
+    cliente, _planilha = cliente_fake(aba)
+    monkeypatch.setattr(oficial, "BACKUP_PATH", tmp_path / "backup.json")
+
+    with pytest.raises(RuntimeError, match="Hash divergente"):
+        oficial.executar(oficial.CONFIRMACAO_EXATA, caminho, autenticar_fn=lambda: cliente)
+
+    assert aba.clear_count == 1
+
+
+def test_observacao_diferente_deve_falhar(tmp_path, monkeypatch):
+    caminho = gravar_json(tmp_path, artifact_valido())
+    aba = AbaOficialFake(reler_override=[
+        linhas_validas()[0],
+        ["12/07/26", "4071561", "", "", "2CC", "late checkout"],
+    ])
+    cliente, _planilha = cliente_fake(aba)
+    monkeypatch.setattr(oficial, "BACKUP_PATH", tmp_path / "backup.json")
+
+    with pytest.raises(RuntimeError, match="Hash divergente"):
+        oficial.executar(oficial.CONFIRMACAO_EXATA, caminho, autenticar_fn=lambda: cliente)
+
+    assert aba.clear_count == 1
+
+
+def test_data_realmente_diferente_deve_falhar(tmp_path, monkeypatch):
+    caminho = gravar_json(tmp_path, artifact_valido())
+    aba = AbaOficialFake(reler_override=[
+        ["13/07/26", "4055717", "300", "RES1", "1CC", "mimo"],
+        ["12/07/26", "4071561", "", "", "2CC", ""],
+    ])
+    cliente, _planilha = cliente_fake(aba)
+    monkeypatch.setattr(oficial, "BACKUP_PATH", tmp_path / "backup.json")
+
+    with pytest.raises(RuntimeError, match="Hash divergente"):
+        oficial.executar(oficial.CONFIRMACAO_EXATA, caminho, autenticar_fn=lambda: cliente)
+
+    assert aba.clear_count == 1
 
 
 def test_restauracao_em_falha_de_escrita(tmp_path, monkeypatch):

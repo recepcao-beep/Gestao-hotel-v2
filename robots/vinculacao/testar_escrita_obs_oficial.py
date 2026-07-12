@@ -49,6 +49,34 @@ def normalizar_linhas(linhas, colunas=6):
     return [normalizar_linha(linha, colunas) for linha in linhas]
 
 
+def normalizar_data_para_comparacao(valor):
+    texto = str(valor or "").strip()
+    partes = texto.split("/")
+    if len(partes) != 3:
+        return texto
+    dia, mes, ano = [parte.strip() for parte in partes]
+    if not (dia.isdigit() and mes.isdigit() and ano.isdigit()):
+        return texto
+    ano_int = int(ano)
+    if ano_int < 100:
+        ano_int += 2000
+    try:
+        data = datetime.date(ano_int, int(mes), int(dia))
+    except ValueError:
+        return texto
+    return data.strftime("%d/%m/%Y")
+
+
+def normalizar_linha_para_comparacao(linha, colunas=6):
+    valores = normalizar_linha(linha, colunas)
+    valores[0] = normalizar_data_para_comparacao(valores[0])
+    return valores
+
+
+def normalizar_linhas_para_comparacao(linhas, colunas=6):
+    return [normalizar_linha_para_comparacao(linha, colunas) for linha in linhas]
+
+
 def validar_confirmacao(confirmacao):
     if confirmacao != CONFIRMACAO_EXATA:
         raise EscritaOficialError("Confirmacao obrigatoria ausente ou incorreta.")
@@ -181,15 +209,31 @@ def reler_linhas(aba, quantidade):
 
 
 def validar_releitura(linhas_preparadas, linhas_relidas):
-    preparadas = normalizar_linhas(linhas_preparadas)
-    relidas = normalizar_linhas(linhas_relidas)
-    if len(preparadas) != len(relidas):
-        raise RuntimeError(f"Quantidade divergente: preparada={len(preparadas)} relida={len(relidas)}")
-    hash_preparado = hash_json(preparadas)
-    hash_relido = hash_json(relidas)
-    if hash_preparado != hash_relido or preparadas != relidas:
-        raise RuntimeError(f"Hash divergente: preparado={hash_preparado} relido={hash_relido}")
-    return hash_preparado, hash_relido
+    preparadas_brutas = normalizar_linhas(linhas_preparadas)
+    relidas_brutas = normalizar_linhas(linhas_relidas)
+    if len(preparadas_brutas) != len(relidas_brutas):
+        raise RuntimeError(f"Quantidade divergente: preparada={len(preparadas_brutas)} relida={len(relidas_brutas)}")
+
+    preparadas_normalizadas = normalizar_linhas_para_comparacao(preparadas_brutas)
+    relidas_normalizadas = normalizar_linhas_para_comparacao(relidas_brutas)
+    hashes = {
+        "hash_bruto_preparado": hash_json(preparadas_brutas),
+        "hash_bruto_relido": hash_json(relidas_brutas),
+        "hash_normalizado_preparado": hash_json(preparadas_normalizadas),
+        "hash_normalizado_relido": hash_json(relidas_normalizadas),
+    }
+    if (
+        hashes["hash_normalizado_preparado"] != hashes["hash_normalizado_relido"]
+        or preparadas_normalizadas != relidas_normalizadas
+    ):
+        raise RuntimeError(
+            "Hash divergente: "
+            f"bruto_preparado={hashes['hash_bruto_preparado']} "
+            f"bruto_relido={hashes['hash_bruto_relido']} "
+            f"normalizado_preparado={hashes['hash_normalizado_preparado']} "
+            f"normalizado_relido={hashes['hash_normalizado_relido']}"
+        )
+    return hashes
 
 
 def executar(confirmacao, caminho_json=JSON_LINHAS_EXTRAIDAS, autenticar_fn=autenticar_google_sheets):
@@ -206,16 +250,19 @@ def executar(confirmacao, caminho_json=JSON_LINHAS_EXTRAIDAS, autenticar_fn=aute
     try:
         limpar_e_escrever(aba, linhas)
         relidas = reler_linhas(aba, len(linhas))
-        hash_preparado, hash_relido = validar_releitura(linhas, relidas)
+        hashes = validar_releitura(linhas, relidas)
     except Exception:
         restaurar_backup(aba, backup)
+        print("Backup oficial restaurado com sucesso.")
         raise
 
     if resumo["quantidade"] != len(linhas) or len(linhas) != len(relidas):
         restaurar_backup(aba, backup)
+        print("Backup oficial restaurado com sucesso.")
         raise RuntimeError("Quantidade preparada, escrita e relida divergem.")
-    if resumo["hash"] != hash_relido:
+    if hashes["hash_normalizado_preparado"] != hashes["hash_normalizado_relido"]:
         restaurar_backup(aba, backup)
+        print("Backup oficial restaurado com sucesso.")
         raise RuntimeError("Hash preparado e relido divergem.")
 
     resultado = {
@@ -225,8 +272,12 @@ def executar(confirmacao, caminho_json=JSON_LINHAS_EXTRAIDAS, autenticar_fn=aute
         "quantidade_preparada": resumo["quantidade"],
         "quantidade_escrita": len(linhas),
         "quantidade_relida": len(relidas),
-        "hash_preparado": hash_preparado,
-        "hash_relido": hash_relido,
+        "hash_preparado": hashes["hash_normalizado_preparado"],
+        "hash_relido": hashes["hash_normalizado_relido"],
+        "hash_bruto_preparado": hashes["hash_bruto_preparado"],
+        "hash_bruto_relido": hashes["hash_bruto_relido"],
+        "hash_normalizado_preparado": hashes["hash_normalizado_preparado"],
+        "hash_normalizado_relido": hashes["hash_normalizado_relido"],
         "backup": str(BACKUP_PATH),
         "webhook": "nao_chamado",
     }
