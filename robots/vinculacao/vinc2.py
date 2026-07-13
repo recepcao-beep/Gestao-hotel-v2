@@ -1,14 +1,12 @@
+import argparse
+import json
+import getpass
 import os
-import re
 import time
-import hashlib
-import sys
-from datetime import datetime
+import re
 from pathlib import Path
 import gspread
-from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
+from oauth2client.service_account import ServiceAccountCredentials
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
@@ -18,1129 +16,1131 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.keys import Keys
-from speed import configure_fast_sleep
-try:
-    from hits_popup_guard import fechar_popups_hits, click_hits_seguro
-except Exception:
-    fechar_popups_hits = None
-    click_hits_seguro = None
+from selenium.common.exceptions import TimeoutException, StaleElementReferenceException
 
-configure_fast_sleep()
 
-def executar_vinculacao_2_0():
-    # --- CONFIGURAÇÕES ---
+def executar_vinculacao_2_0(headless=None, fator_pausa=0.8):
     ID_PLANILHA = "1oMKFu9aobTP5sBuF0jjSR4In3Z6EcWfATCe_9ijNFXA"
     NOME_ABA = "VINCULACAO_HOJE"
-    DRY_RUN = (
-        "--dry-run" in sys.argv[1:]
-        or os.environ.get("VINC2_DRY_RUN", "0") == "1"
-        or os.environ.get("VINCULACAO_DRY_RUN", "0") == "1"
-    )
-    MAX_OPERACOES = int(os.environ.get("VINC2_MAX_OPERACOES", "30"))
-    artifacts_dir = Path(__file__).resolve().parent / "artifacts" / "conciliacao"
-    artifacts_dir.mkdir(parents=True, exist_ok=True)
-    relatorio_dry_run = artifacts_dir / "relatorio_dry_run.txt"
-    
-    URL_HITS = "https://susceptor.apphotel.one/account/login?returnUrl=%2Fconnect%2Fauthorize%2Flogin%3F" \
-               "response_type%3Did_token%2520token%26client_id%3DB37748FC-ED13-4858-AE26-28AB3512A171%26" \
-               "redirect_uri%3Dhttps%253A%252F%252Fnacionalinn.hitspms.net%252FCallback%26scope%3Dopenid%2520profile" \
-               "%2520webapi%26nonce%3DN0.28324722615515141770822279499%26state%3D17708222794990.2983837305966167"
+    ARQUIVO_JSON = Path(__file__).resolve().parent / "automacao-mapinha-cb0bced39056.json"
 
-    # DICIONÁRIO DE CATEGORIAS ATUALIZADO
+    if headless is None:
+        headless = (
+            os.getenv("GITHUB_ACTIONS", "").lower() == "true"
+            or os.getenv("ROBOT_HEADLESS", "").lower() in {"1", "true", "yes", "sim"}
+        )
+
+    fator_pausa = max(0.6, float(fator_pausa))
+
+    def pausar(segundos):
+        time.sleep(max(0.10, float(segundos) * fator_pausa))
+
+    URL_HITS = "https://susceptor.apphotel.one/account/login?returnUrl=%2Fconnect%2Fauthorize%2Flogin%3Fresponse_type%3Did_token%2520token%26client_id%3DB37748FC-ED13-4858-AE26-28AB3512A171%26redirect_uri%3Dhttps%253A%252F%252Fnacionalinn.hitspms.net%252FCallback%26scope%3Dopenid%2520profile%2520webapi%26nonce%3DN0.28324722615515141770822279499%26state%3D17708222794990.2983837305966167"
+
     XPATH_CATS = {
-        "3CS":  "/html/body/div[1]/div/div/modal-update-grouped-rooms-detail/div[2]/div[1]/button[1]",
+        "3CS": "/html/body/div[1]/div/div/modal-update-grouped-rooms-detail/div[2]/div[1]/button[1]",
         "1CSS": "/html/body/div[1]/div/div/modal-update-grouped-rooms-detail/div[2]/div[1]/button[2]",
-        "1CC":  "/html/body/div[1]/div/div/modal-update-grouped-rooms-detail/div[2]/div[1]/button[3]",
+        "1CC": "/html/body/div[1]/div/div/modal-update-grouped-rooms-detail/div[2]/div[1]/button[3]",
         "2CSS": "/html/body/div[1]/div/div/modal-update-grouped-rooms-detail/div[2]/div[1]/button[4]",
-        "2CC":  "/html/body/div[1]/div/div/modal-update-grouped-rooms-detail/div[2]/div[1]/button[5]",
-        "SP":   "/html/body/div[1]/div/div/modal-update-grouped-rooms-detail/div[2]/div[1]/button[6]"
+        "2CC": "/html/body/div[1]/div/div/modal-update-grouped-rooms-detail/div[2]/div[1]/button[5]",
+        "SP": "/html/body/div[1]/div/div/modal-update-grouped-rooms-detail/div[2]/div[1]/button[6]",
     }
+
+    CATEGORIAS_COM_SACADA = {"1CC", "1CSS"}
+    CATEGORIAS_SEM_SACADA = {"2CC", "2CSS"}
+    CATEGORIAS_ISOLADAS = {"SP", "3CS"}
     CATEGORIAS_VALIDAS = sorted(XPATH_CATS.keys(), key=len, reverse=True)
 
     chrome_options = Options()
-    if os.environ.get("ROBOT_HEADLESS", "1") != "0":
-        chrome_options.add_argument("--headless=new")
-    chrome_options.add_argument("--window-size=1920,1080")
+    chrome_options.add_argument("--start-maximized")
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--disable-extensions")
-    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
-    wait = WebDriverWait(driver, 15)
 
-    def log_dry(mensagem):
-        print(mensagem)
-        if DRY_RUN:
-            with open(relatorio_dry_run, "a", encoding="utf-8") as arquivo:
-                arquivo.write(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} {mensagem}\n")
+    if headless:
+        chrome_options.add_argument("--headless=new")
+        chrome_options.add_argument("--window-size=1920,1080")
 
-    def salvar_screenshot(nome):
-        caminho = artifacts_dir / nome
-        try:
-            driver.save_screenshot(str(caminho))
-            log_dry(f"📸 Screenshot salvo: {caminho}")
-        except Exception as erro:
-            log_dry(f"⚠️ Falha ao salvar screenshot {nome}: {erro}")
+    driver = webdriver.Chrome(
+        service=Service(ChromeDriverManager().install()),
+        options=chrome_options,
+    )
+
+    print(
+        f"Modo: {'HEADLESS/GITHUB ACTIONS' if headless else 'VISUAL'} | "
+        f"Fator de pausa: {fator_pausa}"
+    )
+    wait = WebDriverWait(driver, 20)
+    wait_medio = WebDriverWait(driver, 10)
+    wait_rapido = WebDriverWait(driver, 3)
 
     def js_click(elemento):
-        if fechar_popups_hits:
-            fechar_popups_hits(driver)
-        if click_hits_seguro:
-            click_hits_seguro(driver, elemento)
-        else:
-            driver.execute_script("arguments[0].click();", elemento)
-
-    def fechar_popup_hits():
-        """Fecha o pop-up pós-login do HITS e remove o backdrop que bloqueia cliques."""
-        if fechar_popups_hits:
-            fechar_popups_hits(driver)
-            return
-        driver.switch_to.default_content()
-        def remover_comunicado_visivel():
-            try:
-                return bool(driver.execute_script("""
-                    let removeu = false;
-                    const termos = ['COMUNICADO', 'Olá Hoteleiros', 'Ola Hoteleiros'];
-                    const contemComunicado = (el) => {
-                      const texto = String(el.innerText || el.textContent || '');
-                      return termos.some((termo) => texto.includes(termo));
-                    };
-                    const area = (el) => {
-                      const r = el.getBoundingClientRect();
-                      return r.width * r.height;
-                    };
-                    const candidatos = Array.from(document.querySelectorAll('body *'))
-                      .filter((el) => {
-                        if (!contemComunicado(el)) return false;
-                        const r = el.getBoundingClientRect();
-                        const visivel = !!(r.width || r.height || el.getClientRects().length);
-                        return visivel && r.width >= 250 && r.height >= 120;
-                      })
-                      .sort((a, b) => area(a) - area(b));
-                    candidatos.forEach((el) => {
-                      let alvo = el;
-                      let atual = el;
-                      while (atual.parentElement && atual.parentElement !== document.body) {
-                        const pai = atual.parentElement;
-                        const r = pai.getBoundingClientRect();
-                        if (!contemComunicado(pai)) break;
-                        if (r.width >= window.innerWidth * 0.98 || r.height >= window.innerHeight * 0.98) break;
-                        alvo = pai;
-                        atual = pai;
-                      }
-                      if (alvo && alvo.parentElement && alvo.tagName !== 'BODY' && alvo.tagName !== 'HTML') {
-                        alvo.remove();
-                        removeu = true;
-                      }
-                    });
-                    return removeu;
-                """))
-            except:
-                return False
-
-        remover_comunicado_visivel()
-        def popup_bloqueando_presente():
-            try:
-                return bool(driver.execute_script("""
-                    const textoPagina = String(document.body ? document.body.innerText || '' : '');
-                    const temComunicado = textoPagina.includes('COMUNICADO') || textoPagina.includes('Olá Hoteleiros');
-                    const temBackdrop = Array.from(document.querySelectorAll('div, [class]')).some((el) => {
-                      const cls = String(el.className || '');
-                      const bg = String(el.getAttribute('backgroundcolor') || '');
-                      const style = String(el.getAttribute('style') || '');
-                      return cls.includes('themes-preview-reflect-backdrop')
-                        || cls.includes('ug-sdk__sc-1rnuyal')
-                        || bg.includes('rgba(0, 0, 0')
-                        || (style.includes('pointer-events: all') && style.includes('rgba(0, 0, 0'));
-                    });
-                    return temComunicado || temBackdrop;
-                """))
-            except:
-                return True
-
-        xpaths_fechar = [
-            "/html/body/div/div/div/div/div/div/div[3]/div/button",
-            "/html/body/div/div/div/div/div/div/div[1]//*[name()='svg']",
-            "/html/body/div/div/div/div/div/div/div[1]//*[name()='svg']/*[name()='path']",
-            "/html/body/div/div/div/div/div/div/div[1]//*[normalize-space(.)='×' or normalize-space(.)='x' or normalize-space(.)='X']",
-            "//*[contains(normalize-space(.), 'COMUNICADO')]/ancestor::*[self::div][1]//*[normalize-space(.)='OK']",
-            "//button[contains(normalize-space(.), 'Fechar')]",
-            "//button[normalize-space(.)='OK' or .//*[normalize-space(.)='OK']]",
-            "//*[@role='button' and (normalize-space(.)='OK' or .//*[normalize-space(.)='OK'])]",
-            "//button[contains(normalize-space(.), 'Entendi')]",
-        ]
-        for _ in range(6):
-            if remover_comunicado_visivel():
-                time.sleep(0.5)
-            if not popup_bloqueando_presente():
-                break
-            fechou = False
-            for xpath in xpaths_fechar:
-                try:
-                    botoes = driver.find_elements(By.XPATH, xpath)
-                    for botao in botoes:
-                        if botao.is_displayed() or "svg" in xpath:
-                            driver.execute_script("""
-                                const el = arguments[0];
-                                const disparar = (alvo) => {
-                                  if (!alvo) return;
-                                  ['mouseover', 'mousedown', 'mouseup', 'click'].forEach((nome) => {
-                                    try { alvo.dispatchEvent(new MouseEvent(nome, { bubbles: true, cancelable: true, view: window })); } catch (e) {}
-                                  });
-                                  try { alvo.click(); } catch (e) {}
-                                };
-                                disparar(el);
-                                disparar(el.closest && (el.closest('button') || el.closest('[role="button"]') || el.closest('svg')));
-                                let pai = el.parentElement;
-                                for (let i = 0; pai && i < 6; i += 1, pai = pai.parentElement) disparar(pai);
-                            """, botao)
-                            time.sleep(0.8)
-                            fechou = True
-                            break
-                    if fechou:
-                        break
-                except:
-                    continue
-            if not fechou:
-                try:
-                    ActionChains(driver).send_keys(Keys.ESCAPE).perform()
-                    time.sleep(0.3)
-                except:
-                    pass
-            try:
-                fechou_js = driver.execute_script("""
-                    let clicou = false;
-                    const disparar = (alvo) => {
-                      if (!alvo) return;
-                      ['mouseover', 'mousedown', 'mouseup', 'click'].forEach((nome) => {
-                        try { alvo.dispatchEvent(new MouseEvent(nome, { bubbles: true, cancelable: true, view: window })); } catch (e) {}
-                      });
-                      try { alvo.click(); clicou = true; } catch (e) {}
-                    };
-                    const fecharPath = document.evaluate(
-                      "/html/body/div/div/div/div/div/div/div[1]//*[name()='svg']/*[name()='path']",
-                      document,
-                      null,
-                      XPathResult.FIRST_ORDERED_NODE_TYPE,
-                      null
-                    ).singleNodeValue;
-                    const fecharSvg = document.evaluate(
-                      "/html/body/div/div/div/div/div/div/div[1]//*[name()='svg']",
-                      document,
-                      null,
-                      XPathResult.FIRST_ORDERED_NODE_TYPE,
-                      null
-                    ).singleNodeValue;
-                    disparar(fecharPath);
-                    disparar(fecharSvg);
-                    let paiFechar = (fecharPath || fecharSvg || {}).parentElement;
-                    for (let i = 0; paiFechar && i < 8; i += 1, paiFechar = paiFechar.parentElement) disparar(paiFechar);
-                    Array.from(document.querySelectorAll('button, [role="button"], a, div, span')).forEach((el) => {
-                      const texto = String(el.innerText || el.textContent || '').trim();
-                      const visivel = !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
-                      if (visivel && (texto === 'OK' || texto === 'Fechar' || texto === 'Entendi')) {
-                        try { el.click(); clicou = true; } catch (e) {}
-                      }
-                    });
-                    const comunicados = Array.from(document.querySelectorAll('body *'))
-                      .filter((el) => {
-                        const texto = String(el.innerText || '');
-                        if (!texto.includes('COMUNICADO') && !texto.includes('Olá Hoteleiros')) return false;
-                        const rect = el.getBoundingClientRect();
-                        return rect.width >= 250 && rect.height >= 120 && rect.width < window.innerWidth * 0.95 && rect.height < window.innerHeight * 0.98;
-                      })
-                      .sort((a, b) => (b.getBoundingClientRect().width * b.getBoundingClientRect().height) - (a.getBoundingClientRect().width * a.getBoundingClientRect().height));
-                    if (comunicados.length) {
-                      const alvo = comunicados[0];
-                      if (alvo && alvo.tagName !== 'BODY' && alvo.tagName !== 'HTML') {
-                        alvo.remove();
-                        clicou = true;
-                      }
-                    }
-                    Array.from(document.querySelectorAll('div, [class]')).forEach((el) => {
-                      const cls = String(el.className || '');
-                      const bg = String(el.getAttribute('backgroundcolor') || '');
-                      const style = String(el.getAttribute('style') || '');
-                      const bloqueiaTela = cls.includes('themes-preview-reflect-backdrop')
-                        || cls.includes('ug-sdk__sc-1rnuyal')
-                        || bg.includes('rgba(0, 0, 0')
-                        || (style.includes('pointer-events: all') && style.includes('rgba(0, 0, 0'));
-                      if (bloqueiaTela) { el.remove(); clicou = true; }
-                    });
-                    return clicou;
-                """)
-                fechou = fechou or bool(fechou_js)
-            except:
-                pass
-            if not fechou:
-                break
-        driver.switch_to.default_content()
+        driver.execute_script("arguments[0].scrollIntoView({block: 'center', inline: 'center'});", elemento)
+        driver.execute_script("arguments[0].click();", elemento)
 
     def focar_quadro_do_elemento(xpath_alvo, tempo_maximo=15):
-        tempo_inicial = time.time()
-        while time.time() - tempo_inicial < tempo_maximo:
+        fim = time.time() + tempo_maximo
+        ultimo_erro = None
+
+        while time.time() < fim:
             driver.switch_to.default_content()
-            if len(driver.find_elements(By.XPATH, xpath_alvo)) > 0: return True
+            if driver.find_elements(By.XPATH, xpath_alvo):
+                return True
+
             iframes = driver.find_elements(By.TAG_NAME, "iframe")
             for i in range(len(iframes)):
                 try:
+                    driver.switch_to.default_content()
                     driver.switch_to.frame(i)
-                    if len(driver.find_elements(By.XPATH, xpath_alvo)) > 0: return True
-                    driver.switch_to.parent_frame()
-                except: continue
-            time.sleep(0.5)
+                    if driver.find_elements(By.XPATH, xpath_alvo):
+                        return True
+                except Exception as erro:
+                    ultimo_erro = erro
+
+            pausar(0.2)
+
+        driver.switch_to.default_content()
+        if ultimo_erro:
+            print(f"Ultimo erro ao procurar quadro: {ultimo_erro}")
         return False
 
-    def esperar_loading_sumir():
+    def esperar_loading_sumir(timeout=15):
         try:
-            WebDriverWait(driver, 10).until(
+            WebDriverWait(driver, timeout).until(
                 EC.invisibility_of_element_located((By.CLASS_NAME, "block-ui-overlay"))
             )
-        except: pass
+        except TimeoutException:
+            pass
 
-    def xpath_literal(texto):
-        if "'" not in texto:
-            return f"'{texto}'"
-        if '"' not in texto:
-            return f'"{texto}"'
-        partes = texto.split("'")
-        return "concat(" + ', "\'", '.join(f"'{parte}'" for parte in partes) + ")"
+    def clicar_quando_pronto(xpath, timeout=10, descricao="elemento"):
+        fim = time.time() + timeout
+        ultimo_erro = None
 
-    def normalizar_categoria(texto):
-        texto_upper = (texto or "").upper()
-        for categoria in CATEGORIAS_VALIDAS:
-            if re.search(rf"(?<![A-Z0-9]){re.escape(categoria)}(?![A-Z0-9])", texto_upper):
-                return categoria
-        return ""
-
-    def obter_categoria_bloco(indice_bloco):
-        candidatos_xpath = (
-            "//reservation-edit//*[self::span or self::div]["
-            "contains(translate(normalize-space(.), 'abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'), '1CSS') or "
-            "contains(translate(normalize-space(.), 'abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'), '1CC') or "
-            "contains(translate(normalize-space(.), 'abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'), '2CSS') or "
-            "contains(translate(normalize-space(.), 'abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'), '2CC') or "
-            "contains(translate(normalize-space(.), 'abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'), '3CS') or "
-            "contains(translate(normalize-space(.), 'abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'), 'SP')"
-            "]"
-        )
-
-        categorias = []
-        driver.switch_to.default_content()
-        for elemento in driver.find_elements(By.XPATH, candidatos_xpath):
-            try:
-                if not elemento.is_displayed():
-                    continue
-                texto = elemento.text.strip()
-                if not texto or len(texto) > 80:
-                    continue
-                categoria = normalizar_categoria(texto)
-                if categoria and (not categorias or categorias[-1] != categoria):
-                    categorias.append(categoria)
-            except:
+        while time.time() < fim:
+            if not focar_quadro_do_elemento(xpath, 2):
+                ultimo_erro = f"{descricao} nao encontrado"
+                pausar(0.2)
                 continue
 
-        if indice_bloco < len(categorias):
-            return categorias[indice_bloco]
-        return ""
-
-    def clicar_apartamento_no_popup(ap_alvo):
-        ap_literal = xpath_literal(str(ap_alvo).strip())
-        container_xpath = "/html/body/div[1]/div/div/modal-reservation-edit-select-update-grouped-rooms/div[2]/div/div[5]"
-        xpaths_busca = [
-            f"{container_xpath}//button[contains(concat(' ', normalize-space(.), ' '), concat(' ', {ap_literal}, ' '))]",
-            f"{container_xpath}//*[self::span or self::label][normalize-space(.)={ap_literal}]",
-            f"//modal-reservation-edit-select-update-grouped-rooms//button[contains(concat(' ', normalize-space(.), ' '), concat(' ', {ap_literal}, ' '))]",
-            f"//modal-reservation-edit-select-update-grouped-rooms//*[self::span or self::label][normalize-space(.)={ap_literal}]",
-            f"//button[.//span[normalize-space(.)={ap_literal}] or normalize-space(.)={ap_literal}]",
-            f"//span[normalize-space(.)={ap_literal}]",
-        ]
-
-        for xpath_busca in xpaths_busca:
             try:
-                if not focar_quadro_do_elemento(xpath_busca, 3):
-                    continue
-                for elemento in driver.find_elements(By.XPATH, xpath_busca):
-                    try:
-                        if not elemento.is_displayed():
-                            continue
-
-                        clicavel = elemento
-                        for ancestral_xpath in [
-                            "./ancestor-or-self::button[1]",
-                            "./ancestor::label[1]",
-                            "./ancestor::*[contains(@class, 'btn')][1]",
-                        ]:
-                            try:
-                                ancestral = elemento.find_element(By.XPATH, ancestral_xpath)
-                                if ancestral and ancestral.is_displayed():
-                                    clicavel = ancestral
-                                    break
-                            except:
-                                pass
-
-                        classe = clicavel.get_attribute("class") or ""
-                        if clicavel.get_attribute("disabled") or "disabled" in classe:
-                            continue
-
-                        try:
-                            ActionChains(driver).move_to_element(clicavel).click().perform()
-                        except:
-                            js_click(clicavel)
-                        return True
-                    except:
-                        continue
-            except:
-                continue
-        return False
-
-    def fechar_modal_selecao_apartamento():
-        xpaths_cancelar = [
-            "//button[@ng-click='cancelRooms(reservationRoom)' or @title='Cancelar']",
-            "/html/body/div[1]/div/div/modal-reservation-edit-select-update-grouped-rooms/div[3]/button[2]",
-            "//*[@id='abandonUpdateRooms']"
-        ]
-
-        for xp_fechar in xpaths_cancelar:
-            if focar_quadro_do_elemento(xp_fechar, 3):
-                print("❌ Clicando no botão Cancelar/X...")
-                js_click(driver.find_element(By.XPATH, xp_fechar))
-                time.sleep(1.5)
+                botao = WebDriverWait(driver, 2, poll_frequency=0.2).until(
+                    EC.element_to_be_clickable((By.XPATH, xpath))
+                )
+                try:
+                    botao.click()
+                except Exception:
+                    js_click(botao)
                 return True
+            except StaleElementReferenceException as erro:
+                ultimo_erro = erro
+                pausar(0.2)
+            except Exception as erro:
+                ultimo_erro = erro
+                pausar(0.2)
 
-        print("⚠️ Botão X bloqueado! Forçando fechamento com tecla ESC...")
-        ActionChains(driver).send_keys(Keys.ESCAPE).perform()
-        time.sleep(1.5)
+        print(f"Nao consegui clicar em {descricao}: {ultimo_erro}")
         return False
 
     def fechar_aviso_modificado():
         try:
             xpath_ok_erro = "//button[contains(text(), 'OK')] | //button[@ng-click='closeModal()']"
-            aviso = driver.find_elements(By.XPATH, xpath_ok_erro)
-            if aviso and len(aviso) > 0:
-                if aviso[0].is_displayed():
-                    print("⚠️ Detectado pop-up 'Registro Modificado'. Fechando...")
-                    js_click(aviso[0])
-                    time.sleep(1.5)
+            avisos = driver.find_elements(By.XPATH, xpath_ok_erro)
+            for aviso in avisos:
+                if aviso.is_displayed():
+                    print("Detectado pop-up 'Registro Modificado'. Fechando...")
+                    js_click(aviso)
+                    esperar_loading_sumir(timeout=5)
                     return True
-        except: pass
+        except Exception:
+            pass
         return False
 
-    def confirmar_acao(is_overbooking=False):
-        time.sleep(1) 
-        fechar_aviso_modificado() 
+    def confirmar_acao(is_overbooking=False, ap_overbooking=None):
+        fechar_aviso_modificado()
+
         if is_overbooking:
-            xpath_conf_over = "/html/body/div[1]/div/div/modal-update-room-type/div[6]/button[1]"
-            if focar_quadro_do_elemento(xpath_conf_over, 10):
-                js_click(driver.find_element(By.XPATH, xpath_conf_over))
-                print("✅ Confirmação de overbooking enviada!")
-                time.sleep(2)
+            if ap_overbooking and not apartamento_overbooking_selecionado(ap_overbooking):
+                print(f"Texto lido em Apartamento selecionado: '{texto_apartamento_selecionado_overbooking()}'")
+                print(
+                    f"BLOQUEADO: nao vou confirmar overbooking porque o AP {ap_overbooking} "
+                    "nao aparece no campo 'Apartamento selecionado'."
+                )
+                return False
+
+            print(f"AP selecionado validado para overbooking: {ap_overbooking}")
+            if clicar_confirmacao_overbooking(timeout=10):
+                print("Confirmacao de overbooking enviada!")
+                esperar_loading_sumir(timeout=15)
                 fechar_aviso_modificado()
                 return True
-        else:
-            xpath_btn_confirmar = "//button[@ng-click='saveRooms(reservationRoom)' or @title='Confirmar']"
-            if focar_quadro_do_elemento(xpath_btn_confirmar, 10):
-                botao = driver.find_element(By.XPATH, xpath_btn_confirmar)
-                try: botao.click()
-                except: js_click(botao)
-                print("✅ Confirmação de vinculação enviada!")
-                time.sleep(2)
-                fechar_aviso_modificado()
-                return True
-            else:
-                xpath_fallback = "/html/body/div[1]/div/div/modal-reservation-edit-select-update-grouped-rooms/div[3]/button[1]"
-                if focar_quadro_do_elemento(xpath_fallback, 5):
-                    js_click(driver.find_element(By.XPATH, xpath_fallback))
-                    print("✅ Confirmação enviada (via fallback)!")
-                    time.sleep(2)
-                    fechar_aviso_modificado()
-                    return True
+            print("Nao consegui clicar no botao de confirmar overbooking.")
+            return False
+
+        xpath_btn_confirmar = "//button[@ng-click='saveRooms(reservationRoom)' or @title='Confirmar']"
+        if clicar_quando_pronto(xpath_btn_confirmar, timeout=10, descricao="confirmacao de vinculacao"):
+            print("Confirmacao de vinculacao enviada!")
+            esperar_loading_sumir(timeout=15)
+            fechar_aviso_modificado()
+            return True
+
+        xpath_fallback = "/html/body/div[1]/div/div/modal-reservation-edit-select-update-grouped-rooms/div[3]/button[1]"
+        if clicar_quando_pronto(xpath_fallback, timeout=5, descricao="confirmacao fallback"):
+            print("Confirmacao enviada via fallback!")
+            esperar_loading_sumir(timeout=15)
+            fechar_aviso_modificado()
+            return True
+
         return False
 
     def obter_dados():
-        print("📡 Lendo 'VINCULACAO_HOJE' via OAuth...")
-        escopos = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
-        creds = None
-        
-        diretorio_atual = os.path.dirname(os.path.abspath(__file__))
-        caminho_token = os.path.join(diretorio_atual, 'token.json')
-        caminho_secret = os.path.join(diretorio_atual, 'client_secret.json')
-        
-        if os.path.exists(caminho_token):
-            creds = Credentials.from_authorized_user_file(caminho_token, escopos)
-            
-        if not creds or not creds.valid:
-            if creds and creds.expired and creds.refresh_token:
-                creds.refresh(Request())
-            else:
-                flow = InstalledAppFlow.from_client_secrets_file(caminho_secret, escopos)
-                creds = flow.run_local_server(port=0)
-                
-            with open(caminho_token, 'w') as token:
-                token.write(creds.to_json())
+        print("Lendo 'VINCULACAO_HOJE' (Voucher, Apartamento, Categoria, Data)...")
+        escopos_google = [
+            "https://spreadsheets.google.com/feeds",
+            "https://www.googleapis.com/auth/drive",
+        ]
 
+        service_account_json = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
+
+        if service_account_json:
+            creds = ServiceAccountCredentials.from_json_keyfile_dict(
+                json.loads(service_account_json),
+                escopos_google,
+            )
+        else:
+            creds = ServiceAccountCredentials.from_json_keyfile_name(
+                str(ARQUIVO_JSON),
+                escopos_google,
+            )
         cliente = gspread.authorize(creds)
         aba = cliente.open_by_key(ID_PLANILHA).worksheet(NOME_ABA)
 
-        def normalizar_cabecalho(texto):
-            texto = str(texto or "").strip().upper()
-            texto = re.sub(r"[^A-Z0-9]+", "_", texto)
-            return texto.strip("_")
+        linhas = aba.get_all_values()[1:]
+        agrupados = {}
 
-        def montar_agrupados(linhas):
-            agrupados = {}
+        for linha in linhas:
+            if len(linha) < 3:
+                continue
 
-            for numero_linha, linha in enumerate(linhas, start=2):
-                if len(linha) < 3:
+            v_s = str(linha[0]).strip()
+            a_s = str(linha[1]).strip()
+            c_s = str(linha[2]).strip().upper()
+
+            data_in = str(linha[4]).strip() if len(linha) >= 5 else ""
+            data_ui = ""
+            if data_in and "/" in data_in:
+                partes = data_in.split("/")
+                if len(partes) >= 3:
+                    data_ui = f"{partes[0].zfill(2)}/{partes[1].zfill(2)}/{partes[2][-2:]}"
+
+            if v_s and a_s and c_s:
+                agrupados.setdefault(v_s, []).append({"ap": a_s, "cat": c_s, "data_ui": data_ui})
+
+        return agrupados
+
+    def mesma_familia_sacada(cat_origem, cat_destino):
+        if cat_origem in CATEGORIAS_COM_SACADA:
+            return cat_destino in CATEGORIAS_COM_SACADA
+        if cat_origem in CATEGORIAS_SEM_SACADA:
+            return cat_destino in CATEGORIAS_SEM_SACADA
+        if cat_origem in CATEGORIAS_ISOLADAS:
+            return cat_destino == cat_origem
+        return cat_origem == cat_destino
+
+    def normalizar_categoria(texto):
+        """Extrai 1CC, 1CSS, 2CC, 2CSS, 3CS ou SP de um texto da tela."""
+        texto_upper = (texto or "").upper()
+
+        for categoria in CATEGORIAS_VALIDAS:
+            if re.search(
+                rf"(?<![A-Z0-9]){re.escape(categoria)}(?![A-Z0-9])",
+                texto_upper,
+            ):
+                return categoria
+
+        return ""
+
+    def texto_card_da_cama(botao_cama):
+        """Lê o texto do card associado ao botão da cama sem clicar nele."""
+        try:
+            return driver.execute_script(
+                """
+                var node = arguments[0];
+                while (node && node.parentNode) {
+                    node = node.parentNode;
+                    if (node.innerText && node.innerText.includes('In ')) {
+                        return node.innerText;
+                    }
+                }
+                return '';
+                """,
+                botao_cama,
+            ) or ""
+        except Exception:
+            return ""
+
+    def obter_categoria_bloco(indice_bloco, botao_cama=None, texto_card=""):
+        """
+        Descobre a categoria do bloco antes de abrir a seleção de apartamentos.
+
+        Ordem:
+        1. texto do próprio card selecionado;
+        2. texto dos ancestrais do botão da cama;
+        3. fallback recuperado do commit antigo, pela ordem dos blocos visíveis.
+        """
+        categoria = normalizar_categoria(texto_card)
+        if categoria:
+            return categoria
+
+        if botao_cama is not None:
+            categoria = normalizar_categoria(texto_card_da_cama(botao_cama))
+            if categoria:
+                return categoria
+
+        candidatos_xpath = (
+            "//reservation-edit//*[self::span or self::div]["
+            "contains(translate(normalize-space(.), "
+            "'abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'), '1CSS') or "
+            "contains(translate(normalize-space(.), "
+            "'abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'), '1CC') or "
+            "contains(translate(normalize-space(.), "
+            "'abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'), '2CSS') or "
+            "contains(translate(normalize-space(.), "
+            "'abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'), '2CC') or "
+            "contains(translate(normalize-space(.), "
+            "'abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'), '3CS') or "
+            "contains(translate(normalize-space(.), "
+            "'abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'), 'SP')"
+            "]"
+        )
+
+        categorias = []
+        driver.switch_to.default_content()
+
+        for elemento in driver.find_elements(By.XPATH, candidatos_xpath):
+            try:
+                if not elemento.is_displayed():
                     continue
-                if numero_linha == 2 and normalizar_cabecalho(linha[0]) in {"VOUCHER", "VOUCHER_CONTA"}:
+
+                texto = elemento.text.strip()
+                if not texto or len(texto) > 80:
                     continue
 
-                v_s = str(linha[0]).strip()
-                a_s = str(linha[1]).strip()
-                c_s = str(linha[2]).strip().upper()
-                hospede = str(linha[3]).strip() if len(linha) > 3 else ""
-                checkin = str(linha[4]).strip() if len(linha) > 4 else ""
-                status_extra = str(linha[5]).strip() if len(linha) > 5 else ""
-                resumo = str(linha[6]).strip() if len(linha) > 6 else ""
-                atual = str(linha[7]).strip() if len(linha) > 7 else ""
-                acao = str(linha[8]).strip().upper() if len(linha) > 8 else ""
-                if not acao:
-                    acao = "VINCULAR"
+                categoria = normalizar_categoria(texto)
+                if categoria and (not categorias or categorias[-1] != categoria):
+                    categorias.append(categoria)
+            except Exception:
+                continue
 
-                if acao in {"REVISAR", "BLOQUEADO"}:
-                    if DRY_RUN:
-                        print(
-                            f"[DRY-RUN] Pulando linha {numero_linha}, voucher {v_s}, "
-                            f"acao {acao}; dry-run continua nos demais vouchers."
-                        )
-                        continue
-                    raise RuntimeError(
-                        f"Execução bloqueada antes de abrir o HITS: linha {numero_linha}, "
-                        f"voucher {v_s}, ação {acao}."
-                    )
-                if acao == "MANTER":
-                    continue
-                if acao == "TROCAR" and not atual:
-                    raise RuntimeError(f"Linha {numero_linha}: TROCAR sem apartamento atual.")
-                if acao not in {"TROCAR", "VINCULAR", "OVERBOOKING"}:
-                    raise RuntimeError(f"Linha {numero_linha}: ação desconhecida/indefinida: {acao}")
+        if 0 <= indice_bloco < len(categorias):
+            return categorias[indice_bloco]
 
-                if v_s and a_s and c_s:
-                    if v_s not in agrupados:
-                        agrupados[v_s] = []
-                    agrupados[v_s].append({
-                        "ap": a_s,
-                        "cat": c_s,
-                        "acao": acao,
-                        "atual": atual,
-                        "linha": numero_linha,
-                        "hospede": hospede,
-                        "checkin": checkin,
-                        "status_extra": status_extra,
-                        "resumo": resumo,
-                    })
+        return ""
 
-            return agrupados
+    def categoria_selecionada_bate_com_planilha(cat_alvo):
+        xpath_categoria_atual = "/html/body/div[1]/div/div/modal-update-room-type/div[2]/div[2]/div[2]/div/button[1]"
+        try:
+            texto = driver.find_element(By.XPATH, xpath_categoria_atual).text.lower()
+        except Exception:
+            texto = ""
 
-        def assinatura_agrupados(agrupados):
-            partes = []
-            for voucher in sorted(agrupados.keys()):
-                for item in agrupados[voucher]:
-                    partes.append(f"{voucher}:{item['ap']}:{item['cat']}:{item.get('acao','')}:{item.get('atual','')}")
-            texto = "|".join(partes)
-            return hashlib.sha1(texto.encode("utf-8")).hexdigest()[:12]
+        if not texto:
+            print("Nao consegui ler o texto da categoria selecionada; seguindo com cautela.")
+            return True
 
-        tentativas = int(os.environ.get("VINCULACAO_PLANILHA_TENTATIVAS", "4"))
-        intervalo = int(os.environ.get("VINCULACAO_PLANILHA_INTERVALO", "4"))
-        assinatura_anterior = None
-        agrupados_anterior = {}
+        if cat_alvo in CATEGORIAS_COM_SACADA:
+            ok = "com sacada" in texto
+        elif cat_alvo in CATEGORIAS_SEM_SACADA:
+            ok = "sem sacada" in texto
+        elif cat_alvo == "SP":
+            ok = "suite" in texto or "suíte" in texto or "presid" in texto
+        elif cat_alvo == "3CS":
+            ok = "adapt" in texto or "pcd" in texto
+        else:
+            ok = False
 
-        for tentativa in range(1, tentativas + 1):
-            linhas = aba.get_all_values()[1:]
-            agrupados = montar_agrupados(linhas)
-            total_aps = sum(len(lista) for lista in agrupados.values())
-            assinatura = assinatura_agrupados(agrupados)
-            primeiros_vouchers = ", ".join(sorted(agrupados.keys())[:8])
-
+        if not ok:
             print(
-                f"📊 Leitura {tentativa}/{tentativas} da VINCULACAO_HOJE: "
-                f"{len(agrupados)} voucher(s), {total_aps} apartamento(s), assinatura {assinatura}"
+                f"BLOQUEADO: categoria selecionada na tela ('{texto}') nao bate "
+                f"com a categoria da planilha ({cat_alvo})."
             )
-            if primeiros_vouchers:
-                print(f"   Primeiros vouchers lidos: {primeiros_vouchers}")
+        return ok
 
-            if assinatura_anterior == assinatura:
-                print("✅ Aba VINCULACAO_HOJE estabilizada em duas leituras consecutivas.")
-                return agrupados
+    def aguardar_painel_apartamentos(ap_alvo, timeout=12):
+        xpath_possiveis_aps = (
+            f"//span[normalize-space(text())='{ap_alvo}']"
+            f" | //div[normalize-space(text())='{ap_alvo}']"
+            f" | //button[contains(normalize-space(), '{ap_alvo}')]"
+            " | //modal-reservation-edit-select-update-grouped-rooms//*[contains(@class, 'room')]"
+            " | //modal-reservation-edit-select-update-grouped-rooms//button"
+        )
 
-            if assinatura_anterior is not None:
-                print("⏳ A aba VINCULACAO_HOJE mudou entre as leituras. Aguardando recalculo da planilha...")
+        print("Aguardando painel/lista de apartamentos carregar...")
+        try:
+            WebDriverWait(driver, timeout, poll_frequency=0.2).until(
+                lambda d: len(d.find_elements(By.XPATH, xpath_possiveis_aps)) > 0
+            )
+            esperar_loading_sumir(timeout=8)
+            return True
+        except TimeoutException:
+            return False
 
-            assinatura_anterior = assinatura
-            agrupados_anterior = agrupados
+    def procurar_apartamento_na_tela(ap_alvo, timeout=12):
+        xpath_alvo_vinc = (
+            f"//span[normalize-space(text())='{ap_alvo}']"
+            f" | //div[normalize-space(text())='{ap_alvo}']"
+            f" | //button[contains(normalize-space(), '{ap_alvo}')]"
+        )
 
-            if tentativa < tentativas:
-                time.sleep(intervalo)
+        if not aguardar_painel_apartamentos(ap_alvo, timeout=timeout):
+            print("Painel de apartamentos nao carregou dentro do tempo esperado.")
+            return None
 
-        print("⚠️ A aba VINCULACAO_HOJE não estabilizou dentro do tempo. Seguindo com a última leitura disponível.")
-        return agrupados_anterior
+        fim = time.time() + timeout
+        while time.time() < fim:
+            elementos_presentes = driver.find_elements(By.XPATH, xpath_alvo_vinc)
+            for elemento in elementos_presentes:
+                try:
+                    texto_elemento = elemento.text.strip()
+                    partes = texto_elemento.split()
+                    if texto_elemento == ap_alvo or texto_elemento.startswith(ap_alvo) or ap_alvo in partes:
+                        return elemento
+                except StaleElementReferenceException:
+                    continue
+            pausar(0.2)
 
-    def ler_apartamento_marcado_no_modal():
-        candidatos = []
-        xpaths = [
-            "//modal-reservation-edit-select-update-grouped-rooms//button[contains(@class,'btn-success') or contains(@class,'active') or .//*[contains(@class,'fa-check') or contains(@class,'check')]]",
-            "//modal-reservation-edit-select-update-grouped-rooms//*[contains(@class,'btn-success') or contains(@class,'active') or .//*[contains(@class,'fa-check') or contains(@class,'check')]]",
-            "//button[contains(@class,'btn-success') or .//*[contains(@class,'fa-check') or contains(@class,'check')]]",
+        return None
+
+    def fechar_modal_quartos():
+        xpaths_cancelar = [
+            "//button[@ng-click='cancelRooms(reservationRoom)' or @title='Cancelar']",
+            "/html/body/div[1]/div/div/modal-reservation-edit-select-update-grouped-rooms/div[3]/button[2]",
+            "//*[@id='abandonUpdateRooms']",
         ]
-        for xpath in xpaths:
-            for elemento in driver.find_elements(By.XPATH, xpath):
+
+        for xp_fechar in xpaths_cancelar:
+            if clicar_quando_pronto(xp_fechar, timeout=3, descricao="cancelar modal de quartos"):
+                esperar_loading_sumir(timeout=8)
+                return True
+
+        ActionChains(driver).send_keys(Keys.ESCAPE).perform()
+        esperar_loading_sumir(timeout=8)
+        return False
+
+    def elemento_clicavel_do_ap(elemento):
+        clicavel = driver.execute_script(
+            """
+            var node = arguments[0];
+            while (node && node !== document.body) {
+                var tag = (node.tagName || '').toLowerCase();
+                var cls = node.className || '';
+                var ngClick = node.getAttribute && node.getAttribute('ng-click');
+                var role = node.getAttribute && node.getAttribute('role');
+
+                if (
+                    tag === 'button' ||
+                    tag === 'a' ||
+                    ngClick ||
+                    role === 'button' ||
+                    String(cls).includes('room') ||
+                    String(cls).includes('item') ||
+                    String(cls).includes('list-group')
+                ) {
+                    return node;
+                }
+                node = node.parentElement;
+            }
+            return arguments[0];
+            """,
+            elemento,
+        )
+        return clicavel or elemento
+
+    def texto_apartamento_selecionado_overbooking():
+        xpath_area_selecionado = "/html/body/div[1]/div/div/modal-update-room-type/div[2]/div[5]/div[1]"
+        try:
+            area = driver.find_element(By.XPATH, xpath_area_selecionado)
+            texto = driver.execute_script("return arguments[0].innerText || arguments[0].textContent || '';", area)
+            return texto.replace("\n", " ").strip()
+        except Exception:
+            return ""
+
+    def apartamento_overbooking_selecionado(ap_alvo):
+        texto = texto_apartamento_selecionado_overbooking()
+        if texto and ("Sem apartamento" in texto or "sem apartamento" in texto):
+            return False
+        if texto and texto_tem_ap(texto, ap_alvo):
+            return True
+
+        # Em alguns layouts do HITS, quando o apartamento e selecionado o chip
+        # troca o icone/texto de "link" para "clear". Esse estado tambem e
+        # selecao valida, mesmo quando a area "Apartamento selecionado" nao
+        # atualiza o innerText do jeito esperado pelo Selenium.
+        xpath_chip_selecionado = (
+            "/html/body/div[1]/div/div/modal-update-room-type"
+            f"//*[contains(normalize-space(.), 'clear') and contains(normalize-space(.), '{ap_alvo}')]"
+        )
+        try:
+            return any(el.is_displayed() for el in driver.find_elements(By.XPATH, xpath_chip_selecionado))
+        except Exception:
+            return False
+
+    def clicar_confirmacao_overbooking(timeout=10):
+        fim = time.time() + timeout
+        ultimo_erro = None
+        xpaths_confirmar = [
+            "/html/body/div[1]/div/div/modal-update-room-type/div[6]/button[1]",
+            "//modal-update-room-type/div[6]/button[1]",
+            "//modal-update-room-type//div[contains(@class, 'modal-footer')]//button[1]",
+            "//modal-update-room-type//button[not(@disabled) and (.//em[contains(normalize-space(.), 'check')] or .//i[contains(@class, 'check')] or contains(@class, 'btn-success') or contains(@class, 'btn-primary'))]",
+        ]
+
+        while time.time() < fim:
+            fechar_aviso_modificado()
+            driver.switch_to.default_content()
+
+            for xpath in xpaths_confirmar:
+                if not focar_quadro_do_elemento(xpath, 1):
+                    continue
+
+                try:
+                    botoes = driver.find_elements(By.XPATH, xpath)
+                    for botao in botoes:
+                        if not botao.is_displayed():
+                            continue
+                        if botao.get_attribute("disabled"):
+                            ultimo_erro = "botao confirmar overbooking esta disabled"
+                            continue
+
+                        try:
+                            botao.click()
+                        except Exception:
+                            js_click(botao)
+                        return True
+                except (StaleElementReferenceException, Exception) as erro:
+                    ultimo_erro = erro
+                    continue
+
+            try:
+                botao_footer = driver.execute_script(
+                    """
+                    var modal = document.querySelector('modal-update-room-type');
+                    if (!modal) return null;
+                    var footer = modal.children && modal.children.length >= 6 ? modal.children[5] : null;
+                    if (!footer) return null;
+                    var buttons = Array.from(footer.querySelectorAll('button')).filter(function(btn) {
+                        return !btn.disabled && btn.offsetParent !== null;
+                    });
+                    return buttons.length ? buttons[0] : null;
+                    """
+                )
+                if botao_footer:
+                    js_click(botao_footer)
+                    return True
+            except Exception as erro:
+                ultimo_erro = erro
+
+            pausar(0.2)
+
+        print(f"Falha ao confirmar overbooking. Ultimo erro: {ultimo_erro}")
+        return False
+
+    def clicar_ap_overbooking(ap_alvo, timeout=15):
+        xpath_grade_disponiveis = "/html/body/div[1]/div/div/modal-update-room-type/div[2]/div[5]/div[2]"
+        xpath_ap_disponivel = (
+            f"{xpath_grade_disponiveis}/div"
+            f"[.//*[normalize-space(text())='{ap_alvo}'] or normalize-space(.)='{ap_alvo}' "
+            f"or contains(concat(' ', normalize-space(.), ' '), ' {ap_alvo} ')]"
+        )
+        xpath_ap_texto_disponivel = (
+            f"{xpath_grade_disponiveis}//*[normalize-space(text())='{ap_alvo}' "
+            f"or contains(concat(' ', normalize-space(.), ' '), ' {ap_alvo} ')]"
+        )
+
+        if not focar_quadro_do_elemento(xpath_ap_texto_disponivel, timeout):
+            return False
+
+        fim = time.time() + timeout
+        ultimo_erro = None
+
+        while time.time() < fim:
+            elementos = driver.find_elements(By.XPATH, xpath_ap_disponivel)
+            if not elementos:
+                elementos = driver.find_elements(By.XPATH, xpath_ap_texto_disponivel)
+
+            for elemento in elementos:
                 try:
                     if not elemento.is_displayed():
                         continue
-                    texto = elemento.text.strip()
-                    match = re.search(r"\b(\d{3,4})\b", texto)
-                    if match:
-                        candidatos.append(match.group(1))
-                except:
-                    continue
-        return candidatos[0] if candidatos else ""
 
-    def dry_run_inspecionar_quarto(voucher, indice, item, botao_cama):
-        ap_alvo = item["ap"]
-        cat_alvo = item["cat"]
-        acao = item.get("acao", "")
-        atual_planilha = item.get("atual", "")
-        linha = item.get("linha", "?")
-        cat_bloco_atual = obter_categoria_bloco(indice)
-
-        log_dry(
-            f"[DRY-RUN] Voucher {voucher} linha {linha} quarto {indice + 1}: "
-            f"ação={acao}, planilha atual={atual_planilha or '-'}, destino={ap_alvo}, "
-            f"cat planilha={cat_alvo}, cat HITS={cat_bloco_atual or '-'}"
-        )
-
-        try:
-            js_click(botao_cama)
-            focar_quadro_do_elemento("//modal-reservation-edit-select-update-grouped-rooms", 8)
-            time.sleep(1)
-            atual_hits = ler_apartamento_marcado_no_modal()
-        except Exception as erro:
-            atual_hits = ""
-            log_dry(f"[DRY-RUN] Falha ao abrir/ler modal do quarto {indice + 1}: {erro}")
-
-        divergencias = []
-        if atual_planilha and atual_hits and atual_hits != atual_planilha:
-            divergencias.append(f"HITS={atual_hits}, planilha H={atual_planilha}")
-        if cat_bloco_atual and cat_alvo and cat_bloco_atual != cat_alvo and acao != "OVERBOOKING":
-            divergencias.append(f"categoria HITS={cat_bloco_atual}, planilha C={cat_alvo}")
-        if acao == "TROCAR" and atual_hits and atual_hits == ap_alvo:
-            divergencias.append("ação TROCAR, mas o HITS já está no apartamento destino")
-        if acao == "VINCULAR" and atual_hits:
-            divergencias.append(f"ação VINCULAR, mas o HITS já mostra apartamento {atual_hits}")
-
-        if divergencias:
-            log_dry(f"[DRY-RUN] DIVERGÊNCIA voucher {voucher}: " + " | ".join(divergencias))
-            salvar_screenshot(f"divergencia_{voucher}_linha_{linha}.png")
-        else:
-            log_dry(
-                f"[DRY-RUN] OK voucher {voucher}: faria {acao} "
-                f"{atual_hits or atual_planilha or '-'} -> {ap_alvo}."
-            )
-
-        fechar_modal_selecao_apartamento()
-        driver.switch_to.default_content()
-        esperar_loading_sumir()
-
-    def aplicar_filtro_voucher(voucher):
-        xpath_abrir_filtro = '//*[@id="one-search-filters-container"]/div[2]/span[5]/one-translate'
-        if not focar_quadro_do_elemento(xpath_abrir_filtro, 10):
-            log_dry(f"⚠️ Não encontrei o filtro de voucher para {voucher}.")
-            if DRY_RUN:
-                salvar_screenshot(f"filtro_voucher_nao_encontrado_{voucher}.png")
-            return False
-
-        js_click(driver.find_element(By.XPATH, xpath_abrir_filtro))
-        time.sleep(1)
-
-        input_xpaths = [
-            '//*[@id="one-search-modal-content"]//input',
-            "//div[contains(@class, 'modal') or @id='one-search-modal-content']//input",
-            "//input[@type='text' and not(@disabled)]",
-        ]
-        input_v = None
-        for xpath in input_xpaths:
-            if focar_quadro_do_elemento(xpath, 5):
-                candidatos = driver.find_elements(By.XPATH, xpath)
-                for candidato in candidatos:
+                    clicavel = driver.execute_script(
+                        """
+                        var node = arguments[0];
+                        while (node && node.parentElement) {
+                            if (node.parentElement.matches && node.parentElement.matches('modal-update-room-type div:nth-child(2) > div:nth-child(5) > div:nth-child(2)')) {
+                                return node;
+                            }
+                            if (node.tagName && node.tagName.toLowerCase() === 'div' && node.innerText && node.innerText.trim().includes(arguments[1])) {
+                                var r = node.getBoundingClientRect();
+                                if (r.width > 20 && r.height > 15) return node;
+                            }
+                            node = node.parentElement;
+                        }
+                        return arguments[0];
+                        """,
+                        elemento,
+                        ap_alvo,
+                    )
+                    clicavel = clicavel or elemento_clicavel_do_ap(elemento)
+                    print(f"Clicando no item clicavel do AP {ap_alvo}: texto='{clicavel.text.strip()}'")
                     try:
-                        if candidato.is_displayed() and candidato.is_enabled():
-                            input_v = candidato
-                            break
-                    except:
-                        continue
-            if input_v:
-                break
+                        ActionChains(driver).move_to_element(clicavel).click().perform()
+                    except Exception:
+                        js_click(clicavel)
 
-        if not input_v:
-            log_dry(f"⚠️ Modal do filtro abriu, mas não encontrei o campo para voucher {voucher}.")
-            if DRY_RUN:
-                salvar_screenshot(f"campo_filtro_voucher_nao_encontrado_{voucher}.png")
-            return False
-
-        js_click(input_v)
-        input_v.send_keys(Keys.CONTROL + "a")
-        input_v.send_keys(Keys.DELETE)
-        input_v.send_keys(voucher)
-        time.sleep(0.5)
-
-        botoes_xpath = [
-            '/html/body/div[1]/div/div/div[4]/button',
-            "//*[@id='one-search-modal-content']/ancestor::div[contains(@class,'modal')][1]//button[not(@disabled)]",
-            "//button[normalize-space(.)='Aplicar' or normalize-space(.)='Confirmar' or normalize-space(.)='Filtrar' or normalize-space(.)='Buscar' or normalize-space(.)='OK']",
-            "//button[.//*[normalize-space(.)='Aplicar' or normalize-space(.)='Confirmar' or normalize-space(.)='Filtrar' or normalize-space(.)='Buscar' or normalize-space(.)='OK']]",
-        ]
-        for xpath in botoes_xpath:
-            try:
-                botoes = driver.find_elements(By.XPATH, xpath)
-                for botao in botoes:
                     try:
-                        if not botao.is_displayed() or not botao.is_enabled():
-                            continue
-                        texto = (botao.text or "").strip().upper()
-                        classe = botao.get_attribute("class") or ""
-                        if texto in {"CANCELAR", "FECHAR"} or "cancel" in classe.lower():
-                            continue
-                        js_click(botao)
-                        time.sleep(2)
-                        esperar_loading_sumir()
-                        time.sleep(1)
+                        texto_pos_clique = (clicavel.text or "").strip()
+                        if texto_tem_ap(texto_pos_clique, ap_alvo) and "clear" in texto_pos_clique.lower():
+                            print(f"AP {ap_alvo} selecionado pelo estado do chip: '{texto_pos_clique}'")
+                            return True
+                    except Exception:
+                        pass
+
+                    try:
+                        # Na tela de overbooking, o clique realmente funcionou quando
+                        # a area correta de "Apartamento selecionado" passa a mostrar
+                        # o numero escolhido. Nao use "following::*" aqui, porque isso
+                        # tambem pega a lista de apartamentos disponiveis.
+                        WebDriverWait(driver, 3, poll_frequency=0.2).until(
+                            lambda d: apartamento_overbooking_selecionado(ap_alvo)
+                        )
+                        print(f"AP {ap_alvo} confirmado no campo Apartamento selecionado.")
                         return True
-                    except:
-                        continue
-            except:
-                continue
+                    except TimeoutException:
+                        # Alguns layouts exigem clicar no icone de corrente, que fica
+                        # mais a direita dentro do chip do apartamento.
+                        try:
+                            ActionChains(driver).move_to_element_with_offset(clicavel, 35, 0).click().perform()
+                            WebDriverWait(driver, 3, poll_frequency=0.2).until(
+                                lambda d: apartamento_overbooking_selecionado(ap_alvo)
+                            )
+                            print(f"AP {ap_alvo} confirmado no campo Apartamento selecionado.")
+                            return True
+                        except Exception as erro:
+                            ultimo_erro = erro
+                            continue
+                except (StaleElementReferenceException, Exception) as erro:
+                    ultimo_erro = erro
+                    continue
 
-        try:
-            input_v.send_keys(Keys.ENTER)
-            time.sleep(2)
-            esperar_loading_sumir()
-            time.sleep(1)
-            return True
-        except:
-            pass
+            pausar(0.2)
 
-        log_dry(f"⚠️ Não consegui confirmar o filtro do voucher {voucher}.")
-        if DRY_RUN:
-            salvar_screenshot(f"confirmar_filtro_voucher_falhou_{voucher}.png")
+        print(f"Falha ao clicar no AP {ap_alvo} no overbooking. Ultimo erro: {ultimo_erro}")
         return False
 
-    def aplicar_filtro_voucher(voucher):
-        """Aplica o filtro de voucher sem usar a blindagem de pop-up dentro do modal."""
-        def clique_modal_sem_guard(elemento):
-            try:
-                driver.execute_script("arguments[0].scrollIntoView({block: 'center', inline: 'center'});", elemento)
-            except:
-                pass
-            try:
-                elemento.click()
-            except:
-                driver.execute_script("arguments[0].click();", elemento)
+    def recuperar_tela_apos_overbooking():
+        xpaths_saida = [
+            "//*[@id='abandonUpdateRooms']",
+            "//modal-update-room-type//button[contains(@class, 'close') or @title='Cancelar' or contains(normalize-space(.), 'Cancelar')]",
+            "/html/body/div[1]/div/div/modal-update-room-type/div[6]/button[2]",
+        ]
 
-        def modal_filtro_aberto():
-            try:
-                return bool(driver.execute_script("""
-                    const el = document.querySelector('#one-search-modal-content');
-                    if (!el) return false;
-                    const r = el.getBoundingClientRect();
-                    return !!(r.width || r.height || el.getClientRects().length);
-                """))
-            except:
-                return False
-
-        def lista_tem_voucher():
-            try:
-                texto = driver.execute_script("return String(document.body ? document.body.innerText || '' : '');")
-                return str(voucher) in texto
-            except:
-                return False
-
-        def aguardar_filtro_confirmado():
-            fim = time.time() + 8
-            while time.time() < fim:
-                esperar_loading_sumir()
-                if lista_tem_voucher() and not modal_filtro_aberto():
-                    return True
-                time.sleep(0.5)
-            return lista_tem_voucher()
-
-        def clicar_botao_modal_por_js():
-            try:
-                return bool(driver.execute_script("""
-                    const visivel = (el) => {
-                      const r = el.getBoundingClientRect();
-                      return !!(r.width || r.height || el.getClientRects().length);
-                    };
-                    const input = document.querySelector('#one-search-modal-content input');
-                    let root = input || document.querySelector('#one-search-modal-content');
-                    for (let i = 0; root && i < 8; i += 1) {
-                      const buttons = Array.from(root.querySelectorAll ? root.querySelectorAll('button') : []);
-                      const candidatos = buttons.filter((btn) => {
-                        const texto = String(btn.innerText || btn.textContent || '').trim().toUpperCase();
-                        const classe = String(btn.className || '').toLowerCase();
-                        return visivel(btn)
-                          && !btn.disabled
-                          && texto !== 'CANCELAR'
-                          && texto !== 'FECHAR'
-                          && !classe.includes('cancel');
-                      });
-                      if (candidatos.length) {
-                        const alvo = candidatos[candidatos.length - 1];
-                        ['mouseover', 'mousedown', 'mouseup', 'click'].forEach((nome) => {
-                          alvo.dispatchEvent(new MouseEvent(nome, { bubbles: true, cancelable: true, view: window }));
-                        });
-                        try { alvo.click(); } catch (e) {}
-                        return true;
-                      }
-                      root = root.parentElement;
-                    }
-                    return false;
-                """))
-            except:
-                return False
-
-        try:
-            xpath_abrir_filtro = '//*[@id="one-search-filters-container"]/div[2]/span[5]/one-translate'
-            if not focar_quadro_do_elemento(xpath_abrir_filtro, 10):
-                log_dry(f"[DRY-RUN] Filtro de voucher nao encontrado: {voucher}")
-                if DRY_RUN:
-                    salvar_screenshot(f"filtro_voucher_nao_encontrado_{voucher}.png")
-                return False
-
-            js_click(driver.find_element(By.XPATH, xpath_abrir_filtro))
-            time.sleep(1)
-
-            input_xpaths = [
-                '//*[@id="one-search-modal-content"]//input',
-                "//div[contains(@class, 'modal') or @id='one-search-modal-content']//input",
-                "//input[@type='text' and not(@disabled)]",
-            ]
-            input_v = None
-            for xpath in input_xpaths:
-                if focar_quadro_do_elemento(xpath, 5):
-                    for candidato in driver.find_elements(By.XPATH, xpath):
-                        try:
-                            if candidato.is_displayed() and candidato.is_enabled():
-                                input_v = candidato
-                                break
-                        except:
-                            continue
-                if input_v:
-                    break
-
-            if not input_v:
-                log_dry(f"[DRY-RUN] Campo do filtro de voucher nao encontrado: {voucher}")
-                if DRY_RUN:
-                    salvar_screenshot(f"campo_filtro_voucher_nao_encontrado_{voucher}.png")
-                return False
-
-            clique_modal_sem_guard(input_v)
-            input_v.send_keys(Keys.CONTROL + "a")
-            input_v.send_keys(Keys.DELETE)
-            input_v.send_keys(voucher)
-            time.sleep(0.5)
-
-            try:
-                input_v.send_keys(Keys.ENTER)
-                if aguardar_filtro_confirmado():
-                    return True
-            except:
-                pass
-
-            if clicar_botao_modal_por_js() and aguardar_filtro_confirmado():
+        for xpath in xpaths_saida:
+            if clicar_quando_pronto(xpath, timeout=3, descricao="saida do overbooking"):
+                esperar_loading_sumir(timeout=8)
                 return True
 
-            botoes_xpath = [
-                '/html/body/div[1]/div/div/div[4]/button',
-                "//*[@id='one-search-modal-content']/ancestor::*[contains(@class,'modal') or contains(@class,'one')][1]//button[not(@disabled)]",
-                "//button[normalize-space(.)='Aplicar' or normalize-space(.)='Confirmar' or normalize-space(.)='Filtrar' or normalize-space(.)='Buscar' or normalize-space(.)='OK']",
-                "//button[.//*[normalize-space(.)='Aplicar' or normalize-space(.)='Confirmar' or normalize-space(.)='Filtrar' or normalize-space(.)='Buscar' or normalize-space(.)='OK']]",
-            ]
-            for xpath in botoes_xpath:
-                for botao in driver.find_elements(By.XPATH, xpath):
-                    try:
-                        if not botao.is_displayed() or not botao.is_enabled():
-                            continue
-                        texto = (botao.text or "").strip().upper()
-                        classe = botao.get_attribute("class") or ""
-                        if texto in {"CANCELAR", "FECHAR"} or "cancel" in classe.lower():
-                            continue
-                        clique_modal_sem_guard(botao)
-                        if aguardar_filtro_confirmado():
-                            return True
-                    except:
-                        continue
-
-            log_dry(f"[DRY-RUN] Nao consegui confirmar o filtro do voucher {voucher}.")
-            if DRY_RUN:
-                salvar_screenshot(f"confirmar_filtro_voucher_falhou_{voucher}.png")
+        try:
+            ActionChains(driver).send_keys(Keys.ESCAPE).perform()
+            esperar_loading_sumir(timeout=8)
+            return True
+        except Exception:
             return False
+
+    def texto_tem_ap(texto, ap):
+        return bool(re.search(rf"(?<!\d){re.escape(str(ap))}(?!\d)", texto))
+
+    def linhas_resultado_reservas():
+        linhas_validas = []
+        for linha in driver.find_elements(By.XPATH, "//div[contains(@class, 'ui-grid-row')]"):
+            try:
+                if linha.is_displayed() and linha.text.strip():
+                    linhas_validas.append(linha)
+            except StaleElementReferenceException:
+                continue
+        return linhas_validas
+
+    def linha_do_voucher(voucher):
+        for linha in linhas_resultado_reservas():
+            try:
+                texto_linha = linha.text.replace("\n", " ")
+                if str(voucher) in texto_linha:
+                    return linha
+            except StaleElementReferenceException:
+                continue
+        return None
+
+    def aguardar_linha_do_voucher(voucher, timeout=20):
+        try:
+            return WebDriverWait(driver, timeout, poll_frequency=0.3).until(
+                lambda d: linha_do_voucher(voucher)
+            )
+        except TimeoutException:
+            return None
+
+    def pesquisar_voucher(voucher):
+        xpath_busca_voucher = '//*[@id="one-search-filters-container"]/div[2]/span[5]/one-translate'
+        print(f"Pesquisando voucher {voucher}...")
+
+        if not clicar_quando_pronto(xpath_busca_voucher, timeout=10, descricao="filtro voucher"):
+            return None
+
+        xpath_input_voucher = '//*[@id="one-search-modal-content"]/div/input'
+        digitou = False
+        for tentativa in range(3):
+            try:
+                input_v = WebDriverWait(driver, 5, poll_frequency=0.2).until(
+                    EC.element_to_be_clickable((By.XPATH, xpath_input_voucher))
+                )
+                js_click(input_v)
+                input_v.send_keys(Keys.CONTROL + "a")
+                input_v.send_keys(Keys.DELETE)
+                input_v.send_keys(str(voucher))
+                digitou = True
+                break
+            except StaleElementReferenceException:
+                pausar(0.3)
+
+        if not digitou:
+            print(f"Nao consegui digitar o voucher {voucher} no filtro.")
+            return None
+
+        if not clicar_quando_pronto('/html/body/div[1]/div/div/div[4]/button', timeout=8, descricao="confirmar filtro"):
+            return None
+
+        esperar_loading_sumir(timeout=20)
+        linha = aguardar_linha_do_voucher(voucher, timeout=20)
+        if not linha:
+            print(f"ATENCAO: o voucher {voucher} nao apareceu na grade apos a pesquisa. Pulando para evitar mexer na reserva errada.")
+            return None
+
+        print(f"Voucher {voucher} confirmado na grade.")
+        return linha
+
+    def apartamentos_ja_vinculados_no_voucher(voucher, aps_necessarios):
+        linha = linha_do_voucher(voucher)
+        if not linha:
+            return False
+
+        texto_linha = linha.text.replace("\n", " ")
+        faltando = [ap for ap in aps_necessarios if not texto_tem_ap(texto_linha, ap)]
+
+        if faltando:
+            print(f"Na linha do voucher {voucher}, ainda falta(m) AP(s): {faltando}")
+            return False
+
+        print(f"Voucher {voucher} ja esta com os AP(s) esperados na propria linha: {aps_necessarios}")
+        return True
+
+    def abrir_reserva_do_voucher(voucher):
+        linha = linha_do_voucher(voucher)
+        if not linha:
+            print(f"Nao vou abrir reserva: voucher {voucher} nao esta confirmado na grade.")
+            return False
+
+        try:
+            lapis = linha.find_element(By.XPATH, ".//a")
+            js_click(lapis)
+            return True
         except Exception as erro:
-            log_dry(f"[DRY-RUN] Erro controlado ao aplicar filtro do voucher {voucher}: {erro}")
-            if DRY_RUN:
-                salvar_screenshot(f"erro_filtro_voucher_{voucher}.png")
+            print(f"Nao consegui clicar no lapis da linha do voucher {voucher}: {erro}")
             return False
 
     try:
         dados = obter_dados()
-        if DRY_RUN:
-            with open(relatorio_dry_run, "w", encoding="utf-8") as arquivo:
-                arquivo.write("DRY-RUN VISUAL VINC2 - nenhuma confirmação será clicada\n")
-            log_dry(f"[DRY-RUN] {len(dados)} voucher(s) carregados para inspeção visual.")
-        if not dados:
-            print("Nenhum voucher acionável encontrado na VINCULACAO_HOJE.")
-            return
         driver.get(URL_HITS)
-        wait.until(EC.visibility_of_element_located((By.ID, "Email"))).send_keys(os.environ["HITS_EMAIL"])
-        driver.find_element(By.ID, "Password").send_keys(os.environ["HITS_PASSWORD"])
+
+        hits_email = os.getenv("HITS_EMAIL") or input("Digite o HITS_EMAIL: ").strip()
+        hits_password = os.getenv("HITS_PASSWORD") or getpass.getpass("Digite o HITS_PASSWORD: ")
+        if not hits_email or not hits_password:
+            raise RuntimeError("HITS_EMAIL/HITS_PASSWORD não configurados.")
+        wait.until(EC.visibility_of_element_located((By.ID, "Email"))).send_keys(hits_email)
+        driver.find_element(By.ID, "Password").send_keys(hits_password)
         driver.find_element(By.XPATH, "//button[@type='submit']").click()
-        time.sleep(8)
-        fechar_popup_hits()
-        
-        js_click(wait.until(EC.element_to_be_clickable((By.XPATH, '//*[@id="menuPrimary"]/a'))))
-        time.sleep(1); js_click(wait.until(EC.presence_of_element_located((By.XPATH, '//*[@id="menureservation"]'))))
-        time.sleep(1); js_click(wait.until(EC.presence_of_element_located((By.XPATH, '//*[@id="menureservations"]/a'))))
-        
+        esperar_loading_sumir(timeout=30)
+
+        clicar_quando_pronto('//*[@id="menuPrimary"]/a', timeout=20, descricao="menu principal")
+        clicar_quando_pronto('//*[@id="menureservation"]', timeout=20, descricao="menu reserva")
+        clicar_quando_pronto('//*[@id="menureservations"]/a', timeout=20, descricao="tela de reservas")
+
         focar_quadro_do_elemento('//*[@id="one-search-filters-container"]', 20)
-        
-        print("🧹 Limpando filtro de datas inicial...")
+
+        print("Limpando filtro de datas inicial...")
         xpath_limpar_datas = '//*[@id="one-search-filters-container"]/div[1]/button[3]/em'
-        if focar_quadro_do_elemento(xpath_limpar_datas, 10):
-            js_click(driver.find_element(By.XPATH, xpath_limpar_datas))
-            time.sleep(1)
+        if clicar_quando_pronto(xpath_limpar_datas, timeout=10, descricao="limpar datas"):
             esperar_loading_sumir()
 
-        operacoes_dry = 0
         for voucher, lista_aps in dados.items():
-            if DRY_RUN and operacoes_dry >= MAX_OPERACOES:
-                log_dry(f"[DRY-RUN] Limite VINC2_MAX_OPERACOES={MAX_OPERACOES} atingido. Encerrando inspeção.")
-                break
-            fechar_popup_hits()
-            print(f"\n🚀 VOUCHER: {voucher} | Requisições na planilha: {len(lista_aps)}")
+            print(f"\nVOUCHER: {voucher} | Requisicoes na planilha: {len(lista_aps)}")
             driver.switch_to.default_content()
             esperar_loading_sumir()
-            
-            if not aplicar_filtro_voucher(voucher):
-                if DRY_RUN:
-                    log_dry(f"[DRY-RUN] Pulando voucher {voucher} porque o filtro não foi aplicado.")
-                    continue
-                raise RuntimeError(f"Filtro de voucher não aplicado: {voucher}")
-            
+
+            linha_atual = pesquisar_voucher(voucher)
+            if not linha_atual:
+                continue
+
             aps_necessarios = [d["ap"] for d in lista_aps]
-            todos_vinculados_corretamente = True
-            
-            print("🔎 Verificando se os apartamentos já estão vinculados na tela...")
-            for ap in aps_necessarios:
-                xpath_check_tela = f"//div[contains(@class, 'ui-grid-cell-contents') and contains(text(), '{ap}')]"
-                if not driver.find_elements(By.XPATH, xpath_check_tela):
-                    todos_vinculados_corretamente = False
+
+            print("Verificando voucher + apartamento na mesma linha da grade...")
+            if apartamentos_ja_vinculados_no_voucher(voucher, aps_necessarios):
+                print("Pulando voucher para evitar retrabalho.")
+                continue
+
+            print("Algum apartamento faltando ou errado. Abrindo reserva para correcao...")
+
+            if not abrir_reserva_do_voucher(voucher):
+                continue
+
+            focar_quadro_do_elemento("//button[contains(@id, 'btnRoomSelectInEdit')]", 15)
+
+            xpath_qtd_grupo = '//*[@id="summaryRoomTypesReservation"]/div[3]/div[2]/span[2]'
+            qtd_quartos_reserva = 1
+            if focar_quadro_do_elemento(xpath_qtd_grupo, 5):
+                try:
+                    qtd_quartos_reserva = int(driver.find_element(By.XPATH, xpath_qtd_grupo).text.strip())
+                except Exception:
+                    pass
+
+            print(
+                f"Status da Reserva: contem {qtd_quartos_reserva} quarto(s). "
+                f"Validando com os {len(lista_aps)} requeridos na planilha..."
+            )
+
+            for dados_alvo in lista_aps:
+                ap_alvo = dados_alvo["ap"]
+                cat_alvo = dados_alvo["cat"]
+                data_ui_alvo = dados_alvo["data_ui"]
+
+                print(f"\nProcessando destino: {ap_alvo} (Cat: {cat_alvo}) | Data Alvo: {data_ui_alvo}")
+
+                botoes_cama = driver.find_elements(By.XPATH, "//button[contains(@id, 'btnRoomSelectInEdit')]")
+                cama_selecionada = None
+                indice_da_cama = -1
+
+                print("Cruzando a data da planilha com os blocos da tela...")
+                texto_card_selecionado = ""
+
+                for idx, btn_c in enumerate(botoes_cama):
+                    texto_card = texto_card_da_cama(btn_c)
+
+                    is_disabled = (
+                        btn_c.get_attribute("disabled")
+                        or "disabled" in (btn_c.get_attribute("class") or "")
+                    )
+                    if is_disabled:
+                        continue
+
+                    if data_ui_alvo and data_ui_alvo in texto_card:
+                        if "N/D" in texto_card or "Nenhum" in texto_card:
+                            cama_selecionada = btn_c
+                            indice_da_cama = idx
+                            texto_card_selecionado = texto_card
+                            print(
+                                f"Achei o bloco {idx + 1}: "
+                                f"data {data_ui_alvo} e status N/D."
+                            )
+                            break
+
+                        if ap_alvo in texto_card:
+                            cama_selecionada = btn_c
+                            indice_da_cama = idx
+                            texto_card_selecionado = texto_card
+                            print(
+                                f"O bloco {idx + 1} ja esta preenchido "
+                                f"com o AP {ap_alvo}."
+                            )
+                            break
+
+                if not cama_selecionada:
+                    print(
+                        f"Nao achei bloco exato com data {data_ui_alvo} e AP N/D. "
+                        "Pegando a primeira cama livre..."
+                    )
+
+                    for idx, btn_c in enumerate(botoes_cama):
+                        is_disabled = (
+                            btn_c.get_attribute("disabled")
+                            or "disabled" in (btn_c.get_attribute("class") or "")
+                        )
+                        if not is_disabled:
+                            cama_selecionada = btn_c
+                            indice_da_cama = idx
+                            texto_card_selecionado = texto_card_da_cama(btn_c)
+                            break
+
+                if not cama_selecionada:
+                    print(
+                        f"Erro fatal: nao ha icones de cama livres "
+                        f"para processar o AP {ap_alvo}."
+                    )
                     break
 
-            if todos_vinculados_corretamente:
-                if DRY_RUN:
-                    log_dry(
-                        f"[DRY-RUN] A lista já mostra {aps_necessarios} no voucher {voucher}; "
-                        "abrindo a reserva mesmo assim para conferência visual."
+                cat_bloco_atual = obter_categoria_bloco(
+                    indice_da_cama,
+                    botao_cama=cama_selecionada,
+                    texto_card=texto_card_selecionado,
+                )
+                cat_alvo_normalizada = normalizar_categoria(cat_alvo) or cat_alvo
+
+                if cat_bloco_atual:
+                    print(
+                        f"Categoria atual do bloco {indice_da_cama + 1}: "
+                        f"{cat_bloco_atual} | Categoria da planilha: "
+                        f"{cat_alvo_normalizada}"
                     )
                 else:
-                    print(f"✨ Todos os apartamentos ({aps_necessarios}) já estão perfeitamente vinculados! Pulando voucher...")
-                    continue
+                    print(
+                        f"Nao consegui identificar a categoria atual do bloco "
+                        f"{indice_da_cama + 1}. Mantendo o fluxo seguro atual."
+                    )
 
-            if DRY_RUN:
-                print("🔎 Abrindo reserva para conferência visual em dry-run...")
-            else:
-                print("⚠️ Algum apartamento faltando ou errado. Abrindo reserva para correção...")
-            
-            xpath_lapis = "(//div[contains(@class, 'ui-grid-row')]//div[contains(@class, 'ui-grid-cell')]//a)[1]"
-            if focar_quadro_do_elemento(xpath_lapis, 20):
-                js_click(driver.find_element(By.XPATH, xpath_lapis))
-                
-                focar_quadro_do_elemento("//button[contains(@id, 'btnRoomSelectInEdit')]", 15)
+                categoria_diferente = bool(
+                    cat_bloco_atual
+                    and cat_bloco_atual != cat_alvo_normalizada
+                )
+                categoria_igual = bool(
+                    cat_bloco_atual
+                    and cat_bloco_atual == cat_alvo_normalizada
+                )
 
-                xpath_qtd_grupo = '//*[@id="summaryRoomTypesReservation"]/div[3]/div[2]/span[2]'
-                qtd_quartos_reserva = 1
-                if focar_quadro_do_elemento(xpath_qtd_grupo, 5):
-                    try: qtd_quartos_reserva = int(driver.find_element(By.XPATH, xpath_qtd_grupo).text.strip())
-                    except: pass
-                
-                print(f"🏨 Status da Reserva: Contém {qtd_quartos_reserva} quarto(s). Validando com os {len(lista_aps)} requeridos na planilha...")
-
-                for i, dados_alvo in enumerate(lista_aps):
-                    if DRY_RUN and operacoes_dry >= MAX_OPERACOES:
-                        break
-                    ap_alvo = dados_alvo["ap"]
-                    cat_alvo = dados_alvo["cat"]
-                    acao_alvo = dados_alvo.get("acao", "VINCULAR")
-                    
-                    print(f"\n🔄 Processando Quarto {i+1} -> Destino: {ap_alvo} (Cat: {cat_alvo})")
-                    
-                    botoes_cama = driver.find_elements(By.XPATH, "//button[contains(@id, 'btnRoomSelectInEdit')]")
-                    if i >= len(botoes_cama):
-                        print(f"⚠️ Erro: Não há ícones de cama suficientes para processar o {i+1}º quarto. Parando este voucher.")
-                        break
-                        
-                    btn_c = botoes_cama[i]
-                    
-                    if btn_c.get_attribute("disabled") or "disabled" in (btn_c.get_attribute("class") or ""):
-                        print(f"🔒 Cama {i+1} bloqueada (Provável Check-in realizado). Pulando...")
-                        continue
-
-                    if DRY_RUN:
-                        operacoes_dry += 1
-                        dry_run_inspecionar_quarto(voucher, i, dados_alvo, btn_c)
-                        continue
-
-                    cat_bloco_atual = obter_categoria_bloco(i)
-                    if cat_bloco_atual:
-                        print(f"🏷️ Categoria atual do bloco {i+1}: {cat_bloco_atual}")
-                    else:
-                        print(f"⚠️ Não consegui identificar a categoria atual do bloco {i+1}.")
-                    
-                    js_click(btn_c)
-                    focar_quadro_do_elemento("//button[contains(@id, 'btnRoomSelectInEdit')]", 10)
-                    time.sleep(1.5) 
+                if categoria_diferente:
+                    print(
+                        f"Categoria diferente: {cat_bloco_atual} -> "
+                        f"{cat_alvo_normalizada}. Indo direto ao overbooking "
+                        "para corrigir a categoria e vincular o apartamento."
+                    )
+                    driver.switch_to.default_content()
+                    esperar_loading_sumir()
+                else:
+                    # Categoria correta ou não identificada:
+                    # preserva integralmente o fluxo atual que já encontra os quartos.
+                    js_click(cama_selecionada)
+                    esperar_loading_sumir(timeout=12)
 
                     quarto_vinculado_btn = None
-                    botoes_tela = driver.find_elements(By.XPATH, "//button[contains(@id, 'btnRoomSelectInEdit')]")
+                    botoes_tela = driver.find_elements(
+                        By.XPATH,
+                        "//button[contains(@id, 'btnRoomSelectInEdit')]",
+                    )
+
                     for btn in botoes_tela:
                         classes = btn.get_attribute("class") or ""
-                        icones_check = btn.find_elements(By.XPATH, ".//*[contains(@class, 'fa-check') or contains(@class, 'check')]")
-                        if any(icone.is_displayed() for icone in icones_check) or "btn-success" in classes:
+                        icones_check = btn.find_elements(
+                            By.XPATH,
+                            ".//*[contains(@class, 'fa-check') "
+                            "or contains(@class, 'check')]",
+                        )
+
+                        if (
+                            any(icone.is_displayed() for icone in icones_check)
+                            or "btn-success" in classes
+                        ):
                             quarto_vinculado_btn = btn
                             break
 
                     if quarto_vinculado_btn:
                         if ap_alvo in quarto_vinculado_btn.text:
-                            print(f"✨ A cama já está com o AP {ap_alvo} marcado. Confirmando e seguindo...")
+                            print(
+                                f"A cama ja esta com o AP {ap_alvo} marcado. "
+                                "Confirmando e seguindo..."
+                            )
                             confirmar_acao(is_overbooking=False)
-                            time.sleep(1.5)
-                            continue 
+                            continue
 
-                        print(f"🧹 Desmarcando quarto errado/antigo ({quarto_vinculado_btn.text.strip()})...")
-                        js_click(quarto_vinculado_btn); time.sleep(1)
+                        print(
+                            "Desmarcando quarto errado/antigo "
+                            f"({quarto_vinculado_btn.text.strip()})..."
+                        )
+                        js_click(quarto_vinculado_btn)
+
                         if confirmar_acao(is_overbooking=False):
-                            print("✅ Desvinculação inicial concluída."); time.sleep(1)
-                            botoes_cama_novos = driver.find_elements(By.XPATH, "//button[contains(@id, 'btnRoomSelectInEdit')]")
-                            js_click(botoes_cama_novos[i]); time.sleep(1.5)
+                            print("Desvinculacao inicial concluida.")
+                            botoes_cama_novos = driver.find_elements(
+                                By.XPATH,
+                                "//button[contains(@id, 'btnRoomSelectInEdit')]",
+                            )
 
-                    ap_literal = xpath_literal(str(ap_alvo).strip())
-                    xpath_alvo_vinc = f"//button[.//span[normalize-space(.)={ap_literal}] or normalize-space(.)={ap_literal}] | //span[normalize-space(.)={ap_literal}]"
-                    elementos_presentes = driver.find_elements(By.XPATH, xpath_alvo_vinc)
+                            if indice_da_cama < len(botoes_cama_novos):
+                                js_click(botoes_cama_novos[indice_da_cama])
+                                esperar_loading_sumir(timeout=12)
 
-                    if elementos_presentes:
-                        print(f"🎯 Selecionando {ap_alvo} na tela atual...")
-                        try: ActionChains(driver).move_to_element(elementos_presentes[0]).click().perform()
-                        except: js_click(elementos_presentes[0])
-                        time.sleep(1.5)
+                    elemento_clicavel = procurar_apartamento_na_tela(
+                        ap_alvo,
+                        timeout=15,
+                    )
+
+                    if elemento_clicavel:
+                        print(f"Selecionando {ap_alvo} na tela atual...")
+                        try:
+                            ActionChains(driver).move_to_element(
+                                elemento_clicavel
+                            ).click().perform()
+                        except Exception:
+                            js_click(elemento_clicavel)
+
                         confirmar_acao(is_overbooking=False)
-                        time.sleep(1.5)
-                        continue 
-
-                    if clicar_apartamento_no_popup(ap_alvo):
-                        print(f"🎯 Selecionando {ap_alvo} no pop-up de apartamentos agrupados...")
-                        time.sleep(1.5)
-                        confirmar_acao(is_overbooking=False)
-                        time.sleep(1.5)
                         continue
 
-                    if acao_alvo != "OVERBOOKING" and cat_bloco_atual and cat_bloco_atual == cat_alvo:
+                    if categoria_igual:
                         print(
-                            f"🛑 Overbooking bloqueado: bloco {i+1} já é da categoria {cat_bloco_atual}, "
-                            f"igual à planilha ({cat_alvo}). O AP {ap_alvo} deveria estar no pop-up normal."
+                            f"Overbooking bloqueado: o bloco "
+                            f"{indice_da_cama + 1} ja e da categoria "
+                            f"{cat_bloco_atual}, igual a planilha. "
+                            f"O AP {ap_alvo} deve ser procurado somente "
+                            "na lista normal dessa categoria."
                         )
-                        fechar_modal_selecao_apartamento()
+                        fechar_modal_quartos()
                         driver.switch_to.default_content()
                         esperar_loading_sumir()
                         continue
 
-                    if acao_alvo != "OVERBOOKING":
-                        print(
-                            f"🛑 AP {ap_alvo} não encontrado e ação da planilha é {acao_alvo}. "
-                            "Overbooking só é permitido quando a coluna I estiver como OVERBOOKING."
-                        )
-                        fechar_modal_selecao_apartamento()
-                        driver.switch_to.default_content()
-                        esperar_loading_sumir()
-                        continue
+                    print(
+                        f"AP {ap_alvo} nao apareceu no painel normal e a "
+                        "categoria atual nao pôde ser confirmada. "
+                        f"Usando o fallback seguro de overbooking para "
+                        f"a categoria {cat_alvo_normalizada}."
+                    )
 
-                    print(f"⚠️ AP {ap_alvo} não encontrado. Fechando modal e iniciando OVERBOOKING na Cama {i+1}...")
-                    
-                    fechar_modal_selecao_apartamento()
-                        
+                    fechar_modal_quartos()
                     driver.switch_to.default_content()
                     esperar_loading_sumir()
-                    
-                    xpath_setas = "//button[@title='Atualizar/realizar upgrade' or contains(@ng-click, 'openUpdateGroupedRooms') or .//em[text()='compare_arrows']]"
-                    
-                    if focar_quadro_do_elemento(xpath_setas, 10):
-                        setas = driver.find_elements(By.XPATH, xpath_setas)
-                        if i < len(setas):
-                            print(f"🔄 Entrando na tela de Overbooking do bloco {i+1}...")
-                            js_click(setas[i]); time.sleep(1.5)
-                            
-                            xpath_edit = '//*[@id="reservations"]/div[3]/reservation-update-grouped-rooms-component/div[2]/div[2]/div[1]/div[1]/div[2]/button'
-                            if focar_quadro_do_elemento(xpath_edit, 15):
-                                print("✏️ Abrindo edição da categoria...")
-                                js_click(driver.find_element(By.XPATH, xpath_edit)); time.sleep(1)
-                                
-                                xpath_btn1 = '/html/body/div[1]/div/div/modal-update-room-type/div[2]/div[2]/div[2]/div/button[1]'
-                                if focar_quadro_do_elemento(xpath_btn1, 10):
-                                    js_click(driver.find_element(By.XPATH, xpath_btn1)); time.sleep(1)
-                                    
-                                    xpath_lupa = '/html/body/div[1]/div/div/modal-update-room-type/div[2]/div[2]/div[2]/div/button[2]'
-                                    if focar_quadro_do_elemento(xpath_lupa, 10):
-                                        print("🔍 Clicando na lupa de categorias...")
-                                        js_click(driver.find_element(By.XPATH, xpath_lupa)); time.sleep(1)
-                                        
-                                        if cat_alvo in XPATH_CATS:
-                                            if focar_quadro_do_elemento(XPATH_CATS[cat_alvo], 10):
-                                                js_click(driver.find_element(By.XPATH, XPATH_CATS[cat_alvo])); time.sleep(1.5)
-                                                
-                                                xpath_final_ap = f"//button[.//span[text()='{ap_alvo}'] | text()='{ap_alvo}'] | //div[contains(@class, 'room')]//span[text()='{ap_alvo}']"
-                                                if focar_quadro_do_elemento(xpath_final_ap, 15):
-                                                    print(f"🎯 AP {ap_alvo} encontrado! Vinculando...")
-                                                    el_ap_over = driver.find_element(By.XPATH, xpath_final_ap)
-                                                    try: ActionChains(driver).move_to_element(el_ap_over).click().perform()
-                                                    except: js_click(el_ap_over)
-                                                    
-                                                    time.sleep(2) 
-                                                    confirmar_acao(is_overbooking=True)
-                                                    
-                                                    esperar_loading_sumir()
-                                                    print("🔙 Retornando da tela de Overbooking para a aba da reserva...")
-                                                    xpath_voltar_apos_overbooking = "//*[@id='abandonUpdateRooms']"
-                                                    if focar_quadro_do_elemento(xpath_voltar_apos_overbooking, 5):
-                                                        js_click(driver.find_element(By.XPATH, xpath_voltar_apos_overbooking))
-                                                        time.sleep(1.5)
-                                                        esperar_loading_sumir()
 
-                                                else: print(f"⚠️ Erro: AP {ap_alvo} não encontrado no Overbooking.")
-                                            else: print(f"⚠️ Erro: Categoria {cat_alvo} indisponível ou XPath incorreto.")
-                                        else: print(f"⚠️ Erro Crítico: Categoria '{cat_alvo}' não configurada!")
-                                    else: print("⚠️ Erro: Lupa não encontrada.")
-                                else: print("⚠️ Erro: Botão 1 não encontrado.")
-                            else: print("⚠️ Erro: Botão Lápis (Edição de Categoria) não encontrado.")
-                        else: print(f"⚠️ Erro: Seta de overbooking não encontrada para o bloco {i+1}.")
-                    else:
-                        print("⚠️ Erro FATAL: O botão de Seta (Overbooking) não apareceu na tela principal!")
+                if cat_alvo_normalizada in CATEGORIAS_COM_SACADA:
+                    print(
+                        "Regra de seguranca: destino com sacada. "
+                        "Selecionando somente a categoria exata da planilha."
+                    )
+                elif cat_alvo_normalizada in CATEGORIAS_SEM_SACADA:
+                    print(
+                        "Regra de seguranca: destino sem sacada. "
+                        "Selecionando somente a categoria exata da planilha."
+                    )
+                elif cat_alvo_normalizada == "SP":
+                    print(
+                        "Regra de seguranca: Suite Presidencial. "
+                        "Selecionando somente SP."
+                    )
+                elif cat_alvo_normalizada == "3CS":
+                    print(
+                        "Regra de seguranca: Adaptado para PCD. "
+                        "Selecionando somente 3CS."
+                    )
 
-                print("⬅️ Concluídos os quartos deste Voucher. Retornando ao mapa principal...")
-                if focar_quadro_do_elemento('//*[@id="cancelReservation"]', 10):
-                    js_click(driver.find_element(By.ID, "cancelReservation")); time.sleep(2)
+                xpath_setas = (
+                    "//button[@title='Atualizar/realizar upgrade' "
+                    "or contains(@ng-click, 'openUpdateGroupedRooms') or .//em[text()='compare_arrows']]"
+                )
+
+                if not focar_quadro_do_elemento(xpath_setas, 10):
+                    print("Erro fatal: botao de seta/overbooking nao apareceu na tela principal.")
+                    continue
+
+                setas = driver.find_elements(By.XPATH, xpath_setas)
+                if indice_da_cama >= len(setas):
+                    print(f"Erro: seta de overbooking nao encontrada para o bloco {indice_da_cama + 1}.")
+                    continue
+
+                print(f"Entrando na tela de Overbooking do bloco {indice_da_cama + 1}...")
+                js_click(setas[indice_da_cama])
+                esperar_loading_sumir(timeout=12)
+
+                xpath_edit = '//*[@id="reservations"]/div[3]/reservation-update-grouped-rooms-component/div[2]/div[2]/div[1]/div[1]/div[2]/button'
+                if not clicar_quando_pronto(xpath_edit, timeout=15, descricao="edicao da categoria"):
+                    continue
+
+                xpath_btn1 = "/html/body/div[1]/div/div/modal-update-room-type/div[2]/div[2]/div[2]/div/button[1]"
+                if not clicar_quando_pronto(xpath_btn1, timeout=10, descricao="botao categoria atual"):
+                    continue
+
+                xpath_lupa = "/html/body/div[1]/div/div/modal-update-room-type/div[2]/div[2]/div[2]/div/button[2]"
+                if not clicar_quando_pronto(xpath_lupa, timeout=10, descricao="lupa de categorias"):
+                    continue
+
+                if cat_alvo_normalizada not in XPATH_CATS:
+                    print(
+                        f"Erro critico: categoria '{cat_alvo_normalizada}' "
+                        "nao configurada."
+                    )
+                    continue
+
+                # Usa exatamente a categoria indicada pela planilha.
+                categoria_destino = cat_alvo_normalizada
+                if not mesma_familia_sacada(cat_alvo, categoria_destino):
+                    print(f"Bloqueado por seguranca: troca de familia de sacada para {categoria_destino}.")
+                    continue
+
+                if not clicar_quando_pronto(XPATH_CATS[categoria_destino], timeout=10, descricao=f"categoria {categoria_destino}"):
+                    print(f"Erro: categoria {categoria_destino} indisponivel ou XPath incorreto.")
+                    continue
+
+                if not categoria_selecionada_bate_com_planilha(categoria_destino):
+                    continue
+
+                print(f"AP {ap_alvo} encontrado no Overbooking. Vinculando...")
+                if not clicar_ap_overbooking(ap_alvo, timeout=15):
+                    print(f"Erro: AP {ap_alvo} nao foi clicado no Overbooking da categoria {categoria_destino}.")
+                    recuperar_tela_apos_overbooking()
+                    continue
+
+                if not confirmar_acao(is_overbooking=True, ap_overbooking=ap_alvo):
+                    print(f"Erro: confirmacao de overbooking nao foi enviada para o AP {ap_alvo}.")
+                    recuperar_tela_apos_overbooking()
+                    continue
+                esperar_loading_sumir()
+
+                print("Retornando da tela de Overbooking para a aba da reserva...")
+                xpath_voltar_apos_overbooking = "//*[@id='abandonUpdateRooms']"
+                if clicar_quando_pronto(xpath_voltar_apos_overbooking, timeout=5, descricao="voltar apos overbooking"):
                     esperar_loading_sumir()
 
-    except Exception as e: print(f"❌ Erro Crítico: {e}")
-    finally: driver.quit(); print("🏁 Fim.")
+            print("Concluidos os quartos deste Voucher. Retornando ao mapa principal...")
+            if clicar_quando_pronto('//*[@id="cancelReservation"]', timeout=10, descricao="cancelar reserva"):
+                esperar_loading_sumir()
+
+    except Exception as e:
+        print(f"Erro Critico: {e}")
+    finally:
+        driver.quit()
+        print("Fim.")
+
 
 if __name__ == "__main__":
-    executar_vinculacao_2_0()
+    parser = argparse.ArgumentParser(description="Robô de vinculação HITS")
+    parser.add_argument(
+        "--headless",
+        action="store_true",
+        help="Executa o Chrome sem interface visual.",
+    )
+    parser.add_argument(
+        "--visual",
+        action="store_true",
+        help="Força o Chrome visível.",
+    )
+    parser.add_argument(
+        "--fator-pausa",
+        type=float,
+        default=float(os.getenv("VINC2_FATOR_PAUSA", "0.8")),
+        help="Multiplicador das pequenas pausas internas. Padrão: 0.8.",
+    )
+    args = parser.parse_args()
+
+    modo_headless = None
+    if args.headless:
+        modo_headless = True
+    elif args.visual:
+        modo_headless = False
+
+    executar_vinculacao_2_0(
+        headless=modo_headless,
+        fator_pausa=args.fator_pausa,
+    )

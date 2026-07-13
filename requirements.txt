@@ -1,0 +1,7 @@
+selenium
+webdriver-manager
+gspread
+requests
+google-auth
+google-auth-oauthlib
+oauth2client

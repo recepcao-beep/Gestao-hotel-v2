@@ -1,13 +1,11 @@
+import argparse
+import json
+import getpass
 import time
 import re
 import os
 import random
 import datetime
-import argparse
-import hashlib
-import json
-import sys
-from pathlib import Path
 import gspread
 import requests
 from google.auth.transport.requests import Request
@@ -22,453 +20,49 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.keys import Keys
-from selenium.common.exceptions import NoSuchElementException
-from speed import configure_fast_sleep
-
-
-def configurar_console_utf8():
-    for fluxo in (sys.stdout, sys.stderr):
-        try:
-            fluxo.reconfigure(encoding="utf-8", errors="replace")
-        except (AttributeError, ValueError, OSError):
-            pass
-
-
-configurar_console_utf8()
-
-os.environ.setdefault("ROBOT_SLEEP_FACTOR", "0.60")
-os.environ.setdefault("ROBOT_SLEEP_MAX_SECONDS", "6")
-configure_fast_sleep()
-
-ID_PLANILHA = "1oMKFu9aobTP5sBuF0jjSR4In3Z6EcWfATCe_9ijNFXA"
-NOME_ABA_SOLICITACOES = "SOLICITAÇÕES"
-CABECALHOS_SOLICITACOES = ["Data", "Voucher", "Andar", "Vínculo", "Categoria", "Observação"]
-ARTIFACTS_DIR = Path("artifacts") / "verificacao_diaria"
-WEBHOOK_SOLICITACOES_URL = (
-    "https://script.google.com/macros/s/"
-    "AKfycbwcfhQySj2OoJVSzaWnjMCHZzfHPCQHc5fZHKt5sLmhJ7wTtD24SvR-kk-at7lFo_31EA/exec"
-)
 
 class RoboHITS:
-    def __init__(self, dias=7, diagnostico=False, no_write=False, exportar_linhas=None):
-        self.dias = dias
-        self.diagnostico = diagnostico
-        self.no_write = no_write or diagnostico
-        self.exportar_linhas = exportar_linhas
-        self.metricas_por_data = []
-        self.ultima_metrica_extracao = None
-        ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
+    def __init__(self, headless=None, fator_pausa=0.7):
         print("🤖 Inicializando Robô HITS - Previsão de 7 Dias (Com Busca Avançada de Vouchers)...")
+
+        if headless is None:
+            headless = (
+                os.getenv("GITHUB_ACTIONS", "").lower() == "true"
+                or os.getenv("ROBOT_HEADLESS", "").lower() in {"1", "true", "yes", "sim"}
+            )
+
+        self.fator_pausa = max(0.5, float(fator_pausa))
+
         chrome_options = Options()
-        if os.environ.get("ROBOT_HEADLESS", "1") != "0":
+        chrome_options.add_argument("--start-maximized")
+
+        if headless:
             chrome_options.add_argument("--headless=new")
-        chrome_options.add_argument("--window-size=1920,1080")
-        chrome_options.add_argument("--no-sandbox")
-        chrome_options.add_argument("--disable-dev-shm-usage")
-        chrome_options.add_argument("--disable-gpu")
-        chrome_options.add_argument("--disable-extensions")
-        
-        self.driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
+            chrome_options.add_argument("--window-size=1920,1080")
+            chrome_options.add_argument("--no-sandbox")
+            chrome_options.add_argument("--disable-dev-shm-usage")
+            chrome_options.add_argument("--disable-gpu")
+
+        self.driver = webdriver.Chrome(
+            service=Service(ChromeDriverManager().install()),
+            options=chrome_options,
+        )
         self.wait = WebDriverWait(self.driver, 30)
 
-    def salvar_screenshot(self, nome):
-        caminho = ARTIFACTS_DIR / nome
-        try:
-            self.driver.save_screenshot(str(caminho))
-            print(f"Screenshot salvo: {caminho}")
-        except Exception as erro:
-            print(f"Falha ao salvar screenshot {caminho}: {erro}")
-        return caminho
-
-    @staticmethod
-    def hash_json(valor):
-        texto = json.dumps(valor, ensure_ascii=False, sort_keys=True)
-        return hashlib.sha256(texto.encode("utf-8")).hexdigest()
-
-    @staticmethod
-    def normalizar_linha(linha, colunas=6):
-        valores = [str(celula or "").strip() for celula in linha[:colunas]]
-        return valores + [""] * (colunas - len(valores))
-
-    @classmethod
-    def normalizar_linhas(cls, linhas, colunas=6):
-        return [cls.normalizar_linha(linha, colunas) for linha in linhas]
-
-    @classmethod
-    def hash_linhas(cls, linhas):
-        return cls.hash_json(cls.normalizar_linhas(linhas))
-
-    @staticmethod
-    def normalizar_data(texto):
-        match = re.search(r"\b(\d{1,2})/(\d{1,2})/(\d{2,4})\b", str(texto or ""))
-        if not match:
-            return ""
-        dia, mes, ano = match.groups()
-        ano_int = int(ano)
-        if ano_int < 100:
-            ano_int += 2000
-        try:
-            data = datetime.date(ano_int, int(mes), int(dia))
-            return data.strftime("%d/%m/%Y")
-        except ValueError:
-            return ""
-
-    def salvar_relatorio_diagnostico(self, nome_base="obs_diagnostico", extra=None):
-        payload = {
-            "diagnostico": self.diagnostico,
-            "no_write": self.no_write,
-            "dias": self.dias,
-            "gerado_em": datetime.datetime.now().isoformat(timespec="seconds"),
-            "metricas": self.metricas_por_data,
-        }
-        if extra:
-            payload.update(extra)
-
-        json_path = ARTIFACTS_DIR / f"{nome_base}.json"
-        txt_path = ARTIFACTS_DIR / f"{nome_base}.txt"
-        json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-
-        linhas = []
-        for metrica in self.metricas_por_data:
-            linhas.extend([
-                f"Data solicitada: {metrica['data_solicitada']}",
-                f"Data confirmada: {metrica['data_confirmada']}",
-                f"Reservas encontradas: {metrica.get('blocos_encontrados', metrica.get('linhas_brutas', 0))}",
-                f"Blocos processados: {metrica.get('blocos_processados', 0)}",
-                f"Registros exportados: {metrica.get('registros_exportados', metrica.get('observacoes_validas', 0))}",
-                f"Com solicitacao especial: {metrica.get('com_solicitacao', 0)}",
-                f"Sem solicitacao especial: {metrica.get('sem_solicitacao', 0)}",
-                f"Vouchers unicos: {metrica['vouchers_unicos']}",
-                f"Ocorrencias de voucher repetido: {metrica.get('ocorrencias_voucher_repetido', 0)}",
-                f"Categorias preenchidas: {metrica.get('categorias_preenchidas', 0)}",
-                f"Categorias ausentes: {metrica.get('categorias_ausentes', 0)}",
-                f"Blocos estruturais ignorados: {metrica.get('blocos_estruturais_ignorados', 0)}",
-                f"Erros reais de extracao: {metrica.get('erros_reais_extracao', metrica.get('erros_extracao', 0))}",
-                f"Hash: {metrica['hash']}",
-                f"Primeiros vouchers: {', '.join(metrica['primeiros_vouchers'])}",
-                "",
-            ])
-        txt_path.write_text("\n".join(linhas), encoding="utf-8")
-        print(f"Relatorios gerados: {json_path} | {txt_path}")
-
-    def montar_linhas_para_planilha(self, dados_extraidos):
-        linhas = self.normalizar_linhas(dados_extraidos)
-        return [linha for linha in linhas if any(celula.strip() for celula in linha)]
-
-    def montar_payload_linhas_extraidas(self, linhas_planilha):
-        linhas = self.montar_linhas_para_planilha(linhas_planilha)
-        quantidade_por_data = {}
-        vouchers = set()
-        metricas_por_data = {}
-        for linha in linhas:
-            data = linha[0]
-            voucher = linha[1]
-            quantidade_por_data[data] = quantidade_por_data.get(data, 0) + 1
-            if voucher:
-                vouchers.add(voucher)
-            metrica = metricas_por_data.setdefault(
-                data,
-                {
-                    "data": data,
-                    "registros_exportados": 0,
-                    "com_solicitacao": 0,
-                    "sem_solicitacao": 0,
-                    "vouchers_unicos": 0,
-                    "ocorrencias_voucher_repetido": 0,
-                    "_vouchers": set(),
-                    "erros_extracao": 0,
-                    "erros_reais_extracao": 0,
-                    "blocos_estruturais_ignorados": 0,
-                },
-            )
-            metrica["registros_exportados"] += 1
-            if voucher:
-                metrica["_vouchers"].add(voucher)
-            if len(linha) > 5 and str(linha[5]).strip():
-                metrica["com_solicitacao"] += 1
-            else:
-                metrica["sem_solicitacao"] += 1
-
-        erros_por_data = {
-            metrica.get("data_confirmada") or metrica.get("data_solicitada"): metrica
-            for metrica in self.metricas_por_data
-        }
-        for data, metrica_extracao in erros_por_data.items():
-            if data in metricas_por_data:
-                metricas_por_data[data]["erros_extracao"] = metrica_extracao.get("erros_extracao", 0)
-                metricas_por_data[data]["erros_reais_extracao"] = metrica_extracao.get(
-                    "erros_reais_extracao", metrica_extracao.get("erros_extracao", 0)
-                )
-                metricas_por_data[data]["blocos_estruturais_ignorados"] = metrica_extracao.get(
-                    "blocos_estruturais_ignorados", 0
-                )
-
-        metricas_serializadas = []
-        for data in sorted(metricas_por_data):
-            metrica = metricas_por_data[data]
-            metrica["vouchers_unicos"] = len(metrica["_vouchers"])
-            metrica["ocorrencias_voucher_repetido"] = (
-                metrica["registros_exportados"] - metrica["vouchers_unicos"]
-            )
-            metrica.pop("_vouchers", None)
-            metricas_serializadas.append(metrica)
-
-        datas = sorted(quantidade_por_data.keys())
-        return {
-            "schema_version": 1,
-            "gerado_em": datetime.datetime.now().isoformat(timespec="seconds"),
-            "periodo": {
-                "inicio": datas[0] if datas else "",
-                "fim": datas[-1] if datas else "",
-                "dias": self.dias,
-            },
-            "cabecalhos": CABECALHOS_SOLICITACOES,
-            "quantidade_registros": len(linhas),
-            "vouchers_unicos": len(vouchers),
-            "quantidade_por_data": dict(sorted(quantidade_por_data.items())),
-            "metricas_por_data": metricas_serializadas,
-            "hash_linhas": self.hash_linhas(linhas),
-            "linhas_extraidas": linhas,
-        }
-
-    @staticmethod
-    def validar_payload_sem_credenciais(payload):
-        proibidos = (
-            "HITS_EMAIL",
-            "HITS_PASSWORD",
-            "BEGIN PRIVATE KEY",
-            "Bearer ",
-            "client_secret",
-            "token.json",
-            "cookie",
-            "authorization",
+        print(
+            f"🖥️ Modo: {'HEADLESS/GITHUB ACTIONS' if headless else 'VISUAL'} | "
+            f"Fator de pausa: {self.fator_pausa}"
         )
-        texto = json.dumps(payload, ensure_ascii=False)
-        for proibido in proibidos:
-            if proibido in texto:
-                raise RuntimeError(f"Campo proibido encontrado no artifact: {proibido}")
 
-    def escrever_json_atomico(self, caminho_final, payload):
-        caminho_final = Path(caminho_final)
-        caminho_final.parent.mkdir(parents=True, exist_ok=True)
-        caminho_tmp = caminho_final.with_name(f"{caminho_final.name}.tmp")
-
-        texto = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
-        try:
-            caminho_tmp.write_text(texto, encoding="utf-8")
-            relido = json.loads(caminho_tmp.read_text(encoding="utf-8"))
-            if relido.get("hash_linhas") != payload.get("hash_linhas"):
-                raise RuntimeError("JSON temporário relido com hash divergente.")
-            caminho_tmp.replace(caminho_final)
-        except Exception:
-            if caminho_tmp.exists():
-                try:
-                    caminho_tmp.unlink()
-                except OSError:
-                    pass
-            raise
-        return caminho_final
-
-    def exportar_linhas_extraidas(self, caminho, linhas_planilha):
-        if not self.no_write and not self.diagnostico:
-            raise RuntimeError("--exportar-linhas só pode ser usado com --diagnostico ou --no-write.")
-
-        payload = self.montar_payload_linhas_extraidas(linhas_planilha)
-        self.validar_payload_sem_credenciais(payload)
-        caminho_final = self.escrever_json_atomico(caminho, payload)
-        print(f"Linhas completas exportadas: {caminho_final}")
-        print(f"Quantidade exportada: {payload['quantidade_registros']}")
-        print(f"Hash das linhas exportadas: {payload['hash_linhas']}")
-        return payload
+    def pausar(self, segundos):
+        """Aplica um fator seguro às pausas originais."""
+        time.sleep(max(0.15, float(segundos) * self.fator_pausa))
 
     def force_click(self, elemento):
         try:
             ActionChains(self.driver).move_to_element(elemento).click().perform()
         except:
             self.driver.execute_script("arguments[0].click();", elemento)
-
-    def fechar_popup_hits(self):
-        """Fecha o pop-up pós-login do HITS e remove o backdrop que bloqueia cliques."""
-        self.driver.switch_to.default_content()
-        def remover_comunicado_visivel():
-            try:
-                return bool(self.driver.execute_script("""
-                    let removeu = false;
-                    const termos = ['COMUNICADO', 'Olá Hoteleiros', 'Ola Hoteleiros'];
-                    const contemComunicado = (el) => {
-                      const texto = String(el.innerText || el.textContent || '');
-                      return termos.some((termo) => texto.includes(termo));
-                    };
-                    const area = (el) => {
-                      const r = el.getBoundingClientRect();
-                      return r.width * r.height;
-                    };
-                    const candidatos = Array.from(document.querySelectorAll('body *'))
-                      .filter((el) => {
-                        if (!contemComunicado(el)) return false;
-                        const r = el.getBoundingClientRect();
-                        const visivel = !!(r.width || r.height || el.getClientRects().length);
-                        return visivel && r.width >= 250 && r.height >= 120;
-                      })
-                      .sort((a, b) => area(a) - area(b));
-                    candidatos.forEach((el) => {
-                      let alvo = el;
-                      let atual = el;
-                      while (atual.parentElement && atual.parentElement !== document.body) {
-                        const pai = atual.parentElement;
-                        const r = pai.getBoundingClientRect();
-                        if (!contemComunicado(pai)) break;
-                        if (r.width >= window.innerWidth * 0.98 || r.height >= window.innerHeight * 0.98) break;
-                        alvo = pai;
-                        atual = pai;
-                      }
-                      if (alvo && alvo.parentElement && alvo.tagName !== 'BODY' && alvo.tagName !== 'HTML') {
-                        alvo.remove();
-                        removeu = true;
-                      }
-                    });
-                    return removeu;
-                """))
-            except:
-                return False
-
-        remover_comunicado_visivel()
-        def popup_bloqueando_presente():
-            try:
-                return bool(self.driver.execute_script("""
-                    const textoPagina = String(document.body ? document.body.innerText || '' : '');
-                    const temComunicado = textoPagina.includes('COMUNICADO') || textoPagina.includes('Olá Hoteleiros');
-                    const temBackdrop = Array.from(document.querySelectorAll('div, [class]')).some((el) => {
-                      const cls = String(el.className || '');
-                      const bg = String(el.getAttribute('backgroundcolor') || '');
-                      const style = String(el.getAttribute('style') || '');
-                      return cls.includes('themes-preview-reflect-backdrop')
-                        || cls.includes('ug-sdk__sc-1rnuyal')
-                        || bg.includes('rgba(0, 0, 0')
-                        || (style.includes('pointer-events: all') && style.includes('rgba(0, 0, 0'));
-                    });
-                    return temComunicado || temBackdrop;
-                """))
-            except:
-                return True
-
-        xpaths_fechar = [
-            "/html/body/div/div/div/div/div/div/div[3]/div/button",
-            "/html/body/div/div/div/div/div/div/div[1]//*[name()='svg']",
-            "/html/body/div/div/div/div/div/div/div[1]//*[name()='svg']/*[name()='path']",
-            "/html/body/div/div/div/div/div/div/div[1]//*[normalize-space(.)='×' or normalize-space(.)='x' or normalize-space(.)='X']",
-            "//*[contains(normalize-space(.), 'COMUNICADO')]/ancestor::*[self::div][1]//*[normalize-space(.)='OK']",
-            "//button[contains(normalize-space(.), 'Fechar')]",
-            "//button[normalize-space(.)='OK' or .//*[normalize-space(.)='OK']]",
-            "//*[@role='button' and (normalize-space(.)='OK' or .//*[normalize-space(.)='OK'])]",
-            "//button[contains(normalize-space(.), 'Entendi')]",
-        ]
-        for _ in range(6):
-            if remover_comunicado_visivel():
-                time.sleep(0.5)
-            if not popup_bloqueando_presente():
-                break
-            fechou = False
-            for xpath in xpaths_fechar:
-                try:
-                    botoes = self.driver.find_elements(By.XPATH, xpath)
-                    for botao in botoes:
-                        if botao.is_displayed() or "svg" in xpath:
-                            self.driver.execute_script("""
-                                const el = arguments[0];
-                                const disparar = (alvo) => {
-                                  if (!alvo) return;
-                                  ['mouseover', 'mousedown', 'mouseup', 'click'].forEach((nome) => {
-                                    try { alvo.dispatchEvent(new MouseEvent(nome, { bubbles: true, cancelable: true, view: window })); } catch (e) {}
-                                  });
-                                  try { alvo.click(); } catch (e) {}
-                                };
-                                disparar(el);
-                                disparar(el.closest && (el.closest('button') || el.closest('[role="button"]') || el.closest('svg')));
-                                let pai = el.parentElement;
-                                for (let i = 0; pai && i < 6; i += 1, pai = pai.parentElement) disparar(pai);
-                            """, botao)
-                            time.sleep(0.8)
-                            fechou = True
-                            break
-                    if fechou:
-                        break
-                except:
-                    continue
-            if not fechou:
-                try:
-                    ActionChains(self.driver).send_keys(Keys.ESCAPE).perform()
-                    time.sleep(0.3)
-                except:
-                    pass
-            try:
-                fechou_js = self.driver.execute_script("""
-                    let clicou = false;
-                    const disparar = (alvo) => {
-                      if (!alvo) return;
-                      ['mouseover', 'mousedown', 'mouseup', 'click'].forEach((nome) => {
-                        try { alvo.dispatchEvent(new MouseEvent(nome, { bubbles: true, cancelable: true, view: window })); } catch (e) {}
-                      });
-                      try { alvo.click(); clicou = true; } catch (e) {}
-                    };
-                    const fecharPath = document.evaluate(
-                      "/html/body/div/div/div/div/div/div/div[1]//*[name()='svg']/*[name()='path']",
-                      document,
-                      null,
-                      XPathResult.FIRST_ORDERED_NODE_TYPE,
-                      null
-                    ).singleNodeValue;
-                    const fecharSvg = document.evaluate(
-                      "/html/body/div/div/div/div/div/div/div[1]//*[name()='svg']",
-                      document,
-                      null,
-                      XPathResult.FIRST_ORDERED_NODE_TYPE,
-                      null
-                    ).singleNodeValue;
-                    disparar(fecharPath);
-                    disparar(fecharSvg);
-                    let paiFechar = (fecharPath || fecharSvg || {}).parentElement;
-                    for (let i = 0; paiFechar && i < 8; i += 1, paiFechar = paiFechar.parentElement) disparar(paiFechar);
-                    Array.from(document.querySelectorAll('button, [role="button"], a, div, span')).forEach((el) => {
-                      const texto = String(el.innerText || el.textContent || '').trim();
-                      const visivel = !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
-                      if (visivel && (texto === 'OK' || texto === 'Fechar' || texto === 'Entendi')) {
-                        try { el.click(); clicou = true; } catch (e) {}
-                      }
-                    });
-                    const comunicados = Array.from(document.querySelectorAll('body *'))
-                      .filter((el) => {
-                        const texto = String(el.innerText || '');
-                        if (!texto.includes('COMUNICADO') && !texto.includes('Olá Hoteleiros')) return false;
-                        const rect = el.getBoundingClientRect();
-                        return rect.width >= 250 && rect.height >= 120 && rect.width < window.innerWidth * 0.95 && rect.height < window.innerHeight * 0.98;
-                      })
-                      .sort((a, b) => (b.getBoundingClientRect().width * b.getBoundingClientRect().height) - (a.getBoundingClientRect().width * a.getBoundingClientRect().height));
-                    if (comunicados.length) {
-                      const alvo = comunicados[0];
-                      if (alvo && alvo.tagName !== 'BODY' && alvo.tagName !== 'HTML') {
-                        alvo.remove();
-                        clicou = true;
-                      }
-                    }
-                    Array.from(document.querySelectorAll('div, [class]')).forEach((el) => {
-                      const cls = String(el.className || '');
-                      const bg = String(el.getAttribute('backgroundcolor') || '');
-                      const style = String(el.getAttribute('style') || '');
-                      const bloqueiaTela = cls.includes('themes-preview-reflect-backdrop')
-                        || cls.includes('ug-sdk__sc-1rnuyal')
-                        || bg.includes('rgba(0, 0, 0')
-                        || (style.includes('pointer-events: all') && style.includes('rgba(0, 0, 0'));
-                      if (bloqueiaTela) { el.remove(); clicou = true; }
-                    });
-                    return clicou;
-                """)
-                fechou = fechou or bool(fechou_js)
-            except:
-                pass
-            if not fechou:
-                break
-        self.driver.switch_to.default_content()
 
     def focar_quadro(self, xpath_alvo, max_depth=3):
         self.driver.switch_to.default_content()
@@ -491,12 +85,11 @@ class RoboHITS:
         while time.time() - tempo_inicial < timeout:
             if self.focar_quadro(xpath_alvo):
                 return True
-            time.sleep(1) # Aguarda 1 segundo antes de tentar procurar de novo
+            self.pausar(1) # Aguarda 1 segundo antes de tentar procurar de novo
         return False
 
     def clicar_com_espera(self, xpath, timeout=15):
         """Espera o elemento renderizar no iframe correto e tenta clicar."""
-        self.fechar_popup_hits()
         if self.aguardar_e_focar(xpath, timeout):
             try:
                 self.force_click(self.driver.find_element(By.XPATH, xpath))
@@ -506,12 +99,6 @@ class RoboHITS:
                 return False
         return False
 
-    def clicar_primeiro_disponivel(self, descricao, xpaths, timeout=20):
-        for xpath in xpaths:
-            if self.clicar_com_espera(xpath, timeout):
-                return xpath
-        raise RuntimeError(f"{descricao} não encontrado.")
-
     def realizar_login(self):
         url_hits = "https://susceptor.apphotel.one/account/login?returnUrl=%2Fconnect%2Fauthorize%2Flogin%3F" \
                    "response_type%3Did_token%2520token%26client_id%3DB37748FC-ED13-4858-AE26-28AB3512A171%26" \
@@ -519,305 +106,174 @@ class RoboHITS:
                    "%2520webapi%26nonce%3DN0.28324722615515141770822279499%26state%3D17708222794990.2983837305966167"
         try:
             print("🌐 Acessando HITS...")
-            if not os.environ.get("HITS_EMAIL") or not os.environ.get("HITS_PASSWORD"):
-                raise RuntimeError("HITS_EMAIL/HITS_PASSWORD não configurados no ambiente.")
             self.driver.get(url_hits)
-            self.wait.until(EC.presence_of_element_located((By.ID, "Email"))).send_keys(os.environ["HITS_EMAIL"])
-            self.driver.find_element(By.ID, "Password").send_keys(os.environ["HITS_PASSWORD"])
+            hits_email = os.getenv("HITS_EMAIL") or input("Digite o HITS_EMAIL: ").strip()
+            hits_password = os.getenv("HITS_PASSWORD") or getpass.getpass("Digite o HITS_PASSWORD: ")
+            if not hits_email or not hits_password:
+                raise RuntimeError("HITS_EMAIL/HITS_PASSWORD não configurados.")
+            self.wait.until(EC.presence_of_element_located((By.ID, "Email"))).send_keys(hits_email)
+            self.driver.find_element(By.ID, "Password").send_keys(hits_password)
             self.driver.find_element(By.XPATH, "//button[@type='submit']").click()
             print("⏳ Login enviado. Aguardando 15 segundos para carregar painel...")
-            time.sleep(15) 
-            self.fechar_popup_hits()
-            if not self.aguardar_e_focar("//*[@id='menuPrimary']/a", 30):
-                raise RuntimeError("Login enviado, mas o menu principal do HITS não carregou.")
-            print("✅ Login confirmado no HITS.")
-            return True
+            self.pausar(15)
         except Exception as e:
             print(f"❌ Erro no Login: {e}")
-            raise
 
     def navegar_ate_relatorio(self):
         try:
-            self.clicar_primeiro_disponivel("Menu principal", ["//*[@id='menuPrimary']/a"], 30)
-            time.sleep(3)
-
-            self.clicar_primeiro_disponivel(
-                "Menu Recepção",
-                [
-                    "//*[@id='menufrontdesk']",
-                    "/html/body/div[3]/div/header/nav[6]/div/ul/li[1]/a",
-                ],
-                20,
-            )
-            time.sleep(3)
-
-            self.clicar_primeiro_disponivel(
-                "Mapa de reservas",
-                [
-                    "//*[@id='menunewChart']/a",
-                    "//span[contains(text(), 'Mapa de reserva')]",
-                    "//a[contains(., 'Mapa de reserva')]",
-                    "/html/body/div[3]/div/header/nav[6]/div/ul/li[1]/ul/li[1]/a",
-                ],
-                20,
-            )
-            print("⏳ Carregando o mapa de reservas...")
-            time.sleep(10)
-
-            self.clicar_primeiro_disponivel(
-                "Botão de relatório do mapa",
-                ["//button[contains(@ng-click, 'moreOptionsShowReport')]"],
-                30,
-            )
-            time.sleep(3)
-
-            self.clicar_primeiro_disponivel(
-                "Opção do relatório de observações",
-                ["//*[@id='one2']/div/div[2]/button[2]"],
-                20,
-            )
-            print("✅ Relatório acessado.")
-            time.sleep(5)
-
-            if not self.aguardar_e_focar("//*[@id='one-search-filters-container']", 30):
-                raise RuntimeError("Relatório abriu, mas os filtros não carregaram.")
-            return True
+            if self.focar_quadro("//*[@id='menuPrimary']/a"):
+                self.force_click(self.driver.find_element(By.XPATH, "//*[@id='menuPrimary']/a"))
+                self.pausar(4)
+            if self.focar_quadro("//*[@id='menufrontdesk']"):
+                self.force_click(self.driver.find_element(By.XPATH, "//*[@id='menufrontdesk']"))
+                self.pausar(4)
+            if self.focar_quadro("//span[contains(text(), 'Mapa de reserva')]"):
+                self.force_click(self.driver.find_element(By.XPATH, "//span[contains(text(), 'Mapa de reserva')]"))
+                print("⏳ Carregando o mapa de reservas (12s)...")
+                self.pausar(12)
+            if self.focar_quadro("//button[contains(@ng-click, 'moreOptionsShowReport')]"):
+                self.force_click(self.driver.find_element(By.XPATH, "//button[contains(@ng-click, 'moreOptionsShowReport')]"))
+                self.pausar(4)
+            if self.focar_quadro("//*[@id='one2']/div/div[2]/button[2]"):
+                self.force_click(self.driver.find_element(By.XPATH, "//*[@id='one2']/div/div[2]/button[2]"))
+                print("✅ Relatório acessado.")
+                self.pausar(6)
         except Exception as e:
             print(f"❌ Erro na Navegação: {e}")
-            raise
 
     def aplicar_filtros_e_obs(self):
         try:
             print("🔍 Aplicando filtros inteligentes...")
-            
+
             # --- PRIMEIRO FILTRO ---
             xpath_btn1 = "//*[@id='one-search-filters-container']/div[2]/span[8]/one-translate"
             xpath_opt1 = "//*[@id='one-search-modal-content']/div/div/div[1]"
             xpath_ok = "/html/body/div[1]/div/div/div[4]/button"
 
-            filtro_1_ok = False
             if self.clicar_com_espera(xpath_btn1):
-                time.sleep(1)
+                self.pausar(1)
                 if self.clicar_com_espera(xpath_opt1):
-                    time.sleep(1)
-                    filtro_1_ok = self.clicar_com_espera(xpath_ok)
-                    time.sleep(3)
-
-            if not filtro_1_ok:
-                self.salvar_screenshot("obs_filtro_1_falhou.png")
-                raise RuntimeError("Primeiro filtro obrigatório não foi aplicado.")
+                    self.pausar(1)
+                    self.clicar_com_espera(xpath_ok)
+                    self.pausar(3)
+                else:
+                    print("⚠️ Modal do 1º filtro não carregou a tempo.")
+            else:
+                print("⚠️ Botão do 1º filtro não encontrado.")
 
             # --- SEGUNDO FILTRO ---
             xpath_btn2 = "//*[@id='one-search-filters-container']/div[2]/span[10]"
             xpath_btn2_expand = "//*[@id='one-search-filters-container']/div[2]/span[10]/one-translate"
-            # CORREÇÃO AQUI: Alterado para button[17]
             xpath_opt2 = "//*[@id='one-search-modal-content']/div/div[1]/button[17]"
 
-            filtro_2_ok = False
             if self.clicar_com_espera(xpath_btn2):
-                time.sleep(1)
+                self.pausar(1)
                 if self.clicar_com_espera(xpath_btn2_expand):
-                    time.sleep(1)
+                    self.pausar(1)
                     if self.clicar_com_espera(xpath_opt2):
-                        time.sleep(1)
-                        filtro_2_ok = self.clicar_com_espera(xpath_ok)
-                        time.sleep(6)
-
-            if not filtro_2_ok:
-                self.salvar_screenshot("obs_filtro_2_falhou.png")
-                raise RuntimeError("Segundo filtro obrigatório não foi aplicado.")
-
-            print("🎯 Dois filtros obrigatórios confirmados. Iniciando extração...")
-            return True
+                        self.pausar(1)
+                        self.clicar_com_espera(xpath_ok)
+                        print("🎯 Filtros OK. Iniciando extração...")
+                        self.pausar(6)
+                    else:
+                        print("⚠️ Opção dentro do 2º filtro não carregou.")
+                else:
+                    print("⚠️ Menu do 2º filtro não expandiu.")
+            else:
+                print("⚠️ Botão principal do 2º filtro não encontrado.")
 
         except Exception as e:
             print(f"❌ Erro crítico nos Filtros: {e}")
-            raise
 
-    def assinatura_tabela_atual(self):
-        textos = []
-        try:
-            tbodies = self.driver.find_elements(By.XPATH, "//*[@id='arrivalsDeparturesReport']//table[1]/tbody")
-            for corpo in tbodies:
-                texto = corpo.text.strip()
-                if texto:
-                    textos.append(texto)
-        except Exception:
-            pass
-        return self.hash_json(textos)
-
-    def texto_filtro_data_atual(self):
-        textos = []
-        seletores = [
-            (By.XPATH, '//*[@id="one-search-filters-container"]/div[1]/button[1]'),
-            (By.CSS_SELECTOR, "input.form-control.report-range-picker"),
-            (By.XPATH, "//*[@id='one-search-modal-content']//input"),
-            (By.XPATH, "//input[contains(@ng-model, 'datePicker.date')]"),
-            (By.XPATH, "//input[contains(@class, 'form-control')]"),
-        ]
-        for seletor in seletores:
-            try:
-                for elemento in self.driver.find_elements(*seletor):
-                    if not elemento.is_displayed():
-                        continue
-                    texto = " ".join([
-                        elemento.text or "",
-                        elemento.get_attribute("value") or "",
-                        elemento.get_attribute("title") or "",
-                    ]).strip()
-                    if texto:
-                        textos.append(texto)
-            except Exception:
-                continue
-        return " | ".join(textos)
-
-    def confirmar_data_aplicada(self, data_esperada):
-        data_esperada_norm = self.normalizar_data(data_esperada)
-        texto_filtro = self.texto_filtro_data_atual()
-        datas_exibidas = [self.normalizar_data(valor) for valor in re.findall(r"\d{1,2}/\d{1,2}/\d{2,4}", texto_filtro)]
-        datas_exibidas = [data for data in datas_exibidas if data]
-        data_confirmada = datas_exibidas[0] if datas_exibidas else ""
-
-        if data_confirmada != data_esperada_norm:
-            self.salvar_screenshot("obs_data_divergente.png")
-            raise RuntimeError(
-                f"Data exibida no HITS ({data_confirmada or texto_filtro or 'vazia'}) "
-                f"não confere com a data solicitada ({data_esperada_norm})."
-            )
-        return data_confirmada
-
-    def aguardar_tabela_mudar(self, assinatura_anterior):
-        if not assinatura_anterior:
-            return self.assinatura_tabela_atual()
-
-        limite = time.time() + 35
-        assinatura_atual = self.assinatura_tabela_atual()
-        while time.time() < limite:
-            assinatura_atual = self.assinatura_tabela_atual()
-            if assinatura_atual and assinatura_atual != assinatura_anterior:
-                return assinatura_atual
-            time.sleep(1)
-
-        self.salvar_screenshot("obs_tabela_nao_mudou.png")
-        print("⚠️ A tabela não mudou dentro do tempo; a assinatura da extração será validada antes de qualquer escrita.")
-        return assinatura_atual
-
-    def mudar_data_para(self, dias_para_frente, assinatura_anterior=None):
+    def mudar_data_para(self, dias_para_frente):
         data_alvo = datetime.datetime.now() + datetime.timedelta(days=dias_para_frente)
         data_f = data_alvo.strftime("%d/%m/%y")
-        data_esperada = data_alvo.strftime("%d/%m/%Y")
         texto_data = f"{data_f} - {data_f}"
-        
+
         print(f"➡️ Alterando data para: {texto_data}")
         xpath_botao_periodo = '//*[@id="one-search-filters-container"]/div[1]/button[1]'
-        
+
         try:
             if self.focar_quadro(xpath_botao_periodo):
                 botao = self.driver.find_element(By.XPATH, xpath_botao_periodo)
                 self.force_click(botao)
-                time.sleep(1) 
-                self.fechar_popup_hits()
-                
-                campos = []
-                for seletor in [
-                    (By.CSS_SELECTOR, "input.form-control.report-range-picker"),
-                    (By.XPATH, "//*[@id='one-search-modal-content']//input"),
-                    (By.XPATH, "//input[@date-range-picker]"),
-                    (By.XPATH, "//input[contains(@ng-model, 'datePicker.date')]"),
-                    (By.XPATH, "//input[contains(@class, 'form-control')]"),
-                ]:
-                    try:
-                        campos.extend(self.driver.find_elements(*seletor))
-                    except:
-                        pass
-                campo_data = next((campo for campo in campos if campo.is_displayed()), campos[0] if campos else None)
-                if not campo_data:
-                    raise RuntimeError("Campo de data nao encontrado.")
+                self.pausar(1)
 
                 try:
-                    self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", campo_data)
-                    campo_data.click()
-                    time.sleep(0.5) 
-                    campo_data.send_keys(Keys.CONTROL + "a")
-                    time.sleep(0.2) 
-                    campo_data.send_keys(Keys.BACKSPACE)
-                    time.sleep(0.2) 
-                    campo_data.send_keys(texto_data)
-                    time.sleep(0.5) 
-                    campo_data.send_keys(Keys.ENTER)
+                    campo_data = self.driver.find_element(By.CSS_SELECTOR, "input.form-control.report-range-picker")
                 except:
-                    self.driver.execute_script("""
-                        const el = arguments[0];
-                        const valor = arguments[1];
-                        el.removeAttribute('readonly');
-                        el.disabled = false;
-                        el.value = valor;
-                        ['input', 'change', 'keyup', 'blur'].forEach((nome) => {
-                          el.dispatchEvent(new Event(nome, { bubbles: true }));
-                        });
-                    """, campo_data, texto_data)
-                time.sleep(1) 
-                
+                    campo_data = self.driver.find_element(By.XPATH, "//input[contains(@class, 'form-control')]")
+
+                campo_data.click()
+                self.pausar(0.5)
+                campo_data.send_keys(Keys.CONTROL + "a")
+                self.pausar(0.2)
+                campo_data.send_keys(Keys.BACKSPACE)
+                self.pausar(0.2)
+                campo_data.send_keys(texto_data)
+                self.pausar(0.5)
+
+                campo_data.send_keys(Keys.ENTER)
+                self.pausar(1)
+
                 botao_confirmar = self.driver.find_element(By.XPATH, "/html/body/div[1]/div/div/div[4]/button")
                 self.force_click(botao_confirmar)
-                
-                print("⏳ Confirmando data aplicada e aguardando tabela mudar...")
-                assinatura_atual = self.aguardar_tabela_mudar(assinatura_anterior)
-                data_confirmada = self.confirmar_data_aplicada(data_esperada)
-                return data_confirmada, assinatura_atual
+
+                print("⏳ Recarregando tabela (10s)...")
+                self.pausar(10)
+                return True
             else:
-                self.salvar_screenshot("obs_botao_periodo_nao_encontrado.png")
-                raise RuntimeError("Botão do período não encontrado.")
+                return False
         except Exception as e:
             print(f"❌ Falha ao interagir com campo de data: {e}")
-            raise
+            return False
 
     def analisar_texto_e_extrair(self, obs_raw):
         partes = re.split(r'[\n;\|]|\s{4,}', obs_raw)
-        
+
         relevantes = [
-            "MIMO", "ANIVERSARIO", "ANIVERSÁRIO", "LEMBRANCA", "LEMBRANÇA", "VIP", 
-            "BERCO", "BERÇO", "BANHEIRA", "PROXIMO", "PRÓXIMO", "PERTO", "VIZINHO", 
-            "ANDAR", "ALA", "TÉRREO", "TERREO", "ELEVADOR", "LADO A LADO", "JUNTOS", 
-            "COLADO", "RECEPÇÃO", "RECEPCAO", "CAMA", "RESTAURANTE", "AREJADO", 
+            "MIMO", "ANIVERSARIO", "ANIVERSÁRIO", "LEMBRANCA", "LEMBRANÇA", "VIP",
+            "BERCO", "BERÇO", "BANHEIRA", "PROXIMO", "PRÓXIMO", "PERTO", "VIZINHO",
+            "ANDAR", "ALA", "TÉRREO", "TERREO", "ELEVADOR", "LADO A LADO", "JUNTOS",
+            "COLADO", "RECEPÇÃO", "RECEPCAO", "CAMA", "RESTAURANTE", "AREJADO",
             "AMPLO", "ACIMA", "ALTO", "ALOCAR", "PRIMEIRO", "SEGUNDO", "TERCEIRO",
             "1º", "2º", "3º", "1O", "2O", "3O",
             "COPINHA", "BABY", "MAMÃE", "MAMAE"
         ]
-        
+
         lixos = [
-            "STANDARD", "SEM SACADA", "COM SACADA", "VALOR", "PAGAMENTO", "PIX", 
-            "EMAIL", "TARIFARIO", "TARIFÁRIO", "MOTOR DE RESERVA", "MOTOR DE RESERVAS", 
-            "COMENTÁRIOS DA RESERVA", "COMENTARIOS DA RESERVA", "RESP:", "RESPONSAVEL:", 
-            "BEE2PAY", "INTEGRAÇÃO", "CRIADOR:", "DUPLO", "CATEGORIA", "ALL INCLUSIVE", 
+            "STANDARD", "SEM SACADA", "COM SACADA", "VALOR", "PAGAMENTO", "PIX",
+            "EMAIL", "TARIFARIO", "TARIFÁRIO", "MOTOR DE RESERVA", "MOTOR DE RESERVAS",
+            "COMENTÁRIOS DA RESERVA", "COMENTARIOS DA RESERVA", "RESP:", "RESPONSAVEL:",
+            "BEE2PAY", "INTEGRAÇÃO", "CRIADOR:", "DUPLO", "CATEGORIA", "ALL INCLUSIVE",
             "NOME ", "CONTATO", "TOTAL R$", "AGDO PAGTO", "OP R$", "CANAL", "LOCALIZADOR", "TARIFA"
         ]
-        
+
         linhas_limpas = []
         for linha in partes:
             linha_limpa = linha.strip()
             if len(linha_limpa) < 4: continue
-            
+
             linha_upper = linha_limpa.upper().replace("STANDARD", "STD")
-            
+
             if not any(r in linha_upper for r in relevantes):
                 continue
-                
+
             for lixo in lixos:
                 linha_upper = linha_upper.replace(lixo, "")
-                
+
             linha_final = linha_upper.strip(" :|-")
             if len(linha_final) > 3:
                 linhas_limpas.append(linha_final)
-            
+
         texto_final_limpo = " | ".join(linhas_limpas)
-        
+
         if not texto_final_limpo:
             return "", "", ""
 
         andar = ""
         andares_num = re.findall(r'\b(200|300|400|500|600|700)\b', texto_final_limpo)
-        
+
         if andares_num:
             andar = andares_num[0]
         elif "COPINHA BABY" in texto_final_limpo or "COPINHA DA MAMÃE" in texto_final_limpo or "COPINHA DA MAMAE" in texto_final_limpo or "COPA" in texto_final_limpo:
@@ -842,7 +298,7 @@ class RoboHITS:
         vinculo = ""
         padrao_vinculo = r'(?:PRÓXIM[OA]|PROXIM[OA]|VINCULAD[OA]|JUNTO|PERTO|LADO|MESMO|COM).*?(RES[- ]?\d+[-0-9]*|\b\d{5,10}\b)'
         vinculo_matches = re.findall(padrao_vinculo, texto_final_limpo)
-        
+
         if vinculo_matches:
             vinculo = vinculo_matches[0].strip()
 
@@ -854,10 +310,10 @@ class RoboHITS:
             total_pax = int(partes_pax[0]) + int(partes_pax[1])
         except:
             total_pax = 1
-            
+
         obs_upper = obs_raw.upper()
         tem_sacada = None
-        
+
         if any(x in obs_upper for x in ["COM SACADA", "C/ SACADA", "VARANDA", "C/ VARANDA", "SUPERIOR"]):
             tem_sacada = True
         elif any(x in obs_upper for x in ["SEM SACADA", "S/ SACADA", "SEM VARANDA", "S/ VARANDA"]):
@@ -875,152 +331,58 @@ class RoboHITS:
     def extrair_dados_pagina_atual(self, data_atual_loop):
         xpath_tbodies = "//*[@id='arrivalsDeparturesReport']//table[1]/tbody"
         pedidos_do_dia = []
-        vouchers_brutos = []
-        textos_brutos = []
-        linhas_brutas = 0
-        erros_extracao = []
-        blocos_estruturais_ignorados = 0
-        blocos_processados = 0
-        com_solicitacao = 0
-        sem_solicitacao = 0
-        categorias_preenchidas = 0
-        categorias_ausentes = 0
-        tbodies = []
-
-        def registrar_erro(indice, etapa, erro, voucher=""):
-            erros_extracao.append(
-                {
-                    "bloco": indice,
-                    "voucher": voucher or "",
-                    "etapa": etapa,
-                    "tipo": type(erro).__name__,
-                }
-            )
-            voucher_log = voucher if voucher else "indisponivel"
-            print(
-                f"Erro de extracao no bloco {indice}: "
-                f"voucher={voucher_log}, etapa={etapa}, tipo={type(erro).__name__}"
-            )
+        vouchers_processados = set()
 
         if self.focar_quadro(xpath_tbodies):
             tbodies = self.driver.find_elements(By.XPATH, xpath_tbodies)
-            for indice, corpo in enumerate(tbodies, start=1):
-                voucher = ""
+            for corpo in tbodies:
                 try:
-                    etapa = "texto_bloco"
-                    texto_corpo = corpo.text.strip()
-                    if texto_corpo:
-                        textos_brutos.append(texto_corpo)
-                        linhas_brutas += len([linha for linha in texto_corpo.splitlines() if linha.strip()])
+                    voucher = corpo.find_element(By.XPATH, "./tr[1]/td[7]").text.strip()
 
-                    etapa = "voucher"
-                    try:
-                        voucher = corpo.find_element(By.XPATH, "./tr[1]/td[7]").text.strip()
-                    except NoSuchElementException:
-                        blocos_estruturais_ignorados += 1
-                        continue
-                    if not voucher:
-                        raise ValueError("voucher vazio")
-                    vouchers_brutos.append(voucher)
-                    
-                    etapa = "pax"
                     pax_raw = corpo.find_element(By.XPATH, "./tr[1]/td[4]").text.strip()
+                    cat_sistema = corpo.find_element(By.XPATH, "./tr[1]/td[8]").text.strip().upper()
 
-                    etapa = "categoria"
-                    apto_categoria_raw = corpo.find_element(By.XPATH, "./tr[1]/td[6]").text.strip().upper()
-                    match_categoria = re.search(r'\b(1CC|1CSS|2CC|2CSS)\b', apto_categoria_raw)
-                    cat_sistema = match_categoria.group(1) if match_categoria else apto_categoria_raw
-                    if not cat_sistema:
-                        categorias_ausentes += 1
-                        raise ValueError("categoria ausente")
+                    obs_raw = corpo.find_element(By.XPATH, "./tr[3]/td").text.strip()
 
-                    etapa = "observacao"
-                    partes_obs = []
-                    try:
-                        elementos_obs = corpo.find_elements(By.XPATH, "./tr[position() > 1]/td")
-                        for elemento_obs in elementos_obs:
-                            texto_linha = elemento_obs.text.strip()
-                            if texto_linha:
-                                partes_obs.append(texto_linha)
-                    except Exception as erro_obs:
-                        registrar_erro(indice, etapa, erro_obs, voucher)
-                    obs_raw = " | ".join(partes_obs)
+                    if not obs_raw or len(obs_raw) < 5: continue
 
-                    etapa = "analise_observacao"
                     andar, vinculo, texto_limpo = self.analisar_texto_e_extrair(obs_raw)
 
-                    etapa = "categoria_verificada"
                     cat_verificada = self.calcular_categoria_verificada(obs_raw, pax_raw, cat_sistema)
-                    if not cat_verificada:
-                        categorias_ausentes += 1
-                        raise ValueError("categoria verificada ausente")
 
-                    categorias_preenchidas += 1
-                    blocos_processados += 1
-                    if texto_limpo:
-                        com_solicitacao += 1
-                    else:
-                        sem_solicitacao += 1
-                    pedidos_do_dia.append([data_atual_loop, voucher, andar, vinculo, cat_verificada, texto_limpo])
-                except Exception as erro:
-                    registrar_erro(indice, etapa, erro, voucher)
-        vouchers_ordenados = sorted(set(vouchers_brutos))
-        ocorrencias_voucher_repetido = len(pedidos_do_dia) - len(vouchers_ordenados)
-        observacoes_sem_data = [linha[1:] for linha in pedidos_do_dia]
-        assinatura_payload = {
-            "vouchers": vouchers_ordenados,
-            "textos": sorted(textos_brutos),
-            "observacoes": self.normalizar_linhas(observacoes_sem_data, colunas=5),
-        }
-        self.ultima_metrica_extracao = {
-            "data_solicitada": data_atual_loop,
-            "data_confirmada": data_atual_loop,
-            "blocos_encontrados": len(tbodies),
-            "blocos_processados": blocos_processados,
-            "linhas_brutas": linhas_brutas,
-            "vouchers_unicos": len(vouchers_ordenados),
-            "registros_exportados": len(pedidos_do_dia),
-            "ocorrencias_voucher_repetido": ocorrencias_voucher_repetido,
-            "com_solicitacao": com_solicitacao,
-            "sem_solicitacao": sem_solicitacao,
-            "categorias_preenchidas": categorias_preenchidas,
-            "categorias_ausentes": categorias_ausentes,
-            "erros_extracao": len(erros_extracao),
-            "erros_reais_extracao": len(erros_extracao),
-            "blocos_estruturais_ignorados": blocos_estruturais_ignorados,
-            "erros": erros_extracao,
-            "vouchers": vouchers_ordenados,
-            "textos": sorted(textos_brutos),
-            "hash": self.hash_json(assinatura_payload),
-            "primeiros_vouchers": vouchers_ordenados[:10],
-        }
+                    if not texto_limpo and not cat_verificada: continue
+
+                    if voucher not in vouchers_processados:
+                        pedidos_do_dia.append([data_atual_loop, voucher, andar, vinculo, cat_verificada, texto_limpo])
+                        vouchers_processados.add(voucher)
+                except: continue
         return pedidos_do_dia
 
     def buscar_vouchers_de_res(self, res_codes):
-        if not res_codes: 
+        if not res_codes:
             return {}
-            
+
         print(f"🔍 Traduzindo {len(res_codes)} códigos 'RES' para Vouchers reais...")
         mapa_res = {}
 
         try:
             if self.focar_quadro("//*[@id='menuPrimary']/a"):
                 self.force_click(self.driver.find_element(By.XPATH, "//*[@id='menuPrimary']/a"))
-                time.sleep(2)
+                self.pausar(2)
             if self.focar_quadro("//*[@id='menureservation']"):
                 self.force_click(self.driver.find_element(By.XPATH, "//*[@id='menureservation']"))
-                time.sleep(2)
+                self.pausar(2)
             if self.focar_quadro("//*[@id='menureservations']/a"):
                 self.force_click(self.driver.find_element(By.XPATH, "//*[@id='menureservations']/a"))
                 print("⏳ Carregando tela principal de Reservas (12s)...")
-                time.sleep(12)
+                self.pausar(12)
 
             try:
                 xpath_btn_limpar_data = "//*[@id='one-search-filters-container']/div[1]/button[3]/em"
                 if self.focar_quadro(xpath_btn_limpar_data):
                     print("🧹 Limpando filtro de data padrão...")
                     self.force_click(self.driver.find_element(By.XPATH, xpath_btn_limpar_data))
-                    time.sleep(3)
+                    self.pausar(3)
             except:
                 print("⚠️ Botão 'X' da data não encontrado ou já limpo.")
 
@@ -1031,29 +393,29 @@ class RoboHITS:
                     btn_mais = self.driver.find_element(By.XPATH, xpath_btn_mais)
                     self.force_click(btn_mais)
                     print("🖱️ Clicou em 'Mais' com sucesso!")
-                    time.sleep(2)
+                    self.pausar(2)
                 else:
                     xpath_btn_mais_alt = "//one-translate[@resource='lblMore']"
                     if self.focar_quadro(xpath_btn_mais_alt):
                         btn_mais = self.driver.find_element(By.XPATH, xpath_btn_mais_alt)
                         self.force_click(btn_mais)
                         print("🖱️ Clicou em 'Mais' (método secundário) com sucesso!")
-                        time.sleep(2)
+                        self.pausar(2)
                     else:
                         print("⚠️ O botão 'Mais' não foi achado. (Talvez o menu já esteja expandido).")
             except Exception as e:
-                print(f"⚠️ Erro ao tentar expandir botão 'Mais': {e}") 
+                print(f"⚠️ Erro ao tentar expandir botão 'Mais': {e}")
 
             for res in res_codes:
                 try:
                     print(f"➡️ Pesquisando localizador: {res}")
-                    
+
                     xpath_container_filtros = "//*[@id='one-search-filters-container']/div[2]"
-                    
+
                     if self.focar_quadro(xpath_container_filtros):
                         container = self.driver.find_element(By.XPATH, xpath_container_filtros)
                         botoes = container.find_elements(By.TAG_NAME, "span")
-                        
+
                         botao_localizador = None
                         for btn in botoes:
                             texto_btn = btn.text.upper()
@@ -1061,42 +423,42 @@ class RoboHITS:
                                 if "GESTOR" not in texto_btn:
                                     botao_localizador = btn
                                     break
-                                    
+
                         if botao_localizador:
                             self.force_click(botao_localizador)
-                            time.sleep(2)
+                            self.pausar(2)
                         else:
                             print("⚠️ Botão de localizador não achado pelo texto. Tentando o fallback...")
                             self.force_click(self.driver.find_element(By.XPATH, "//*[@id='one-search-filters-container']/div[2]/span[14]"))
-                            time.sleep(2)
-                        
+                            self.pausar(2)
+
                         campo_busca = self.driver.find_element(By.XPATH, "//*[@id='one-search-modal-content']/div/input")
                         campo_busca.click()
-                        time.sleep(0.5)
+                        self.pausar(0.5)
                         campo_busca.send_keys(Keys.CONTROL + "a")
-                        time.sleep(0.5)
+                        self.pausar(0.5)
                         campo_busca.send_keys(Keys.BACKSPACE)
-                        time.sleep(0.5)
+                        self.pausar(0.5)
                         campo_busca.send_keys(res)
-                        time.sleep(1)
-                        
+                        self.pausar(1)
+
                         btn_confirma = self.driver.find_element(By.XPATH, "/html/body/div[1]/div/div/div[4]/button")
                         self.force_click(btn_confirma)
-                        
+
                         print("⏳ Aguardando resultado da busca (6s)...")
-                        time.sleep(6)
-                        
+                        self.pausar(6)
+
                         try:
                             primeira_linha = self.driver.find_element(By.CSS_SELECTOR, ".ui-grid-row")
                             celulas = primeira_linha.find_elements(By.CSS_SELECTOR, ".ui-grid-cell-contents")
-                            
+
                             voucher_encontrado = None
                             for celula in celulas:
                                 txt = celula.text.strip()
                                 if re.fullmatch(r'\d{6,8}', txt):
                                     voucher_encontrado = txt
-                                    break 
-                            
+                                    break
+
                             if voucher_encontrado:
                                 mapa_res[res] = voucher_encontrado
                                 print(f"✔️ Traduzido: {res} = {voucher_encontrado}")
@@ -1104,290 +466,179 @@ class RoboHITS:
                                 print(f"⚠️ Voucher não encontrado na grid para o código {res}.")
                         except:
                             print(f"⚠️ Nenhuma reserva encontrada no HITS para o localizador {res}.")
-                            
+
                         try:
                             btn_limpar = self.driver.find_element(By.XPATH, "//*[@id='one-search-bar']/div[1]/button[2]")
                             self.force_click(btn_limpar)
-                            time.sleep(2)
+                            self.pausar(2)
                         except: pass
-                            
+
                 except Exception as ex_res:
                     print(f"❌ Erro ao buscar o código {res}: {ex_res}")
                     self.driver.refresh()
-                    time.sleep(8)
+                    self.pausar(8)
 
         except Exception as e:
             print(f"❌ Erro ao navegar para a tela de reservas: {e}")
-            
+
         return mapa_res
-
-    def autenticar_google_sheets(self):
-        print("☁️ Autenticando no Google Sheets via OAuth...")
-        escopos = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
-        creds = None
-
-        diretorio_atual = os.path.dirname(os.path.abspath(__file__))
-        caminho_token = os.path.join(diretorio_atual, 'token.json')
-        caminho_secret = os.path.join(diretorio_atual, 'client_secret.json')
-
-        if os.path.exists(caminho_token):
-            creds = Credentials.from_authorized_user_file(caminho_token, escopos)
-
-        if not creds or not creds.valid:
-            if creds and creds.expired and creds.refresh_token:
-                creds.refresh(Request())
-            else:
-                flow = InstalledAppFlow.from_client_secrets_file(caminho_secret, escopos)
-                creds = flow.run_local_server(port=0)
-
-            with open(caminho_token, 'w') as token:
-                token.write(creds.to_json())
-
-        return gspread.authorize(creds)
-
-    def abrir_aba_solicitacoes(self):
-        gc = self.autenticar_google_sheets()
-        print("🔍 Abrindo planilha por ID fixo...")
-        planilha = gc.open_by_key(ID_PLANILHA)
-        aba = planilha.worksheet(NOME_ABA_SOLICITACOES)
-        print(f"Planilha: {planilha.title}")
-        print(f"ID confirmado: {ID_PLANILHA}")
-        print(f"Aba: {aba.title}")
-        return aba
-
-    def validar_repeticao_suspeita(self):
-        vistas = {}
-        for metrica in self.metricas_por_data:
-            if metrica.get("registros_exportados", metrica.get("observacoes_validas", 0)) == 0:
-                continue
-            chave = (
-                metrica["hash"],
-                tuple(metrica["vouchers"]),
-                tuple(metrica["textos"]),
-            )
-            anterior = vistas.get(chave)
-            if anterior and anterior["data_confirmada"] != metrica["data_confirmada"]:
-                self.salvar_screenshot("obs_repeticao_suspeita.png")
-                self.salvar_relatorio_diagnostico(
-                    "obs_repeticao_suspeita",
-                    {
-                        "erro": "Datas diferentes com hash, vouchers e textos identicos.",
-                        "data_1": anterior["data_confirmada"],
-                        "data_2": metrica["data_confirmada"],
-                    },
-                )
-                raise RuntimeError(
-                    "Repetição suspeita detectada entre datas diferentes. "
-                    "Dados não foram gravados em SOLICITAÇÕES."
-                )
-            vistas[chave] = metrica
-
-    def encontrar_repeticao_suspeita(self, metrica):
-        if metrica.get("registros_exportados", metrica.get("observacoes_validas", 0)) == 0:
-            return None
-        for anterior in self.metricas_por_data:
-            if anterior["data_confirmada"] == metrica["data_confirmada"]:
-                continue
-            if (
-                anterior["hash"] == metrica["hash"]
-                and anterior["vouchers"] == metrica["vouchers"]
-                and anterior["textos"] == metrica["textos"]
-            ):
-                return anterior
-        return None
-
-    def validar_datas_extraidas(self):
-        datas = [metrica["data_confirmada"] for metrica in self.metricas_por_data]
-        if len(datas) != self.dias:
-            raise RuntimeError(f"Quantidade de datas extraidas ({len(datas)}) diferente do esperado ({self.dias}).")
-        if len(set(datas)) != len(datas):
-            raise RuntimeError(f"Datas repetidas na extracao: {datas}")
-
-    def reler_e_validar_solicitacoes(self, aba, dados_esperados, contexto):
-        if not dados_esperados:
-            return
-        ultima_linha = len(dados_esperados) + 1
-        relidos = aba.get(f"A2:F{ultima_linha}")
-        dados_norm = self.normalizar_linhas(dados_esperados)
-        relidos_norm = self.normalizar_linhas(relidos)
-        hash_escrito = self.hash_linhas(dados_norm)
-        hash_relido = self.hash_linhas(relidos_norm)
-        if len(relidos_norm) != len(dados_norm) or hash_relido != hash_escrito:
-            raise RuntimeError(
-                f"Dados escritos em SOLICITAÇÕES não conferem com a releitura ({contexto}). "
-                f"esperado={len(dados_norm)}/{hash_escrito} relido={len(relidos_norm)}/{hash_relido}"
-            )
-        print(f"Releitura OK ({contexto}): {len(relidos_norm)} linhas, hash {hash_relido}")
-
-    def acionar_webhook_e_validar(self, aba, dados_esperados):
-        print("🚀 Acionando webhook do Google Sheets...")
-        inicio = time.monotonic()
-        resposta = requests.get(WEBHOOK_SOLICITACOES_URL, timeout=30)
-        duracao = time.monotonic() - inicio
-        resposta.raise_for_status()
-        print(
-            f"Webhook OK: status={resposta.status_code}, "
-            f"duracao={duracao:.2f}s, tamanho_resposta={len(resposta.text)}"
-        )
-        self.reler_e_validar_solicitacoes(aba, dados_esperados, "apos_webhook")
 
     def processar_semana_e_salvar(self):
         try:
             dados_totais_semana = []
-            assinatura_tabela_anterior = None
-            self.metricas_por_data = []
+            for dia in range(7):
+                if dia > 0:
+                    sucesso = self.mudar_data_para(dias_para_frente=dia)
+                    if not sucesso: continue
 
-            for dia in range(self.dias):
-                data_confirmada, assinatura_tabela_anterior = self.mudar_data_para(
-                    dias_para_frente=dia,
-                    assinatura_anterior=assinatura_tabela_anterior,
-                )
-
-                data_atual_loop = (datetime.datetime.now() + datetime.timedelta(days=dia)).strftime("%d/%m/%Y")
+                data_atual_loop = (datetime.datetime.now() + datetime.timedelta(days=dia)).strftime("%d/%m/%y")
                 print(f"📅 Lendo dados e filtrando de: {data_atual_loop} ...")
-                
+
                 pedidos_hoje = self.extrair_dados_pagina_atual(data_atual_loop)
-                metrica = dict(self.ultima_metrica_extracao or {})
-                metrica["data_confirmada"] = data_confirmada
 
-                repetida = self.encontrar_repeticao_suspeita(metrica)
-                if repetida:
-                    print(
-                        "⚠️ Repetição suspeita detectada na primeira leitura. "
-                        f"Repetindo troca de data para {data_atual_loop}."
-                    )
-                    data_confirmada, assinatura_tabela_anterior = self.mudar_data_para(
-                        dias_para_frente=dia,
-                        assinatura_anterior=None,
-                    )
-                    pedidos_hoje = self.extrair_dados_pagina_atual(data_atual_loop)
-                    metrica = dict(self.ultima_metrica_extracao or {})
-                    metrica["data_confirmada"] = data_confirmada
-                    repetida = self.encontrar_repeticao_suspeita(metrica)
-                    if repetida:
-                        self.salvar_screenshot("obs_repeticao_suspeita.png")
-                        self.metricas_por_data.append(metrica)
-                        self.salvar_relatorio_diagnostico(
-                            "obs_repeticao_suspeita",
-                            {
-                                "erro": "Segunda tentativa manteve dados identicos em datas diferentes.",
-                                "data_1": repetida["data_confirmada"],
-                                "data_2": metrica["data_confirmada"],
-                            },
-                        )
-                        raise RuntimeError(
-                            "Repetição suspeita confirmada após segunda tentativa. "
-                            "Dados não foram gravados em SOLICITAÇÕES."
-                        )
-
-                self.metricas_por_data.append(metrica)
-
-                print(f"Data solicitada: {metrica['data_solicitada']}")
-                print(f"Data confirmada: {metrica['data_confirmada']}")
-                print(f"Reservas encontradas: {metrica.get('blocos_encontrados', metrica.get('linhas_brutas', 0))}")
-                print(f"Blocos processados: {metrica.get('blocos_processados', 0)}")
-                print(f"Registros exportados: {metrica.get('registros_exportados', metrica.get('observacoes_validas', 0))}")
-                print(f"Com solicitação especial: {metrica.get('com_solicitacao', 0)}")
-                print(f"Sem solicitação especial: {metrica.get('sem_solicitacao', 0)}")
-                print(f"Vouchers únicos: {metrica['vouchers_unicos']}")
-                print(f"Ocorrências de voucher repetido: {metrica.get('ocorrencias_voucher_repetido', 0)}")
-                print(f"Categorias preenchidas: {metrica.get('categorias_preenchidas', 0)}")
-                print(f"Blocos estruturais ignorados: {metrica.get('blocos_estruturais_ignorados', 0)}")
-                print(f"Erros reais de extração: {metrica.get('erros_reais_extracao', metrica.get('erros_extracao', 0))}")
-                print(f"Hash: {metrica['hash']}")
-                print(f"Primeiros vouchers: {', '.join(metrica['primeiros_vouchers'])}")
-                
                 if pedidos_hoje:
-                    if dados_totais_semana: 
-                        dados_totais_semana.append(["", "", "", "", "", ""]) 
-                    
+                    if dados_totais_semana:
+                        dados_totais_semana.append(["", "", "", "", "", ""])
+
                     dados_totais_semana.extend(pedidos_hoje)
                     print(f"✔️ {len(pedidos_hoje)} observações especiais identificadas.")
 
-            self.validar_datas_extraidas()
-            self.validar_repeticao_suspeita()
-            self.salvar_relatorio_diagnostico()
-            linhas_para_planilha = self.montar_linhas_para_planilha(dados_totais_semana)
-            if self.exportar_linhas:
-                self.exportar_linhas_extraidas(self.exportar_linhas, linhas_para_planilha)
-
             if not dados_totais_semana:
                 print("⚠️ Nenhuma observação especial relevante na semana.")
-                if self.no_write:
-                    print("Modo diagnostico/no-write: nada sera gravado.")
-                    return
-                return
-
-            if self.no_write:
-                print("Modo diagnostico/no-write: extracao validada, sem limpar, sem escrever e sem webhook.")
                 return
 
             codigos_res_pendentes = set()
             for linha in dados_totais_semana:
                 if len(linha) > 3 and linha[3] and "RES" in str(linha[3]).upper():
                     codigos_res_pendentes.add(str(linha[3]).strip())
-                    
+
             if codigos_res_pendentes:
                 mapa_vouchers = self.buscar_vouchers_de_res(list(codigos_res_pendentes))
-                
+
                 for i in range(len(dados_totais_semana)):
                     if len(dados_totais_semana[i]) > 3 and dados_totais_semana[i][3]:
                         vinculo_atual = str(dados_totais_semana[i][3]).strip()
                         if vinculo_atual in mapa_vouchers:
                             dados_totais_semana[i][3] = mapa_vouchers[vinculo_atual]
 
-            self.salvar_relatorio_diagnostico()
+            # --- INÍCIO DA NOVA AUTENTICAÇÃO OAUTH ---
+            print("☁️ Autenticando no Google Sheets via OAuth...")
+            escopos = [
+                "https://www.googleapis.com/auth/spreadsheets",
+                "https://www.googleapis.com/auth/drive",
+            ]
+            creds = None
 
-            aba = self.abrir_aba_solicitacoes()
-            
+            diretorio_atual = os.path.dirname(os.path.abspath(__file__))
+
+            caminho_token = os.getenv(
+                "GOOGLE_TOKEN_PATH",
+                os.path.join(diretorio_atual, "token.json"),
+            )
+            if not os.path.exists(caminho_token) and os.path.exists("token.json"):
+                caminho_token = "token.json"
+
+            caminho_secret = os.getenv(
+                "GOOGLE_CLIENT_SECRET_PATH",
+                os.path.join(diretorio_atual, "client_secret.json"),
+            )
+            if not os.path.exists(caminho_secret) and os.path.exists("client_secret.json"):
+                caminho_secret = "client_secret.json"
+
+            token_json_env = os.getenv("GOOGLE_TOKEN_JSON", "").strip()
+
+            if token_json_env:
+                creds = Credentials.from_authorized_user_info(
+                    json.loads(token_json_env),
+                    escopos,
+                )
+            elif os.path.exists(caminho_token):
+                creds = Credentials.from_authorized_user_file(
+                    caminho_token,
+                    escopos,
+                )
+
+            if not creds or not creds.valid:
+                if creds and creds.expired and creds.refresh_token:
+                    creds.refresh(Request())
+                else:
+                    if os.getenv("GITHUB_ACTIONS", "").lower() == "true":
+                        raise RuntimeError(
+                            "Google OAuth indisponível no GitHub Actions. "
+                            "Configure GOOGLE_TOKEN_JSON ou disponibilize token.json."
+                        )
+
+                    flow = InstalledAppFlow.from_client_secrets_file(
+                        caminho_secret,
+                        escopos,
+                    )
+                    creds = flow.run_local_server(port=0)
+
+                if not token_json_env:
+                    with open(caminho_token, "w", encoding="utf-8") as token:
+                        token.write(creds.to_json())
+
+            gc = gspread.authorize(creds)
+            # --- FIM DA NOVA AUTENTICAÇÃO OAUTH ---
+
+            print("🔍 Abrindo a planilha e a aba...")
+            planilha = gc.open("Controle de ocupantes (mapinha)")
+            aba = planilha.worksheet("SOLICITAÇÕES")
+
             print("🧹 Limpando os dados antigos (da linha 2 para baixo)...")
             aba.batch_clear(["A2:F2000"])
-            
+
             print("📝 Escrevendo os novos dados atualizados na planilha...")
-            linhas_para_planilha = self.montar_linhas_para_planilha(dados_totais_semana)
-            aba.update(values=linhas_para_planilha, range_name="A2", value_input_option='USER_ENTERED')
-            self.reler_e_validar_solicitacoes(aba, linhas_para_planilha, "apos_escrita")
-            self.acionar_webhook_e_validar(aba, linhas_para_planilha)
-            print("✅ SUCESSO: SOLICITAÇÕES atualizada, relida e validada.")
+            aba.update(values=dados_totais_semana, range_name="A2", value_input_option='USER_ENTERED')
+            print("✅ SUCESSO ABSOLUTO! Planilha limpa e atualizada com os novos 7 dias.")
+
+            print("🚀 Acionando o Google Sheets para processar as solicitações especiais e atualizar o mapa...")
+            try:
+                url_webhook = "https://script.google.com/macros/s/AKfycbwcfhQySj2OoJVSzaWnjMCHZzfHPCQHc5fZHKt5sLmhJ7wTtD24SvR-kk-at7lFo_31EA/exec"
+                resposta = requests.get(url_webhook, timeout=60)
+                print(f"🤖 Resposta do Google Sheets: {resposta.text}")
+            except Exception as e_web:
+                print(f"⚠️ Erro ao acionar o Webhook: {e_web}")
 
         except Exception as e:
             print(f"❌ Erro na etapa do Google Sheets: {e}")
-            self.salvar_relatorio_diagnostico("obs_erro", {"erro": str(e)})
-            raise
-
-def parse_args():
-    parser = argparse.ArgumentParser(description="Extrai observacoes do HITS para SOLICITAÇÕES.")
-    parser.add_argument("--diagnostico", action="store_true", help="Executa extracao sem escrita e sem webhook.")
-    parser.add_argument("--dias", type=int, default=7, help="Quantidade de dias para extrair.")
-    parser.add_argument("--no-write", action="store_true", help="Nao limpa, nao escreve e nao chama webhook.")
-    parser.add_argument("--headless", choices=["0", "1"], help="Sobrescreve ROBOT_HEADLESS para esta execucao.")
-    parser.add_argument("--exportar-linhas", help="Exporta as linhas completas extraidas para um JSON local.")
-    return parser.parse_args()
-
 
 if __name__ == "__main__":
-    args = parse_args()
-    if args.dias < 1:
-        raise SystemExit("--dias deve ser maior ou igual a 1.")
-    if args.exportar_linhas and not (args.diagnostico or args.no_write):
-        raise RuntimeError("--exportar-linhas só pode ser usado com --diagnostico ou --no-write.")
-    if args.headless is not None:
-        os.environ["ROBOT_HEADLESS"] = args.headless
+    parser = argparse.ArgumentParser(description="Robô OBS - solicitações HITS")
+    parser.add_argument(
+        "--headless",
+        action="store_true",
+        help="Executa o Chrome sem interface visual.",
+    )
+    parser.add_argument(
+        "--visual",
+        action="store_true",
+        help="Força o Chrome visível.",
+    )
+    parser.add_argument(
+        "--fator-pausa",
+        type=float,
+        default=float(os.getenv("OBS_FATOR_PAUSA", "0.7")),
+        help="Multiplicador das pausas originais. Padrão: 0.7.",
+    )
+    args = parser.parse_args()
+
+    modo_headless = None
+    if args.headless:
+        modo_headless = True
+    elif args.visual:
+        modo_headless = False
 
     robo = RoboHITS(
-        dias=args.dias,
-        diagnostico=args.diagnostico,
-        no_write=args.no_write,
-        exportar_linhas=args.exportar_linhas,
+        headless=modo_headless,
+        fator_pausa=args.fator_pausa,
     )
+
     try:
         robo.realizar_login()
         robo.navegar_ate_relatorio()
         robo.aplicar_filtros_e_obs()
         robo.processar_semana_e_salvar()
-    except Exception as e:
-        print(f"❌ Execução interrompida: {e}")
-        raise
     finally:
         print("🏁 Encerrando e fechando o navegador...")
         robo.driver.quit()
