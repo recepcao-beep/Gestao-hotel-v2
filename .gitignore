@@ -11,6 +11,16 @@ node_modules
 .npm-cache
 .venv-verificacao/
 artifacts/
+**/token.json
+**/client_secret.json
+**/automacao-mapinha-*.json
+**/*service-account*.json
+**/*service_account*.json
+**/*credentials*.json
+.env
+.env.*
+screenshots/
+logs/
 dist
 dist-ssr
 *.local
