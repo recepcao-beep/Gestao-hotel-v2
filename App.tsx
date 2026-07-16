@@ -85,11 +85,20 @@ const normalizeLinenItemV2 = (item: any): LinenItem => {
   } as LinenItem;
 };
 
+const normalizeBooleanFlag = (value: any) => {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value === 1;
+  return ['true', '1', 'sim', 'yes'].includes(String(value || '').trim().toLowerCase());
+};
+
 const normalizeCachedHotelData = (data: Partial<HotelData> | undefined): HotelData => {
   const initial = getInitialHotelData();
   const merged = { ...initial, ...(data || {}) } as HotelData;
   return {
     ...merged,
+    extras: Array.isArray(merged.extras)
+      ? merged.extras.map(extra => ({ ...extra, doNotCall: normalizeBooleanFlag(extra.doNotCall) }))
+      : [],
     linenItems: Array.isArray(merged.linenItems) ? merged.linenItems.map(normalizeLinenItemV2) : [],
     linenHistory: Array.isArray(merged.linenHistory) ? merged.linenHistory : [],
     linenMonthlyInventories: Array.isArray(merged.linenMonthlyInventories) ? merged.linenMonthlyInventories : [],
@@ -371,8 +380,10 @@ const App: React.FC = () => {
             vacationStatus: scheduleType === 'Intermitente' ? 'Pendente' : emp.vacationStatus || 'Pendente',
             vacationStart: scheduleType === 'Intermitente' ? '' : emp.vacationStart || '',
             vacationEnd: scheduleType === 'Intermitente' ? '' : emp.vacationEnd || '',
+            vacationDays: scheduleType === 'Intermitente' ? 0 : Number(emp.vacationDays) || 0,
             vacationAccrualStart: scheduleType === 'Intermitente' ? '' : emp.vacationAccrualStart || '',
             vacationDeadline: scheduleType === 'Intermitente' ? '' : emp.vacationDeadline || '',
+            history: safeJSONParse(emp.history, []),
             photo: emp.photo || '' // Normalized photo field
           };
         }));
@@ -387,7 +398,8 @@ const App: React.FC = () => {
           availability: safeJSONParse(ext.availability, []),
           serviceQuality: parseFloat(ext.serviceQuality) || 0,
           sectorId: ext.sectorId?.toString() || '',
-          observation: ext.observation || ''
+          observation: ext.observation || '',
+          doNotCall: normalizeBooleanFlag(ext.doNotCall)
         })));
 
         const rawSectors = Array.isArray(incomingData.sectors) ? incomingData.sectors : [];
@@ -396,7 +408,8 @@ const App: React.FC = () => {
           id: sec.id?.toString() || `sec-${Date.now()}-${idx}-${Math.random().toString(36).substr(2, 5)}`,
           name: sec.name || 'Setor Sem Nome',
           standardUniform: safeJSONParse(sec.standardUniform, []),
-          roles: normalizeTextList(sec.roles)
+          roles: normalizeTextList(sec.roles),
+          roleSalaries: safeJSONParse(sec.roleSalaries, {})
         })));
 
         // NORMALIZAÇÃO DE ORÇAMENTOS
@@ -811,6 +824,22 @@ const App: React.FC = () => {
     }));
     // Pass newFiles (photo) to syncToSheet
     syncToSheet('EMPLOYEE', emp, newFiles);
+  };
+
+  const handleSaveEmployeesBulk = (updatedEmployees: Employee[]) => {
+    if (updatedEmployees.length === 0) return;
+    const updates = new Map(updatedEmployees.map(emp => [emp.id, emp]));
+    setState(prev => ({
+      ...prev,
+      hotels: {
+        ...prev.hotels,
+        [prev.currentHotel]: {
+          ...prev.hotels[prev.currentHotel],
+          employees: prev.hotels[prev.currentHotel].employees.map(emp => updates.get(emp.id) || emp)
+        }
+      }
+    }));
+    updatedEmployees.forEach(emp => syncToSheet('EMPLOYEE', emp));
   };
 
   const handleDeleteEmployee = (id: string) => {
@@ -1376,6 +1405,7 @@ const App: React.FC = () => {
             onSaveExtra={handleSaveExtra}
             onDeleteExtra={handleDeleteExtra}
             onSaveSector={handleSaveSector} 
+            onSaveEmployeesBulk={handleSaveEmployeesBulk}
             onDeleteSector={handleDeleteSector} 
           />
         );
