@@ -136,6 +136,7 @@ export interface Employee {
   vacationStatus: 'Pendente' | 'Concedida' | 'Férias Atuais';
   vacationStart?: string;
   vacationEnd?: string;
+  vacationDays?: number;
   vacationAccrualStart?: string;
   vacationDeadline?: string;
   uniforms: UniformItem[];
