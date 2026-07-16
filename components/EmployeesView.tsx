@@ -42,7 +42,9 @@ import {
   Moon,
   Users,
   Mars,
-  Venus
+  Venus,
+  SlidersHorizontal,
+  RotateCcw
 } from 'lucide-react';
 
 type ShiftPeriod = 'MANHA' | 'TARDE' | 'MADRUGADA';
@@ -101,6 +103,8 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [shiftPeriodFilter, setShiftPeriodFilter] = useState<ShiftPeriodFilter>('TODOS');
   const [genderFilter, setGenderFilter] = useState<GenderFilter>('TODOS');
+  const [roleFilter, setRoleFilter] = useState('TODOS');
+  const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
   const [viewMode, setViewMode] = useState<'LIST' | 'SCALE' | 'TODAY' | 'EXTRAS' | 'ORDERS' | 'WEEKLY_SCALE'>('LIST');
   const [scaleView, setScaleView] = useState<'YEAR' | 'MONTH'>('YEAR');
   const [activeFormTab, setActiveFormTab] = useState<'DADOS' | 'ESCALA' | 'UNIFORMES'>('DADOS');
@@ -309,7 +313,7 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
   const [hourlyDaysOff, setHourlyDaysOff] = useState<number[]>([]);
   const [vacationStatus, setVacationStatus] = useState<'Pendente' | 'Concedida' | 'Férias Atuais'>('Pendente');
   const [vacationStart, setVacationStart] = useState('');
-  const [vacationEnd, setVacationEnd] = useState('');
+  const [vacationDays, setVacationDays] = useState(30);
   const [vacationAccrualStart, setVacationAccrualStart] = useState('');
   const [vacationDeadline, setVacationDeadline] = useState('');
   
@@ -421,11 +425,49 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
     return date ? date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) : '';
   };
 
+  const formatDateInputValue = (date: Date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  const addDaysToInputDate = (value?: string, days = 0) => {
+    const date = parseLocalDate(value);
+    if (!date) return '';
+    date.setDate(date.getDate() + days);
+    return formatDateInputValue(date);
+  };
+
+  const getVacationDayCount = (start?: string, end?: string) => {
+    const startDate = parseLocalDate(start);
+    const endDate = parseLocalDate(end);
+    if (!startDate || !endDate || endDate < startDate) return 0;
+    return Math.floor((endDate.getTime() - startDate.getTime()) / 86400000) + 1;
+  };
+
+  const getVacationEndFromStartAndDays = (start?: string, days = 0) => {
+    const normalizedDays = Math.floor(Number(days) || 0);
+    if (!start || normalizedDays < 1) return '';
+    return addDaysToInputDate(start, normalizedDays - 1);
+  };
+
+  const getVacationReturnDateFromEnd = (end?: string) => end ? addDaysToInputDate(end, 1) : '';
+
+  const formVacationEnd = getVacationEndFromStartAndDays(vacationStart, vacationDays);
+  const formVacationReturn = getVacationReturnDateFromEnd(formVacationEnd);
+
   const getVacationBadgeText = (emp: Employee) => {
     if (!isVacationRegistered(emp)) return '';
     const start = formatShortDate(emp.vacationStart);
-    const end = formatShortDate(emp.vacationEnd);
-    return start && end ? `Ferias ${start} - ${end}` : 'Ferias';
+    const days = emp.vacationDays || getVacationDayCount(emp.vacationStart, emp.vacationEnd);
+    const returnDate = getVacationReturnDateFromEnd(emp.vacationEnd);
+    return start && days ? `Ferias ${start} - ${days} dias - Volta ${formatShortDate(returnDate)}` : 'Ferias';
+  };
+
+  const getVacationReturnLabel = (emp: Employee) => {
+    const returnDate = getVacationReturnDateFromEnd(emp.vacationEnd);
+    return returnDate ? `VOLTA ${formatShortDate(returnDate)}` : '';
   };
 
   const employeeAppearsInMonthlyScale = (emp: Employee) => emp.scheduleType === '6x1' || emp.scheduleType === 'Horista';
@@ -488,7 +530,7 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
     setShiftPeriod('MANHA');
     setWorkingHours('08:00 - 16:20'); setFixedDayOff('Segunda-feira');
     setSundayOffs([]); setHourlyWorkDays([]); setHourlyDaysOff([]); setVacationStatus('Pendente');
-    setVacationStart(''); setVacationEnd(''); setVacationAccrualStart(''); setVacationDeadline('');
+    setVacationStart(''); setVacationDays(30); setVacationAccrualStart(''); setVacationDeadline('');
     setPhotoPreview(null); setNewPhotoFile(null); setIsPhotoRemoved(false);
     setIsAddingEmployee(false); setEditingEmployee(null); setActiveFormTab('DADOS');
   };
@@ -538,7 +580,7 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
     setHourlyDaysOff(emp.hourlyDaysOff || []);
     setVacationStatus(emp.vacationStatus || 'Pendente');
     setVacationStart(emp.vacationStart || '');
-    setVacationEnd(emp.vacationEnd || '');
+    setVacationDays(emp.vacationDays || getVacationDayCount(emp.vacationStart, emp.vacationEnd) || 30);
     setVacationAccrualStart(emp.vacationAccrualStart || '');
     setVacationDeadline(emp.vacationDeadline || '');
     setPhotoPreview(emp.photo || null);
@@ -656,6 +698,9 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
         onSaveSector({ ...activeSector, roles: updatedRoles });
       }
     }
+    const normalizedVacationDays = Math.floor(Number(vacationDays) || 0);
+    const shouldSaveVacationPeriod = scheduleType !== 'Intermitente' && vacationStatus !== 'Pendente' && vacationStart && normalizedVacationDays > 0;
+    const calculatedVacationEnd = shouldSaveVacationPeriod ? getVacationEndFromStartAndDays(vacationStart, normalizedVacationDays) : '';
 
     const newEmp: Employee = {
       id: editingEmployee?.id || `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
@@ -671,7 +716,7 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
       scheduleType, 
       shiftType: scheduleType === '12x36' ? shiftType : undefined,
       shiftPeriod: scheduleType === 'Intermitente' ? undefined : shiftPeriod,
-      workingHours: scheduleType === 'Intermitente' || scheduleType === '12x36' ? '' : workingHours,
+      workingHours: scheduleType === 'Intermitente' ? '' : workingHours,
       fixedDayOff: scheduleType === '6x1' ? fixedDayOff : '', 
       sundayOffs: scheduleType === '6x1' || scheduleType === 'Horista' ? sundayOffs : [],
       hourlyWorkDays: scheduleType === 'Horista' ? hourlyWorkDays : [],
@@ -679,8 +724,9 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
       weeklyDayOff: scheduleType === '6x1' ? fixedDayOff : '', 
       monthlySundayOff: '', 
       vacationStatus: scheduleType === 'Intermitente' ? 'Pendente' : vacationStatus,
-      vacationStart: scheduleType !== 'Intermitente' && (vacationStatus === 'Concedida' || vacationStatus === 'Férias Atuais') ? vacationStart : undefined,
-      vacationEnd: scheduleType !== 'Intermitente' && (vacationStatus === 'Concedida' || vacationStatus === 'Férias Atuais') ? vacationEnd : undefined,
+      vacationStart: shouldSaveVacationPeriod ? vacationStart : undefined,
+      vacationEnd: shouldSaveVacationPeriod ? calculatedVacationEnd : undefined,
+      vacationDays: shouldSaveVacationPeriod ? normalizedVacationDays : 0,
       vacationAccrualStart: scheduleType === 'Intermitente' ? undefined : vacationAccrualStart || undefined,
       vacationDeadline: scheduleType === 'Intermitente' ? undefined : vacationDeadline || undefined,
       uniforms,
@@ -706,8 +752,25 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
   };
 
   const currentSector = sectors.find(s => s.id === selectedSectorId);
-  const currentSectorRoles = getSortedUniqueRoles(currentSector?.roles || []);
-  const availableEmployeeRoles = getSortedUniqueRoles([...currentSectorRoles, role]);
+  const currentSectorRoles = useMemo(() => getSortedUniqueRoles(currentSector?.roles || []), [currentSector]);
+  const availableEmployeeRoles = useMemo(() => getSortedUniqueRoles([...currentSectorRoles, role]), [currentSectorRoles, role]);
+  const roleFilterOptions = useMemo(() => getSortedUniqueRoles([
+    ...currentSectorRoles,
+    ...employees
+      .filter(emp => emp.sectorId === selectedSectorId)
+      .map(emp => emp.role)
+  ]), [currentSectorRoles, employees, selectedSectorId]);
+  const activeFilterCount = [
+    shiftPeriodFilter !== 'TODOS',
+    genderFilter !== 'TODOS',
+    roleFilter !== 'TODOS'
+  ].filter(Boolean).length;
+
+  useEffect(() => {
+    if (roleFilter !== 'TODOS' && !roleFilterOptions.includes(roleFilter)) {
+      setRoleFilter('TODOS');
+    }
+  }, [roleFilter, roleFilterOptions]);
   const sortedSectors = useMemo(
     () => [...sectors].sort((a, b) => (a.name || '').localeCompare(b.name || '', 'pt-BR', { sensitivity: 'base' })),
     [sectors]
@@ -834,7 +897,8 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
         : shiftPeriodFilter === 'TODOS' || getEmployeeShiftPeriod(e) === shiftPeriodFilter;
       const employeeGender = String(e.gender || 'M').toUpperCase();
       const matchesGender = genderFilter === 'TODOS' || employeeGender === genderFilter;
-      return matchesSector && matchesSearch && matchesShift && matchesGender;
+      const matchesRole = roleFilter === 'TODOS' || normalizeRoleName(e.role) === roleFilter;
+      return matchesSector && matchesSearch && matchesShift && matchesGender && matchesRole;
     })
     .sort((a, b) =>
       (a.name || '').localeCompare(b.name || '', 'pt-BR', { sensitivity: 'base' }) ||
@@ -1245,43 +1309,67 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
 
       {viewMode === 'LIST' && (
         <div className="space-y-4 animate-in slide-in-from-bottom-2 print:hidden">
-          <div className="flex flex-col lg:flex-row gap-3 lg:items-center justify-between">
-            <div className="relative w-full lg:max-w-md">
+          <div className="space-y-3">
+            <div className="flex gap-2 items-center">
+            <div className="relative flex-1 min-w-0">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" size={16} />
               <input type="text" placeholder="Buscar colaborador..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-9 pr-4 py-3 rounded-xl border border-slate-100 text-sm font-bold bg-white shadow-inner" />
             </div>
-            <div className="flex flex-wrap gap-2">
-              <div className="flex flex-wrap gap-2">
-                <button
-                  onClick={() => setShiftPeriodFilter('TODOS')}
-                  className={`px-3 py-2 rounded-xl border text-[10px] font-black uppercase transition-all ${shiftPeriodFilter === 'TODOS' ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-500 border-slate-100 hover:bg-slate-50'}`}
-                >
-                  Todos
-                </button>
-                {shiftPeriodOptions.map(({ value, label, Icon }) => (
-                  <button
-                    key={value}
-                    onClick={() => setShiftPeriodFilter(value)}
-                    className={`inline-flex items-center gap-2 px-3 py-2 rounded-xl border text-[10px] font-black uppercase transition-all ${shiftPeriodFilter === value ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-500 border-slate-100 hover:bg-slate-50'}`}
-                  >
-                    <Icon size={14} className={shiftPeriodFilter === value ? 'text-white' : 'text-slate-400'} />
-                    {label}
-                  </button>
-                ))}
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {genderFilterOptions.map(({ value, label, Icon }) => (
-                  <button
-                    key={value}
-                    onClick={() => setGenderFilter(value)}
-                    className={`inline-flex items-center gap-2 px-3 py-2 rounded-xl border text-[10px] font-black uppercase transition-all ${genderFilter === value ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-500 border-slate-100 hover:bg-slate-50'}`}
-                  >
-                    <Icon size={14} className={genderFilter === value ? 'text-white' : 'text-slate-400'} />
-                    {label}
-                  </button>
-                ))}
-              </div>
+            <button
+              type="button"
+              onClick={() => setIsFilterPanelOpen(prev => !prev)}
+              className={`relative shrink-0 h-12 w-12 rounded-xl border flex items-center justify-center transition-all ${isFilterPanelOpen || activeFilterCount > 0 ? 'bg-slate-900 text-white border-slate-900 shadow-md' : 'bg-white text-slate-500 border-slate-100 hover:bg-slate-50'}`}
+              aria-label="Filtros"
+            >
+              <SlidersHorizontal size={18} />
+              {activeFilterCount > 0 && (
+                <span className="absolute -right-1 -top-1 h-5 min-w-5 px-1 rounded-full bg-emerald-500 text-white text-[10px] font-black flex items-center justify-center">
+                  {activeFilterCount}
+                </span>
+              )}
+            </button>
             </div>
+
+            {isFilterPanelOpen && (
+              <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Sexo</label>
+                  <select value={genderFilter} onChange={e => setGenderFilter(e.target.value as GenderFilter)} className="w-full px-4 py-3 rounded-xl border border-slate-100 bg-slate-50 text-xs font-black uppercase text-slate-700">
+                    {genderFilterOptions.map(({ value, label }) => (
+                      <option key={value} value={value}>{label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Turno</label>
+                  <select value={shiftPeriodFilter} onChange={e => setShiftPeriodFilter(e.target.value as ShiftPeriodFilter)} className="w-full px-4 py-3 rounded-xl border border-slate-100 bg-slate-50 text-xs font-black uppercase text-slate-700">
+                    <option value="TODOS">Todos</option>
+                    {shiftPeriodOptions.map(({ value, label }) => (
+                      <option key={value} value={value}>{label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Função</label>
+                  <select value={roleFilter} onChange={e => setRoleFilter(e.target.value)} className="w-full px-4 py-3 rounded-xl border border-slate-100 bg-slate-50 text-xs font-black uppercase text-slate-700">
+                    <option value="TODOS">Todas</option>
+                    {roleFilterOptions.map(roleName => (
+                      <option key={roleName} value={roleName}>{roleName}</option>
+                    ))}
+                  </select>
+                </div>
+                {activeFilterCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => { setShiftPeriodFilter('TODOS'); setGenderFilter('TODOS'); setRoleFilter('TODOS'); }}
+                    className="sm:col-span-3 inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-slate-50 text-slate-500 text-[10px] font-black uppercase hover:bg-slate-100"
+                  >
+                    <RotateCcw size={14} />
+                    Limpar filtros
+                  </button>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-1 gap-4">
@@ -1514,9 +1602,12 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
                                      let j = i;
                                      while (j < dayStatuses.length && dayStatuses[j].status === 'FÉRIAS') { j++; }
                                      const span = j - i;
+                                     const returnLabel = getVacationReturnLabel(emp);
                                      cells.push(
                                         <td key={`vacation-${i}`} colSpan={span} className="text-center p-0 border border-slate-300 text-[10px] sm:text-xs font-black bg-blue-100 text-blue-700 tracking-widest relative overflow-hidden group">
-                                           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">FÉRIAS</div>
+                                           <div className="absolute inset-0 flex items-center justify-center pointer-events-none px-1">
+                                             <span className="truncate">FÉRIAS{returnLabel ? ` - ${returnLabel}` : ''}</span>
+                                           </div>
                                            <span className="opacity-0">F</span>
                                         </td>
                                      );
@@ -1969,7 +2060,7 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
                        </div>
                        )}
 
-                        {(scheduleType === '6x1' || scheduleType === 'Horista') && (
+                        {(scheduleType === '6x1' || scheduleType === '12x36' || scheduleType === 'Horista') && (
                         <div>
                            <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Horário de Trabalho</label>
                            <input type="text" value={workingHours} onChange={e => setWorkingHours(e.target.value)} className="w-full px-5 py-4 rounded-2xl border-2 font-bold text-slate-800" placeholder="Ex: 08:00 - 16:20" />
@@ -1985,13 +2076,21 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
                           </div>
                            {(vacationStatus === 'Concedida' || vacationStatus === 'Férias Atuais') && (
                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 animate-in slide-in-from-top-2">
-                                <div>
+                               <div>
                                    <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Início</label>
                                   <input type="date" value={vacationStart} onChange={e => setVacationStart(e.target.value)} className="w-full px-4 py-3 rounded-xl border-2 font-bold text-slate-800 focus:border-blue-500" required />
                                </div>
                                <div>
-                                  <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Fim</label>
-                                  <input type="date" value={vacationEnd} onChange={e => setVacationEnd(e.target.value)} className="w-full px-4 py-3 rounded-xl border-2 font-bold text-slate-800 focus:border-blue-500" required />
+                                  <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Quantidade de dias</label>
+                                  <input type="number" min={1} value={vacationDays} onChange={e => setVacationDays(Math.max(1, Number(e.target.value) || 1))} className="w-full px-4 py-3 rounded-xl border-2 font-bold text-slate-800 focus:border-blue-500" required />
+                               </div>
+                               <div className="sm:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                  <div className="rounded-xl bg-blue-50 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-blue-700">
+                                    Fim calculado: {formVacationEnd ? formatShortDate(formVacationEnd) : '--'}
+                                  </div>
+                                  <div className="rounded-xl bg-emerald-50 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-emerald-700">
+                                    Volta ao trabalho: {formVacationReturn ? formatShortDate(formVacationReturn) : '--'}
+                                  </div>
                                </div>
                              </div>
                            )}

@@ -371,6 +371,7 @@ const App: React.FC = () => {
             vacationStatus: scheduleType === 'Intermitente' ? 'Pendente' : emp.vacationStatus || 'Pendente',
             vacationStart: scheduleType === 'Intermitente' ? '' : emp.vacationStart || '',
             vacationEnd: scheduleType === 'Intermitente' ? '' : emp.vacationEnd || '',
+            vacationDays: scheduleType === 'Intermitente' ? 0 : Number(emp.vacationDays) || 0,
             vacationAccrualStart: scheduleType === 'Intermitente' ? '' : emp.vacationAccrualStart || '',
             vacationDeadline: scheduleType === 'Intermitente' ? '' : emp.vacationDeadline || '',
             photo: emp.photo || '' // Normalized photo field
