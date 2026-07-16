@@ -387,9 +387,10 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
     return Number.isNaN(date.getTime()) ? null : date;
   };
 
-  const isVacationRegistered = (emp: Employee) => Boolean(emp.vacationStatus && emp.vacationStatus !== 'Pendente');
+  const isVacationRegistered = (emp: Employee) => emp.scheduleType !== 'Intermitente' && Boolean(emp.vacationStatus && emp.vacationStatus !== 'Pendente');
 
   const getVacationDueInfo = (emp: Employee) => {
+    if (emp.scheduleType === 'Intermitente') return null;
     const deadline = parseLocalDate(emp.vacationDeadline, true);
     if (!deadline) return null;
     const today = new Date();
@@ -663,13 +664,13 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
       gender, 
       contact, 
       startDate,
-      salary: parseFloat(salary) || 0, 
+      salary: scheduleType === 'Intermitente' ? 0 : parseFloat(salary) || 0,
       department: sectors.find(s => s.id === (selectedSectorId || editingEmployee?.sectorId))?.name || 'Geral',
       sectorId: (selectedSectorId || editingEmployee?.sectorId)!, 
       status: 'Ativo', 
       scheduleType, 
       shiftType: scheduleType === '12x36' ? shiftType : undefined,
-      shiftPeriod,
+      shiftPeriod: scheduleType === 'Intermitente' ? undefined : shiftPeriod,
       workingHours: scheduleType === 'Intermitente' || scheduleType === '12x36' ? '' : workingHours,
       fixedDayOff: scheduleType === '6x1' ? fixedDayOff : '', 
       sundayOffs: scheduleType === '6x1' || scheduleType === 'Horista' ? sundayOffs : [],
@@ -677,11 +678,11 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
       hourlyDaysOff: scheduleType === 'Horista' ? hourlyDaysOff : [],
       weeklyDayOff: scheduleType === '6x1' ? fixedDayOff : '', 
       monthlySundayOff: '', 
-      vacationStatus, 
-      vacationStart: vacationStatus === 'Concedida' || vacationStatus === 'Férias Atuais' ? vacationStart : undefined,
-      vacationEnd: vacationStatus === 'Concedida' || vacationStatus === 'Férias Atuais' ? vacationEnd : undefined,
-      vacationAccrualStart: vacationAccrualStart || undefined,
-      vacationDeadline: vacationDeadline || undefined,
+      vacationStatus: scheduleType === 'Intermitente' ? 'Pendente' : vacationStatus,
+      vacationStart: scheduleType !== 'Intermitente' && (vacationStatus === 'Concedida' || vacationStatus === 'Férias Atuais') ? vacationStart : undefined,
+      vacationEnd: scheduleType !== 'Intermitente' && (vacationStatus === 'Concedida' || vacationStatus === 'Férias Atuais') ? vacationEnd : undefined,
+      vacationAccrualStart: scheduleType === 'Intermitente' ? undefined : vacationAccrualStart || undefined,
+      vacationDeadline: scheduleType === 'Intermitente' ? undefined : vacationDeadline || undefined,
       uniforms,
       photo: finalPhoto
     };
@@ -828,7 +829,9 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
       const matchesSector = e.sectorId === selectedSectorId;
       const normalizedSearch = searchTerm.toLowerCase();
       const matchesSearch = (e.name || '').toLowerCase().includes(normalizedSearch) || (e.role || '').toLowerCase().includes(normalizedSearch);
-      const matchesShift = shiftPeriodFilter === 'TODOS' || getEmployeeShiftPeriod(e) === shiftPeriodFilter;
+      const matchesShift = e.scheduleType === 'Intermitente'
+        ? shiftPeriodFilter === 'TODOS'
+        : shiftPeriodFilter === 'TODOS' || getEmployeeShiftPeriod(e) === shiftPeriodFilter;
       const employeeGender = String(e.gender || 'M').toUpperCase();
       const matchesGender = genderFilter === 'TODOS' || employeeGender === genderFilter;
       return matchesSector && matchesSearch && matchesShift && matchesGender;
@@ -1315,7 +1318,7 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
                        <span>{emp.role}</span>
                        <span>{getScheduleSummary(emp)}</span>
-                       {(() => {
+                       {emp.scheduleType !== 'Intermitente' && (() => {
                          const ShiftIcon = getShiftPeriodMeta(getEmployeeShiftPeriod(emp)).Icon;
                          return (
                            <span className="inline-flex items-center gap-1 text-slate-400">
@@ -1807,10 +1810,12 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
                           <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Data de Admissão</label>
                           <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="w-full px-5 py-4 rounded-2xl border-2 font-bold text-slate-800" />
                        </div>
-                       <div>
-                          <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Salário Base (R$)</label>
-                          <input type="number" value={salary} onChange={e => setSalary(e.target.value)} className="w-full px-5 py-4 rounded-2xl border-2 font-bold text-slate-800" />
-                       </div>
+                       {scheduleType !== 'Intermitente' && (
+                         <div>
+                            <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Salário Base (R$)</label>
+                            <input type="number" value={salary} onChange={e => setSalary(e.target.value)} className="w-full px-5 py-4 rounded-2xl border-2 font-bold text-slate-800" />
+                         </div>
+                       )}
                     </div>
                  )}
 
@@ -1929,7 +1934,7 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
                           </div>
                         )}
 
-                       {scheduleType === '12x36' && (
+                        {scheduleType === '12x36' && (
                           <div className="animate-in fade-in">
                              <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Padrão do Turno</label>
                              <div className="flex gap-2">
@@ -1937,8 +1942,15 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
                                 <button type="button" onClick={() => setShiftType('Ímpar')} className={`flex-1 py-3 rounded-xl border-2 font-black text-xs uppercase ${shiftType === 'Ímpar' ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-400'}`}>Dias Ímpares</button>
                              </div>
                           </div>
-                       )}
+                        )}
 
+                        {scheduleType === 'Intermitente' && (
+                          <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-5 text-sm font-bold text-slate-500">
+                            Intermitente fica sem salario base, sem horario fixo e sem controle de ferias neste cadastro.
+                          </div>
+                        )}
+
+                       {scheduleType !== 'Intermitente' && (
                        <div>
                           <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Turno</label>
                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
@@ -1955,6 +1967,7 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
                              ))}
                           </div>
                        </div>
+                       )}
 
                         {(scheduleType === '6x1' || scheduleType === 'Horista') && (
                         <div>
@@ -1963,6 +1976,7 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
                         </div>
                         )}
 
+                        {scheduleType !== 'Intermitente' && (
                         <div>
                           <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Status de Férias</label>
                           <div className="flex bg-slate-50 p-1 rounded-xl mb-4">
@@ -1997,6 +2011,7 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
                             </div>
                           )}
                         </div>
+                        )}
                     </div>
                  )}
 
