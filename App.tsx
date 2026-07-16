@@ -374,6 +374,7 @@ const App: React.FC = () => {
             vacationDays: scheduleType === 'Intermitente' ? 0 : Number(emp.vacationDays) || 0,
             vacationAccrualStart: scheduleType === 'Intermitente' ? '' : emp.vacationAccrualStart || '',
             vacationDeadline: scheduleType === 'Intermitente' ? '' : emp.vacationDeadline || '',
+            history: safeJSONParse(emp.history, []),
             photo: emp.photo || '' // Normalized photo field
           };
         }));
@@ -397,7 +398,8 @@ const App: React.FC = () => {
           id: sec.id?.toString() || `sec-${Date.now()}-${idx}-${Math.random().toString(36).substr(2, 5)}`,
           name: sec.name || 'Setor Sem Nome',
           standardUniform: safeJSONParse(sec.standardUniform, []),
-          roles: normalizeTextList(sec.roles)
+          roles: normalizeTextList(sec.roles),
+          roleSalaries: safeJSONParse(sec.roleSalaries, {})
         })));
 
         // NORMALIZAÇÃO DE ORÇAMENTOS
@@ -812,6 +814,22 @@ const App: React.FC = () => {
     }));
     // Pass newFiles (photo) to syncToSheet
     syncToSheet('EMPLOYEE', emp, newFiles);
+  };
+
+  const handleSaveEmployeesBulk = (updatedEmployees: Employee[]) => {
+    if (updatedEmployees.length === 0) return;
+    const updates = new Map(updatedEmployees.map(emp => [emp.id, emp]));
+    setState(prev => ({
+      ...prev,
+      hotels: {
+        ...prev.hotels,
+        [prev.currentHotel]: {
+          ...prev.hotels[prev.currentHotel],
+          employees: prev.hotels[prev.currentHotel].employees.map(emp => updates.get(emp.id) || emp)
+        }
+      }
+    }));
+    updatedEmployees.forEach(emp => syncToSheet('EMPLOYEE', emp));
   };
 
   const handleDeleteEmployee = (id: string) => {
@@ -1377,6 +1395,7 @@ const App: React.FC = () => {
             onSaveExtra={handleSaveExtra}
             onDeleteExtra={handleDeleteExtra}
             onSaveSector={handleSaveSector} 
+            onSaveEmployeesBulk={handleSaveEmployeesBulk}
             onDeleteSector={handleDeleteSector} 
           />
         );
