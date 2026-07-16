@@ -3,7 +3,7 @@ import React, { useState, useRef, useMemo, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import * as pdfjsLib from 'pdfjs-dist';
 import pdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
-import { Employee, Sector, HotelTheme, UniformItem, ExtraLabor, InventoryOperation } from '../types';
+import { Employee, Sector, HotelTheme, UniformItem, ExtraLabor, InventoryOperation, EmployeeHistoryEntry } from '../types';
 import { compressImage } from '../utils/imageUtils';
 import Logo from './Logo';
 
@@ -65,6 +65,7 @@ interface EmployeesViewProps {
   onSaveExtra: (extra: ExtraLabor) => void;
   onDeleteExtra: (id: string) => void;
   onSaveSector: (sector: Sector) => void;
+  onSaveEmployeesBulk: (employees: Employee[]) => void;
   onDeleteSector: (id: string) => void;
 }
 
@@ -81,6 +82,7 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
   onSaveExtra,
   onDeleteExtra,
   onSaveSector, 
+  onSaveEmployeesBulk,
   onDeleteSector 
 }) => {
   const [isAddingEmployee, setIsAddingEmployee] = useState(false);
@@ -94,6 +96,9 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
   const [sectorToDelete, setSectorToDelete] = useState<Sector | null>(null);
   const [sectorName, setSectorName] = useState('');
   const [sectorRoles, setSectorRoles] = useState<string[]>([]);
+  const [sectorRoleSalaries, setSectorRoleSalaries] = useState<Record<string, number>>({});
+  const [roleRenameFrom, setRoleRenameFrom] = useState('');
+  const [roleRenameTo, setRoleRenameTo] = useState('');
   const [newRole, setNewRole] = useState('');
   const [sectorUniforms, setSectorUniforms] = useState<UniformItem[]>([]);
   const [newSectorUniformName, setNewSectorUniformName] = useState('');
@@ -489,6 +494,83 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
     return Number.isFinite(parsedValue) && parsedValue > 0 ? parsedValue : 0;
   };
 
+  const formatMoneyValue = (value?: number | string) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed)
+      ? parsed.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+      : '-';
+  };
+
+  const getRoleSalary = (roleName?: string, sector?: Sector) => {
+    const normalizedRole = normalizeRoleName(roleName);
+    const value = sector?.roleSalaries?.[normalizedRole];
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+  };
+
+  const createHistoryEntry = (field: string, before: string, after: string, source = 'Cadastro do colaborador'): EmployeeHistoryEntry => ({
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    timestamp: Date.now(),
+    field,
+    before,
+    after,
+    source,
+  });
+
+  const withEmployeeHistory = (emp: Employee, entries: EmployeeHistoryEntry[]) => ({
+    ...emp,
+    history: [...(emp.history || []), ...entries].slice(-200),
+  });
+
+  const describeValue = (value: any, formatter?: (value: any) => string) => {
+    if (formatter) return formatter(value);
+    if (Array.isArray(value)) return value.length ? value.join(', ') : '-';
+    if (value === undefined || value === null || value === '') return '-';
+    return String(value);
+  };
+
+  const buildEmployeeChangeHistory = (before: Employee | null, after: Employee, source = 'Cadastro do colaborador') => {
+    if (!before) {
+      return [createHistoryEntry('Cadastro', '-', 'Colaborador criado', source)];
+    }
+    const fields: Array<[keyof Employee, string, ((value: any) => string)?]> = [
+      ['name', 'Nome'],
+      ['role', 'Função'],
+      ['gender', 'Sexo'],
+      ['contact', 'Telefone'],
+      ['startDate', 'Data de admissão'],
+      ['salary', 'Salário', formatMoneyValue],
+      ['scheduleType', 'Regime'],
+      ['shiftType', 'Padrão 12x36'],
+      ['shiftPeriod', 'Turno'],
+      ['workingHours', 'Horário'],
+      ['fixedDayOff', 'Folga fixa'],
+      ['sundayOffs', 'Domingos'],
+      ['hourlyWorkDays', 'Dias horista'],
+      ['hourlyDaysOff', 'Folgas horista'],
+      ['vacationStatus', 'Status de férias'],
+      ['vacationStart', 'Início das férias'],
+      ['vacationEnd', 'Fim das férias'],
+      ['vacationDays', 'Dias de férias'],
+      ['vacationAccrualStart', 'Início aquisitivo'],
+      ['vacationDeadline', 'Limite de férias'],
+    ];
+    const entries = fields.flatMap(([key, label, formatter]) => {
+      const previous = describeValue(before[key], formatter);
+      const next = describeValue(after[key], formatter);
+      return previous !== next ? [createHistoryEntry(label, previous, next, source)] : [];
+    });
+    const beforeUniforms = JSON.stringify((before.uniforms || []).map(item => ({ name: item.name, quantity: item.quantity, size: item.size })));
+    const afterUniforms = JSON.stringify((after.uniforms || []).map(item => ({ name: item.name, quantity: item.quantity, size: item.size })));
+    if (beforeUniforms !== afterUniforms) {
+      entries.push(createHistoryEntry('Uniformes', `${before.uniforms?.length || 0} itens`, `${after.uniforms?.length || 0} itens`, source));
+    }
+    if ((before.photo || '') !== (after.photo || '')) {
+      entries.push(createHistoryEntry('Foto', before.photo ? 'Com foto' : 'Sem foto', after.photo ? 'Com foto' : 'Sem foto', source));
+    }
+    return entries;
+  };
+
   // --- Effects ---
   
   // Sync Uniform Standards when Role or Sector Changes in Employee Modal
@@ -543,6 +625,9 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
   const resetSectorForm = () => {
     setSectorName('');
     setSectorRoles([]);
+    setSectorRoleSalaries({});
+    setRoleRenameFrom('');
+    setRoleRenameTo('');
     setNewRole('');
     setSectorUniforms([]);
     setNewSectorUniformName('');
@@ -556,6 +641,9 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
     setEditingSector(sec);
     setSectorName(sec.name);
     setSectorRoles(getSortedUniqueRoles(sec.roles || []));
+    setSectorRoleSalaries(sec.roleSalaries || {});
+    setRoleRenameFrom('');
+    setRoleRenameTo('');
     setSectorUniforms(sec.standardUniform || []);
     setIsSectorModalOpen(true);
   };
@@ -632,6 +720,7 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
     const roleName = normalizeRoleName(newRole);
     if(!roleName) return;
     setSectorRoles(getSortedUniqueRoles([...sectorRoles, roleName]));
+    setSectorRoleSalaries(prev => ({ ...prev, [roleName]: prev[roleName] || 0 }));
     setNewRole('');
   };
 
@@ -646,8 +735,14 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
 
   const handleRemoveSectorRole = (index: number) => {
     const newArr = [...sectorRoles];
+    const removedRole = newArr[index];
     newArr.splice(index, 1);
     setSectorRoles(newArr);
+    setSectorRoleSalaries(prev => {
+      const next = { ...prev };
+      delete next[removedRole];
+      return next;
+    });
   };
 
   const handleAddSectorUniform = () => {
@@ -669,12 +764,51 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
 
   const handleSaveSectorSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSaveSector({ 
-      id: editingSector?.id || `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`, 
+    const sectorId = editingSector?.id || `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const renameFrom = normalizeRoleName(roleRenameFrom);
+    const renameTo = normalizeRoleName(roleRenameTo);
+    const shouldRenameRole = Boolean(editingSector && renameFrom && renameTo && renameFrom !== renameTo);
+    const nextRoles = getSortedUniqueRoles(
+      sectorRoles.map(roleName => shouldRenameRole && roleName === renameFrom ? renameTo : roleName)
+    );
+    const nextRoleSalaries = nextRoles.reduce<Record<string, number>>((acc, roleName) => {
+      const sourceRole = shouldRenameRole && roleName === renameTo ? renameFrom : roleName;
+      const salaryValue = Number(sectorRoleSalaries[roleName] ?? sectorRoleSalaries[sourceRole]) || 0;
+      if (salaryValue > 0) acc[roleName] = salaryValue;
+      return acc;
+    }, {});
+    const nextUniforms = sectorUniforms.map(item => ({
+      ...item,
+      role: shouldRenameRole && normalizeRoleName(item.role) === renameFrom ? renameTo : item.role
+    }));
+    onSaveSector({
+      id: sectorId,
       name: sectorName.trim(),
-      standardUniform: sectorUniforms,
-      roles: getSortedUniqueRoles(sectorRoles)
+      standardUniform: nextUniforms,
+      roles: nextRoles,
+      roleSalaries: nextRoleSalaries
     });
+    const updatedEmployees = employees
+      .filter(emp => emp.sectorId === sectorId)
+      .map(emp => {
+        const originalRole = normalizeRoleName(emp.role);
+        let updatedEmp = { ...emp };
+        const entries: EmployeeHistoryEntry[] = [];
+        if (shouldRenameRole && originalRole === renameFrom) {
+          updatedEmp = { ...updatedEmp, role: renameTo };
+          entries.push(createHistoryEntry('Função', emp.role || '-', renameTo, 'Configuração do setor'));
+        }
+        const roleSalary = nextRoleSalaries[normalizeRoleName(updatedEmp.role)];
+        if (updatedEmp.scheduleType !== 'Intermitente' && roleSalary > 0 && Number(updatedEmp.salary) !== roleSalary) {
+          entries.push(createHistoryEntry('Salário', formatMoneyValue(updatedEmp.salary), formatMoneyValue(roleSalary), 'Configuração do setor'));
+          updatedEmp = { ...updatedEmp, salary: roleSalary };
+        }
+        return entries.length ? withEmployeeHistory(updatedEmp, entries) : null;
+      })
+      .filter((emp): emp is Employee => Boolean(emp));
+    if (updatedEmployees.length > 0) {
+      onSaveEmployeesBulk(updatedEmployees);
+    }
     resetSectorForm();
   };
 
@@ -701,15 +835,16 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
     const normalizedVacationDays = Math.floor(Number(vacationDays) || 0);
     const shouldSaveVacationPeriod = scheduleType !== 'Intermitente' && vacationStatus !== 'Pendente' && vacationStart && normalizedVacationDays > 0;
     const calculatedVacationEnd = shouldSaveVacationPeriod ? getVacationEndFromStartAndDays(vacationStart, normalizedVacationDays) : '';
+    const roleSalary = scheduleType === 'Intermitente' ? 0 : getRoleSalary(selectedRole, activeSector);
 
-    const newEmp: Employee = {
+    const employeeDraft: Employee = {
       id: editingEmployee?.id || `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       name: (name || 'Sem Nome').toUpperCase(), 
       role: selectedRole || 'CARGO',
       gender, 
       contact, 
       startDate,
-      salary: scheduleType === 'Intermitente' ? 0 : parseFloat(salary) || 0,
+      salary: scheduleType === 'Intermitente' ? 0 : roleSalary || parseFloat(salary) || 0,
       department: sectors.find(s => s.id === (selectedSectorId || editingEmployee?.sectorId))?.name || 'Geral',
       sectorId: (selectedSectorId || editingEmployee?.sectorId)!, 
       status: 'Ativo', 
@@ -730,8 +865,11 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
       vacationAccrualStart: scheduleType === 'Intermitente' ? undefined : vacationAccrualStart || undefined,
       vacationDeadline: scheduleType === 'Intermitente' ? undefined : vacationDeadline || undefined,
       uniforms,
+      history: editingEmployee?.history || [],
       photo: finalPhoto
     };
+    const historyEntries = buildEmployeeChangeHistory(editingEmployee, employeeDraft);
+    const newEmp = historyEntries.length ? withEmployeeHistory(employeeDraft, historyEntries) : employeeDraft;
     
     onSave(newEmp, newPhotoFile ? [newPhotoFile] : undefined);
     resetEmployeeForm();
@@ -771,6 +909,15 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
       setRoleFilter('TODOS');
     }
   }, [roleFilter, roleFilterOptions]);
+
+  useEffect(() => {
+    if (!isAddingEmployee || scheduleType === 'Intermitente') return;
+    const salaryByRole = getRoleSalary(role, currentSector);
+    if (salaryByRole > 0) {
+      setSalary(String(salaryByRole));
+    }
+  }, [role, scheduleType, isAddingEmployee, currentSector?.roleSalaries]);
+
   const sortedSectors = useMemo(
     () => [...sectors].sort((a, b) => (a.name || '').localeCompare(b.name || '', 'pt-BR', { sensitivity: 'base' })),
     [sectors]
@@ -910,6 +1057,14 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
   const filteredExtras = extras
     .filter(ext => ext.sectorId === selectedSectorId && (ext.name || '').toLowerCase().includes(searchTerm.toLowerCase()))
     .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'pt-BR'));
+
+  const getEmployeeAuditHistory = (emp: Employee) =>
+    [...(emp.history || [])].sort((a, b) => Number(b.timestamp) - Number(a.timestamp));
+
+  const getEmployeeInventoryHistory = (emp: Employee) =>
+    inventoryHistory
+      .filter(h => h.recipientName === emp.name || h.recipientId === emp.id)
+      .sort((a, b) => Number(b.timestamp) - Number(a.timestamp));
 
   const employeeOverview = useMemo(() => {
     const activeEmployees = employees.filter(emp => emp.status !== 'Inativo');
@@ -1134,16 +1289,53 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
                          />
                          <button type="button" onClick={handleAddSectorRole} className="p-2 bg-slate-800 text-white rounded-xl"><Plus size={20}/></button>
                       </div>
-                      <div className="flex flex-wrap gap-2">
+                      <div className="space-y-2">
                          {sectorRoles.map((role, idx) => (
-                            <span key={idx} className="px-3 py-1 bg-slate-100 rounded-lg text-xs font-bold text-slate-600 flex items-center">
-                               {role}
-                               <button type="button" onClick={() => handleRemoveSectorRole(idx)} className="ml-2 text-slate-400 hover:text-rose-500"><X size={12}/></button>
-                            </span>
+                            <div key={role} className="grid grid-cols-1 sm:grid-cols-[1fr_150px_auto] gap-2 p-2 bg-slate-50 rounded-xl border border-slate-100">
+                               <div className="px-3 py-2 bg-white rounded-lg text-xs font-black text-slate-700 uppercase flex items-center">
+                                 {role}
+                               </div>
+                               <input
+                                 type="number"
+                                 min={0}
+                                 step="0.01"
+                                 value={sectorRoleSalaries[role] || ''}
+                                 onChange={e => setSectorRoleSalaries(prev => ({ ...prev, [role]: Number(e.target.value) || 0 }))}
+                                 placeholder="Salário"
+                                 className="px-3 py-2 bg-white rounded-lg border border-slate-100 text-xs font-black text-slate-700"
+                               />
+                               <button type="button" onClick={() => handleRemoveSectorRole(idx)} className="px-3 py-2 bg-white rounded-lg text-slate-400 hover:text-rose-500 flex justify-center"><X size={14}/></button>
+                            </div>
                          ))}
                          {sectorRoles.length === 0 && <span className="text-xs text-slate-300 italic">Nenhum cargo definido.</span>}
                       </div>
                    </div>
+
+                   {editingSector && sectorRoles.length > 0 && (
+                    <div className="rounded-2xl border border-amber-100 bg-amber-50/50 p-4">
+                      <label className="block text-[10px] font-black text-amber-700 uppercase mb-3 ml-1">Substituir cargo em massa</label>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <select
+                          value={roleRenameFrom}
+                          onChange={e => setRoleRenameFrom(e.target.value)}
+                          className="w-full px-4 py-3 rounded-xl border-2 border-amber-100 bg-white font-bold text-sm uppercase text-slate-700"
+                        >
+                          <option value="">Cargo atual...</option>
+                          {sectorRoles.map(r => <option key={r} value={r}>{r}</option>)}
+                        </select>
+                        <input
+                          type="text"
+                          value={roleRenameTo}
+                          onChange={e => setRoleRenameTo(e.target.value.toUpperCase())}
+                          placeholder="Novo nome do cargo"
+                          className="w-full px-4 py-3 rounded-xl border-2 border-amber-100 bg-white font-bold text-sm uppercase text-slate-700"
+                        />
+                      </div>
+                      <p className="mt-3 text-[10px] font-bold text-amber-700 uppercase tracking-widest">
+                        Ao salvar, colaboradores, uniformes e salário da função serão atualizados.
+                      </p>
+                    </div>
+                   )}
 
                    <div>
                       <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1">Uniformes Padrão (Por Função)</label>
@@ -1813,7 +2005,14 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
                     <h2 className="text-xl md:text-2xl font-black text-slate-800 uppercase tracking-tighter">{editingEmployee ? 'Editar' : 'Novo'} Colaborador</h2>
                     <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">{currentSector?.name}</p>
                  </div>
-                 <button onClick={resetEmployeeForm} className="p-2 text-slate-300 hover:text-slate-900 transition-all"><X size={28}/></button>
+                 <div className="flex items-center gap-1">
+                   {editingEmployee && (
+                     <button type="button" onClick={() => setViewingHistoryEmployee(editingEmployee)} className="p-2 text-slate-300 hover:text-amber-500 transition-all" title="Histórico">
+                       <History size={24}/>
+                     </button>
+                   )}
+                   <button onClick={resetEmployeeForm} className="p-2 text-slate-300 hover:text-slate-900 transition-all"><X size={28}/></button>
+                 </div>
               </div>
 
               <div className="flex bg-slate-100 p-1.5 mx-4 md:mx-8 mt-6 rounded-2xl border overflow-x-auto shrink-0">
@@ -1905,6 +2104,11 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
                          <div>
                             <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Salário Base (R$)</label>
                             <input type="number" value={salary} onChange={e => setSalary(e.target.value)} className="w-full px-5 py-4 rounded-2xl border-2 font-bold text-slate-800" />
+                            {getRoleSalary(role, currentSector) > 0 && (
+                              <p className="mt-2 text-[10px] font-black uppercase tracking-widest text-emerald-600">
+                                Salário definido pela função: {formatMoneyValue(getRoleSalary(role, currentSector))}
+                              </p>
+                            )}
                          </div>
                        )}
                     </div>
@@ -2333,7 +2537,7 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
                   <div className="flex items-center space-x-4">
                      <div className="p-3 bg-white rounded-2xl shadow-sm text-blue-500"><History size={24}/></div>
                      <div>
-                        <h3 className="text-base md:text-lg font-black text-slate-800">Histórico de Retiradas</h3>
+                        <h3 className="text-base md:text-lg font-black text-slate-800">Histórico do Colaborador</h3>
                         <p className="text-[10px] md:text-xs font-bold text-slate-400">{viewingHistoryEmployee.name}</p>
                      </div>
                   </div>
@@ -2341,22 +2545,38 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
                </div>
                
                <div className="flex-1 overflow-y-auto p-6 md:p-8 space-y-4">
-                  {inventoryHistory.filter(h => h.recipientName === viewingHistoryEmployee.name || h.recipientId === viewingHistoryEmployee.id).length === 0 ? (
-                     <div className="py-20 text-center">
-                        <p className="text-slate-300 font-bold italic">Nenhum item retirado por este colaborador.</p>
+                  {getEmployeeAuditHistory(viewingHistoryEmployee).length === 0 ? (
+                     <div className="py-10 text-center bg-slate-50 rounded-2xl">
+                        <p className="text-slate-300 font-bold italic">Nenhuma alteração cadastral registrada.</p>
                      </div>
                   ) : (
-                     inventoryHistory
-                        .filter(h => h.recipientName === viewingHistoryEmployee.name || h.recipientId === viewingHistoryEmployee.id)
-                        .map(op => (
-                           <div key={op.id} className="flex items-center justify-between p-4 bg-white border-2 border-slate-50 rounded-2xl">
+                     getEmployeeAuditHistory(viewingHistoryEmployee).map(entry => (
+                        <div key={entry.id} className="p-4 bg-white border-2 border-slate-50 rounded-2xl">
+                           <p className="font-black text-slate-800 text-sm uppercase">{entry.field}</p>
+                           <p className="text-[10px] font-bold text-slate-400 uppercase">{entry.source || 'Cadastro'} - {new Date(entry.timestamp).toLocaleString('pt-BR')}</p>
+                           <div className="mt-3 grid grid-cols-1 sm:grid-cols-[1fr_auto_1fr] gap-2 text-xs font-bold">
+                              <div className="rounded-xl bg-rose-50 text-rose-700 px-3 py-2 break-words">{entry.before || '-'}</div>
+                              <div className="hidden sm:flex items-center justify-center text-slate-300">→</div>
+                              <div className="rounded-xl bg-emerald-50 text-emerald-700 px-3 py-2 break-words">{entry.after || '-'}</div>
+                           </div>
+                        </div>
+                     ))
+                  )}
+
+                  <div className="pt-3 border-t border-slate-100">
+                     <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Retiradas de Uniforme/Estoque</h4>
+                     {getEmployeeInventoryHistory(viewingHistoryEmployee).length === 0 ? (
+                        <p className="text-xs text-slate-300 font-bold italic">Nenhum item retirado por este colaborador.</p>
+                     ) : (
+                        getEmployeeInventoryHistory(viewingHistoryEmployee).map(op => (
+                           <div key={op.id} className="flex items-center justify-between p-4 bg-white border-2 border-slate-50 rounded-2xl mb-2">
                               <div className="flex items-center space-x-4">
                                  <div className={`p-3 rounded-xl ${op.type === 'Entrada' ? 'bg-emerald-50 text-emerald-500' : 'bg-rose-50 text-rose-500'}`}>
                                     {op.type === 'Entrada' ? <ArrowUpRight size={20}/> : <ArrowDownRight size={20}/>}
                                  </div>
                                  <div>
                                     <p className="font-black text-slate-800 text-sm leading-tight">{op.itemName}</p>
-                                    <p className="text-[10px] font-bold text-slate-400 uppercase">{new Date(op.timestamp).toLocaleString()}</p>
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase">{new Date(op.timestamp).toLocaleString('pt-BR')}</p>
                                  </div>
                               </div>
                               <div className="text-right">
@@ -2365,7 +2585,8 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
                               </div>
                            </div>
                         ))
-                  )}
+                     )}
+                  </div>
                </div>
             </div>
          </div>
