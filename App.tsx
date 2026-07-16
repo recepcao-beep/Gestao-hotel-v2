@@ -345,6 +345,13 @@ const App: React.FC = () => {
             sOffs = emp.sundayOffs.map(Number);
           }
 
+          const hourlyWorkDays = safeJSONParse(emp.hourlyWorkDays, []);
+          const hourlyDaysOff = safeJSONParse(emp.hourlyDaysOff, []).map(Number).filter((n: number) => !isNaN(n));
+          const rawScheduleType = String(emp.scheduleType || '6x1');
+          const scheduleType = ['6x1', '12x36', 'Intermitente', 'Horista'].includes(rawScheduleType)
+            ? rawScheduleType
+            : '6x1';
+
           return {
             ...emp,
             id: emp.id?.toString() || `emp-${Date.now()}-${idx}-${Math.random().toString(36).substr(2, 5)}`,
@@ -353,10 +360,15 @@ const App: React.FC = () => {
             role: emp.role || '',
             fixedDayOff: emp.fixedDayOff || 'Segunda-feira',
             sundayOffs: sOffs,
+            hourlyWorkDays: Array.isArray(hourlyWorkDays) ? hourlyWorkDays : [],
+            hourlyDaysOff: Array.isArray(hourlyDaysOff) ? hourlyDaysOff : [],
             sectorId: emp.sectorId?.toString() || '',
             salary: parseFloat(emp.salary) || 0,
             uniforms: safeJSONParse(emp.uniforms, []),
+            scheduleType,
             shiftPeriod: normalizeShiftPeriod(emp.shiftPeriod || emp.turno, emp.workingHours),
+            vacationAccrualStart: emp.vacationAccrualStart || '',
+            vacationDeadline: emp.vacationDeadline || '',
             photo: emp.photo || '' // Normalized photo field
           };
         }));
