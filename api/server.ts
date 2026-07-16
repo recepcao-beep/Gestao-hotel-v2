@@ -1055,10 +1055,10 @@ const INTERNAL_KEY_MAP: Record<string, string> = {
 
 const GRID_COLUMNS: Record<string, string[]> = {
   apartments: ['id', 'roomNumber', 'floor', 'pisoType', 'pisoStatus', 'banheiroType', 'banheiroStatus', 'temCofre', 'temCortina', 'cortinaStatus', 'cortinaSize', 'cortinaCoverage', 'temEspelhoCorpo', 'espelhoCorpoStatus', 'acBrand', 'moveisStatus', 'moveisDetalhes', 'beds', 'temPortaControle', 'temCabide', 'cabideQuantity', 'temSuportePapel', 'temSuporteShampoo', 'suporteShampooStatus', 'luminariaType', 'luminariaColor', 'tvBrand', 'defects', 'customAnswers'],
-  employees: ['id', 'name', 'role', 'gender', 'contact', 'salary', 'sectorId', 'fixedDayOff', 'sundayOffs', 'hourlyWorkDays', 'hourlyDaysOff', 'workingHours', 'shiftPeriod', 'status', 'startDate', 'scheduleType', 'vacationStatus', 'vacationStart', 'vacationEnd', 'vacationAccrualStart', 'vacationDeadline', 'uniforms', 'photo'],
+  employees: ['id', 'name', 'role', 'gender', 'contact', 'salary', 'sectorId', 'fixedDayOff', 'sundayOffs', 'hourlyWorkDays', 'hourlyDaysOff', 'workingHours', 'shiftPeriod', 'status', 'startDate', 'scheduleType', 'vacationStatus', 'vacationStart', 'vacationEnd', 'vacationDays', 'vacationAccrualStart', 'vacationDeadline', 'uniforms', 'history', 'photo'],
   budgets: ['id', 'title', 'objective', 'items', 'quotes', 'status', 'createdAt', 'files'],
-  extras: ['id', 'name', 'phone', 'availability', 'serviceQuality', 'observation', 'sectorId'],
-  sectors: ['id', 'name', 'standardUniform', 'roles'],
+  extras: ['id', 'name', 'phone', 'availability', 'serviceQuality', 'observation', 'sectorId', 'doNotCall'],
+  sectors: ['id', 'name', 'standardUniform', 'roles', 'roleSalaries'],
   inventory: ['id', 'ean', 'name', 'category', 'quantity', 'minQuantity', 'unit', 'price', 'supplierId', 'lastUpdate', 'sectorId'],
   inventoryHistory: ['id', 'itemId', 'itemName', 'type', 'quantity', 'timestamp', 'user', 'reason', 'recipientId', 'recipientName'],
   suppliers: ['id', 'name', 'contact', 'category'],
@@ -1095,15 +1095,15 @@ function normalizeLinenItemV2(item: any) {
 
 function parseValue(val: any, fieldName: string) {
   if (val === undefined || val === null || val === '') {
-    if (['quantity', 'minQuantity', 'price', 'value', 'laborCost', 'totalSpots', 'floor', 'roomNumber', 'serviceQuality', 'cabideQuantity', 'inventoryModelVersion', 'generatedQuantity', 'quantityPerBasis', 'idealMultiplier', 'minCleanQuantity', 'quantityClean', 'quantityInUse', 'quantityDirty', 'quantityLaundry', 'quantityStained', 'quantityTorn', 'quantityDamaged', 'quantityLost', 'totalPhysical', 'totalUsable', 'totalStained', 'totalTorn', 'totalLost', 'totalVariance'].includes(fieldName)) return 0;
+    if (['quantity', 'minQuantity', 'price', 'value', 'laborCost', 'totalSpots', 'floor', 'roomNumber', 'serviceQuality', 'cabideQuantity', 'vacationDays', 'inventoryModelVersion', 'generatedQuantity', 'quantityPerBasis', 'idealMultiplier', 'minCleanQuantity', 'quantityClean', 'quantityInUse', 'quantityDirty', 'quantityLaundry', 'quantityStained', 'quantityTorn', 'quantityDamaged', 'quantityLost', 'totalPhysical', 'totalUsable', 'totalStained', 'totalTorn', 'totalLost', 'totalVariance'].includes(fieldName)) return 0;
     if (['defects', 'beds', 'moveisDetalhes', 'items', 'quotes', 'files', 'standardUniform', 'roles', 'availability', 'sundayOffs', 'hourlyWorkDays', 'hourlyDaysOff', 'uniforms', 'photos', 'history', 'allowedTabs'].includes(fieldName)) return [];
-    if (['customAnswers'].includes(fieldName)) return {};
+    if (['customAnswers', 'roleSalaries'].includes(fieldName)) return {};
     if (fieldName.startsWith('tem') || ['temCofre', 'temCortina', 'temEspelhoCorpo', 'temPortaControle', 'temCabide', 'temSuportePapel', 'temSuporteShampoo'].includes(fieldName)) return false;
     return '';
   }
   
   // Handle JSON strings in cells
-  if (['defects', 'beds', 'moveisDetalhes', 'items', 'quotes', 'files', 'standardUniform', 'roles', 'availability', 'sundayOffs', 'hourlyWorkDays', 'hourlyDaysOff', 'uniforms', 'photos', 'history', 'allowedTabs', 'customAnswers'].includes(fieldName)) {
+  if (['defects', 'beds', 'moveisDetalhes', 'items', 'quotes', 'files', 'standardUniform', 'roles', 'availability', 'sundayOffs', 'hourlyWorkDays', 'hourlyDaysOff', 'uniforms', 'photos', 'history', 'allowedTabs', 'customAnswers', 'roleSalaries'].includes(fieldName)) {
     if (typeof val === 'string' && (val.trim().startsWith('[') || val.trim().startsWith('{'))) {
       try {
         return JSON.parse(val.trim());
@@ -1115,7 +1115,7 @@ function parseValue(val: any, fieldName: string) {
     return val;
   }
 
-  if (['quantity', 'minQuantity', 'price', 'value', 'laborCost', 'totalSpots', 'floor', 'roomNumber', 'serviceQuality', 'cabideQuantity', 'salary', 'inventoryModelVersion', 'generatedQuantity', 'quantityPerBasis', 'idealMultiplier', 'minCleanQuantity', 'quantityClean', 'quantityInUse', 'quantityDirty', 'quantityLaundry', 'quantityStained', 'quantityTorn', 'quantityDamaged', 'quantityLost', 'totalPhysical', 'totalUsable', 'totalStained', 'totalTorn', 'totalLost', 'totalVariance'].includes(fieldName)) {
+  if (['quantity', 'minQuantity', 'price', 'value', 'laborCost', 'totalSpots', 'floor', 'roomNumber', 'serviceQuality', 'cabideQuantity', 'salary', 'vacationDays', 'inventoryModelVersion', 'generatedQuantity', 'quantityPerBasis', 'idealMultiplier', 'minCleanQuantity', 'quantityClean', 'quantityInUse', 'quantityDirty', 'quantityLaundry', 'quantityStained', 'quantityTorn', 'quantityDamaged', 'quantityLost', 'totalPhysical', 'totalUsable', 'totalStained', 'totalTorn', 'totalLost', 'totalVariance'].includes(fieldName)) {
     if (typeof val === 'string') {
       val = val.replace(/\./g, '').replace(',', '.');
     }

@@ -80,7 +80,8 @@ function doGet(e) {
         result.extras.push({
           id: dExt[l][0].toString(), name: dExt[l][1], phone: dExt[l][2],
           availability: safeParse(dExt[l][3], []), serviceQuality: dExt[l][4],
-          observation: dExt[l][5], sectorId: dExt[l][6].toString()
+          observation: dExt[l][5], sectorId: dExt[l][6].toString(),
+          doNotCall: dExt[l][7] === true || String(dExt[l][7]).toLowerCase() === 'true' || String(dExt[l][7]).toLowerCase() === 'sim'
         });
       }
     }
@@ -308,7 +309,7 @@ function doPost(e) {
     else if (req.dataType === 'EXTRA') {
        var sheet = ss.getSheetByName('Extras_' + hotel) || ss.insertSheet('Extras_' + hotel);
        var rowData = [
-         req.id.toString(), req.name, req.phone, JSON.stringify(req.availability || []), req.serviceQuality, req.observation, req.sectorId.toString()
+         req.id.toString(), req.name, req.phone, JSON.stringify(req.availability || []), req.serviceQuality, req.observation, req.sectorId.toString(), !!req.doNotCall
        ];
        upsert(sheet, req.id.toString(), rowData);
     }

@@ -110,6 +110,16 @@ export interface Sector {
   name: string;
   standardUniform: UniformItem[];
   roles?: string[]; // Added roles field
+  roleSalaries?: Record<string, number>;
+}
+
+export interface EmployeeHistoryEntry {
+  id: string;
+  timestamp: number;
+  field: string;
+  before?: string;
+  after?: string;
+  source?: string;
 }
 
 export interface Employee {
@@ -136,9 +146,11 @@ export interface Employee {
   vacationStatus: 'Pendente' | 'Concedida' | 'Férias Atuais';
   vacationStart?: string;
   vacationEnd?: string;
+  vacationDays?: number;
   vacationAccrualStart?: string;
   vacationDeadline?: string;
   uniforms: UniformItem[];
+  history?: EmployeeHistoryEntry[];
   photo?: string; // Added photo support (Drive Link)
 }
 
@@ -150,6 +162,7 @@ export interface ExtraLabor {
   serviceQuality: number; // 0 a 10
   observation: string;
   sectorId: string;
+  doNotCall?: boolean;
 }
 
 export interface Supplier {
