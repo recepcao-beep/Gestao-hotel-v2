@@ -363,12 +363,16 @@ const App: React.FC = () => {
             hourlyWorkDays: Array.isArray(hourlyWorkDays) ? hourlyWorkDays : [],
             hourlyDaysOff: Array.isArray(hourlyDaysOff) ? hourlyDaysOff : [],
             sectorId: emp.sectorId?.toString() || '',
-            salary: parseFloat(emp.salary) || 0,
+            salary: scheduleType === 'Intermitente' ? 0 : parseFloat(emp.salary) || 0,
             uniforms: safeJSONParse(emp.uniforms, []),
             scheduleType,
-            shiftPeriod: normalizeShiftPeriod(emp.shiftPeriod || emp.turno, emp.workingHours),
-            vacationAccrualStart: emp.vacationAccrualStart || '',
-            vacationDeadline: emp.vacationDeadline || '',
+            shiftPeriod: scheduleType === 'Intermitente' ? undefined : normalizeShiftPeriod(emp.shiftPeriod || emp.turno, emp.workingHours),
+            workingHours: scheduleType === 'Intermitente' ? '' : emp.workingHours,
+            vacationStatus: scheduleType === 'Intermitente' ? 'Pendente' : emp.vacationStatus || 'Pendente',
+            vacationStart: scheduleType === 'Intermitente' ? '' : emp.vacationStart || '',
+            vacationEnd: scheduleType === 'Intermitente' ? '' : emp.vacationEnd || '',
+            vacationAccrualStart: scheduleType === 'Intermitente' ? '' : emp.vacationAccrualStart || '',
+            vacationDeadline: scheduleType === 'Intermitente' ? '' : emp.vacationDeadline || '',
             photo: emp.photo || '' // Normalized photo field
           };
         }));
