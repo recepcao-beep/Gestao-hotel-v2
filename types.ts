@@ -123,17 +123,21 @@ export interface Employee {
   department: string;
   sectorId: string;
   status: 'Ativo' | 'Inativo';
-  scheduleType: '6x1' | '12x36' | 'Intermitente';
+  scheduleType: '6x1' | '12x36' | 'Intermitente' | 'Horista';
   shiftType?: 'Par' | 'Ímpar';
   shiftPeriod?: 'MANHA' | 'TARDE' | 'MADRUGADA';
   workingHours: string;
   fixedDayOff: string;
   sundayOffs: number[];
+  hourlyWorkDays?: string[];
+  hourlyDaysOff?: number[];
   monthlySundayOff: string;
   weeklyDayOff: string;
   vacationStatus: 'Pendente' | 'Concedida' | 'Férias Atuais';
   vacationStart?: string;
   vacationEnd?: string;
+  vacationAccrualStart?: string;
+  vacationDeadline?: string;
   uniforms: UniformItem[];
   photo?: string; // Added photo support (Drive Link)
 }

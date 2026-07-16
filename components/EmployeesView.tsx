@@ -48,6 +48,7 @@ import {
 type ShiftPeriod = 'MANHA' | 'TARDE' | 'MADRUGADA';
 type ShiftPeriodFilter = 'TODOS' | ShiftPeriod;
 type GenderFilter = 'TODOS' | 'M' | 'F';
+type ScheduleType = Employee['scheduleType'];
 
 interface EmployeesViewProps {
   employees: Employee[];
@@ -298,15 +299,19 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
   const [contact, setContact] = useState('');
   const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
   const [salary, setSalary] = useState('');
-  const [scheduleType, setScheduleType] = useState<'6x1' | '12x36' | 'Intermitente'>('6x1');
+  const [scheduleType, setScheduleType] = useState<ScheduleType>('6x1');
   const [shiftType, setShiftType] = useState<'Par' | 'Ímpar'>('Par');
   const [shiftPeriod, setShiftPeriod] = useState<ShiftPeriod>('MANHA');
   const [workingHours, setWorkingHours] = useState('08:00 - 16:20');
   const [fixedDayOff, setFixedDayOff] = useState('Segunda-feira');
   const [sundayOffs, setSundayOffs] = useState<number[]>([]);
+  const [hourlyWorkDays, setHourlyWorkDays] = useState<string[]>([]);
+  const [hourlyDaysOff, setHourlyDaysOff] = useState<number[]>([]);
   const [vacationStatus, setVacationStatus] = useState<'Pendente' | 'Concedida' | 'Férias Atuais'>('Pendente');
   const [vacationStart, setVacationStart] = useState('');
   const [vacationEnd, setVacationEnd] = useState('');
+  const [vacationAccrualStart, setVacationAccrualStart] = useState('');
+  const [vacationDeadline, setVacationDeadline] = useState('');
   
   // Uniforms State (Employee)
   const [uniforms, setUniforms] = useState<UniformItem[]>([]);
@@ -384,6 +389,17 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
 
   const isVacationRegistered = (emp: Employee) => Boolean(emp.vacationStatus && emp.vacationStatus !== 'Pendente');
 
+  const getVacationDueInfo = (emp: Employee) => {
+    const deadline = parseLocalDate(emp.vacationDeadline, true);
+    if (!deadline) return null;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const diffDays = Math.ceil((deadline.getTime() - today.getTime()) / 86400000);
+    if (diffDays < 0) return { label: 'Ferias vencidas', tone: 'danger' as const };
+    if (diffDays <= 60) return { label: `Ferias vencem em ${diffDays} dias`, tone: 'warning' as const };
+    return { label: `Limite ferias ${formatShortDate(emp.vacationDeadline)}`, tone: 'neutral' as const };
+  };
+
   const getVacationDaysInMonth = (emp: Employee, year: number, month: number) => {
     if (!isVacationRegistered(emp) || !emp.vacationStart || !emp.vacationEnd) return 0;
     const vacationStartDate = parseLocalDate(emp.vacationStart);
@@ -409,6 +425,18 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
     const start = formatShortDate(emp.vacationStart);
     const end = formatShortDate(emp.vacationEnd);
     return start && end ? `Ferias ${start} - ${end}` : 'Ferias';
+  };
+
+  const employeeAppearsInMonthlyScale = (emp: Employee) => emp.scheduleType === '6x1' || emp.scheduleType === 'Horista';
+
+  const getScheduleSummary = (emp: Employee) => {
+    if (emp.scheduleType === 'Intermitente') return 'Intermitente';
+    if (emp.scheduleType === '12x36') return '12x36';
+    if (emp.scheduleType === 'Horista') {
+      const days = (emp.hourlyWorkDays || []).map(day => normalizeWeekday(day).slice(0, 3)).filter(Boolean).join(', ');
+      return days ? `Horista: ${days}` : 'Horista sem dias';
+    }
+    return `Folga: ${emp.fixedDayOff || 'Rodizio'}`;
   };
 
   const getBankHoursDays = (emp: Employee) => {
@@ -458,8 +486,8 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
     setUniforms([]); setScheduleType('6x1'); setShiftType('Par');
     setShiftPeriod('MANHA');
     setWorkingHours('08:00 - 16:20'); setFixedDayOff('Segunda-feira');
-    setSundayOffs([]); setVacationStatus('Pendente');
-    setVacationStart(''); setVacationEnd('');
+    setSundayOffs([]); setHourlyWorkDays([]); setHourlyDaysOff([]); setVacationStatus('Pendente');
+    setVacationStart(''); setVacationEnd(''); setVacationAccrualStart(''); setVacationDeadline('');
     setPhotoPreview(null); setNewPhotoFile(null); setIsPhotoRemoved(false);
     setIsAddingEmployee(false); setEditingEmployee(null); setActiveFormTab('DADOS');
   };
@@ -504,9 +532,14 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
     setScheduleType(emp.scheduleType || '6x1');
     setShiftType(emp.shiftType || 'Par'); setShiftPeriod(getEmployeeShiftPeriod(emp)); setWorkingHours(emp.workingHours || '08:00 - 16:20');
     setFixedDayOff(emp.fixedDayOff || 'Segunda-feira');
-    setSundayOffs(emp.sundayOffs || []); setVacationStatus(emp.vacationStatus || 'Pendente');
+    setSundayOffs(emp.sundayOffs || []);
+    setHourlyWorkDays(emp.hourlyWorkDays || []);
+    setHourlyDaysOff(emp.hourlyDaysOff || []);
+    setVacationStatus(emp.vacationStatus || 'Pendente');
     setVacationStart(emp.vacationStart || '');
     setVacationEnd(emp.vacationEnd || '');
+    setVacationAccrualStart(emp.vacationAccrualStart || '');
+    setVacationDeadline(emp.vacationDeadline || '');
     setPhotoPreview(emp.photo || null);
     setNewPhotoFile(null);
     setIsPhotoRemoved(false);
@@ -637,14 +670,18 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
       scheduleType, 
       shiftType: scheduleType === '12x36' ? shiftType : undefined,
       shiftPeriod,
-      workingHours: scheduleType === 'Intermitente' ? '' : workingHours, 
+      workingHours: scheduleType === 'Intermitente' || scheduleType === '12x36' ? '' : workingHours,
       fixedDayOff: scheduleType === '6x1' ? fixedDayOff : '', 
-      sundayOffs: scheduleType === '6x1' ? sundayOffs : [], 
+      sundayOffs: scheduleType === '6x1' || scheduleType === 'Horista' ? sundayOffs : [],
+      hourlyWorkDays: scheduleType === 'Horista' ? hourlyWorkDays : [],
+      hourlyDaysOff: scheduleType === 'Horista' ? hourlyDaysOff : [],
       weeklyDayOff: scheduleType === '6x1' ? fixedDayOff : '', 
       monthlySundayOff: '', 
       vacationStatus, 
       vacationStart: vacationStatus === 'Concedida' || vacationStatus === 'Férias Atuais' ? vacationStart : undefined,
       vacationEnd: vacationStatus === 'Concedida' || vacationStatus === 'Férias Atuais' ? vacationEnd : undefined,
+      vacationAccrualStart: vacationAccrualStart || undefined,
+      vacationDeadline: vacationDeadline || undefined,
       uniforms,
       photo: finalPhoto
     };
@@ -746,6 +783,17 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
       
       if (dayName === empOffDay && !dayInfo.isSunday) return 'F';
     }
+    if (emp.scheduleType === 'Horista') {
+      const dayName = normalizeWeekday(dayInfo.weekdayFull);
+      const configuredWorkDays = (emp.hourlyWorkDays || []).map(normalizeWeekday);
+      const configuredDaysOff = (emp.hourlyDaysOff || []).map(Number);
+      const empSundayOffs = (emp.sundayOffs || []).slice().sort((a, b) => a - b);
+
+      if (configuredDaysOff.includes(dayInfo.date)) return 'F';
+      if (dayInfo.isSunday && empSundayOffs.includes(dayInfo.sundayIndex)) return `D${empSundayOffs.indexOf(dayInfo.sundayIndex) + 1}`;
+      if (configuredWorkDays.length === 0) return 'F';
+      if (!configuredWorkDays.includes(dayName)) return 'F';
+    }
     return '';
   };
 
@@ -756,7 +804,7 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
       ['', '', '', ...scaleData.map(d => d.weekdayShort.toUpperCase())]
     ];
     
-    filteredEmployees.forEach(emp => {
+    scaleEmployees.forEach(emp => {
       const row = [
         emp.name,
         emp.workingHours || '08:00-16:20',
@@ -789,6 +837,8 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
       (a.name || '').localeCompare(b.name || '', 'pt-BR', { sensitivity: 'base' }) ||
       (a.role || '').localeCompare(b.role || '', 'pt-BR', { sensitivity: 'base' })
     );
+
+  const scaleEmployees = filteredEmployees.filter(employeeAppearsInMonthlyScale);
   
   const filteredExtras = extras
     .filter(ext => ext.sectorId === selectedSectorId && (ext.name || '').toLowerCase().includes(searchTerm.toLowerCase()))
@@ -827,7 +877,17 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
         }))
         .filter(item => item.days > 0);
 
-      return { ...month, monthIndex, vacationItems, bankHourItems };
+      const vacationDueItems = filteredEmployees
+        .map(emp => ({ id: emp.id, name: emp.name, deadline: parseLocalDate(emp.vacationDeadline), dueInfo: getVacationDueInfo(emp) }))
+        .filter(item => {
+          if (!item.deadline || !item.dueInfo) return false;
+          const currentMonth = new Date();
+          const isDeadlineMonth = item.deadline.getFullYear() === year && item.deadline.getMonth() === monthIndex;
+          const isOverdueCurrentMonth = item.dueInfo.tone === 'danger' && currentMonth.getFullYear() === year && currentMonth.getMonth() === monthIndex;
+          return isDeadlineMonth || isOverdueCurrentMonth;
+        });
+
+      return { ...month, monthIndex, vacationItems, bankHourItems, vacationDueItems };
     });
   }, [filteredEmployees, monthOptions, scaleDate]);
 
@@ -1234,14 +1294,27 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
                   </div>
                   <div className="min-w-0">
                     <h4 className="font-black text-slate-800 uppercase truncate">{emp.name || 'Sem Nome'}</h4>
-                    {getVacationBadgeText(emp) && (
-                      <span className="inline-flex mb-1 px-3 py-1 rounded-lg bg-blue-50 text-blue-700 text-[9px] font-black uppercase tracking-widest">
-                        {getVacationBadgeText(emp)}
-                      </span>
-                    )}
+                    <div className="flex flex-wrap gap-1 mb-1">
+                      {getVacationBadgeText(emp) && (
+                        <span className="inline-flex px-3 py-1 rounded-lg bg-blue-50 text-blue-700 text-[9px] font-black uppercase tracking-widest">
+                          {getVacationBadgeText(emp)}
+                        </span>
+                      )}
+                      {getVacationDueInfo(emp) && (
+                        <span className={`inline-flex px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest ${
+                          getVacationDueInfo(emp)?.tone === 'danger'
+                            ? 'bg-rose-50 text-rose-700'
+                            : getVacationDueInfo(emp)?.tone === 'warning'
+                              ? 'bg-amber-50 text-amber-700'
+                              : 'bg-slate-100 text-slate-500'
+                        }`}>
+                          {getVacationDueInfo(emp)?.label}
+                        </span>
+                      )}
+                    </div>
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
                        <span>{emp.role}</span>
-                       <span>{emp.scheduleType === 'Intermitente' ? 'Intermitente' : `Folga: ${emp.fixedDayOff || 'Rodízio'}`}</span>
+                       <span>{getScheduleSummary(emp)}</span>
                        {(() => {
                          const ShiftIcon = getShiftPeriodMeta(getEmployeeShiftPeriod(emp)).Icon;
                          return (
@@ -1334,16 +1407,22 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
                           <p className="text-xs font-bold truncate">{item.name}, {item.days} dias</p>
                         </div>
                       ))}
-                      {month.vacationItems.length === 0 && month.bankHourItems.length === 0 && (
+                      {month.vacationDueItems.slice(0, 2).map(item => (
+                        <div key={`due-${item.id}`} className={`rounded-xl px-3 py-2 ${item.dueInfo?.tone === 'danger' ? 'bg-rose-50 text-rose-700' : 'bg-amber-50 text-amber-700'}`}>
+                          <p className="text-[10px] font-black uppercase tracking-widest">{item.dueInfo?.tone === 'danger' ? 'Ferias vencidas' : 'Controle de ferias'}</p>
+                          <p className="text-xs font-bold truncate">{item.name}, {item.dueInfo?.label}</p>
+                        </div>
+                      ))}
+                      {month.vacationItems.length === 0 && month.bankHourItems.length === 0 && month.vacationDueItems.length === 0 && (
                         <div className="h-full min-h-16 rounded-xl border border-dashed border-slate-200 flex items-center justify-center text-[10px] font-black text-slate-300 uppercase tracking-widest">
                           Sem avisos
                         </div>
                       )}
                     </div>
 
-                    {(month.vacationItems.length + month.bankHourItems.length) > 3 && (
+                    {(month.vacationItems.length + month.bankHourItems.length + month.vacationDueItems.length) > 3 && (
                       <p className="text-[10px] font-black text-slate-400 mt-3">
-                        +{month.vacationItems.length + month.bankHourItems.length - 3} avisos na planilha
+                        +{month.vacationItems.length + month.bankHourItems.length + month.vacationDueItems.length - 3} avisos na planilha
                       </p>
                     )}
                   </button>
@@ -1409,7 +1488,7 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
                     </tr>
                  </thead>
                  <tbody>
-                     {filteredEmployees.map((emp, empIndex) => (
+                     {scaleEmployees.map((emp, empIndex) => (
                         <tr key={emp.id} className="hover:bg-slate-50 transition-colors">
                            <td className="sticky left-0 bg-white z-10 px-2 py-1 border border-slate-300 text-xs font-bold text-slate-700 uppercase max-w-[250px]">
                               <div className="flex items-center gap-2">
@@ -1456,9 +1535,16 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
                              }
                              return cells;
                           })()}
-                       </tr>
-                    ))}
-                 </tbody>
+                        </tr>
+                     ))}
+                     {scaleEmployees.length === 0 && (
+                        <tr>
+                          <td colSpan={scaleData.length + 3} className="p-8 text-center text-xs font-black uppercase tracking-widest text-slate-300">
+                            Nenhum colaborador 6x1 ou horista para esta escala.
+                          </td>
+                        </tr>
+                     )}
+                  </tbody>
               </table>
            </div>
            
@@ -1642,10 +1728,10 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
                  <button onClick={() => setActiveFormTab('UNIFORMES')} className={`flex-1 py-3 px-4 rounded-xl text-[10px] font-black uppercase transition-all whitespace-nowrap ${activeFormTab === 'UNIFORMES' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-400'}`}>Uniformes</button>
               </div>
 
-              <form onSubmit={handleSaveEmployeeSubmit} className="p-6 md:p-8 flex-1 overflow-y-auto space-y-8">
+               <form onSubmit={handleSaveEmployeeSubmit} className="p-4 sm:p-6 md:p-8 flex-1 overflow-y-auto space-y-8">
                  {activeFormTab === 'DADOS' && (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-in slide-in-from-left-4">
-                       <div className="col-span-2 flex flex-col items-center mb-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5 md:gap-6 animate-in slide-in-from-left-4">
+                       <div className="md:col-span-2 flex flex-col items-center mb-4">
                           <div className="relative group cursor-pointer" onClick={() => fileInputRef.current?.click()}>
                              <div className={`w-32 h-32 rounded-full overflow-hidden border-4 border-white shadow-xl flex items-center justify-center ${gender === 'F' ? 'bg-rose-100' : 'bg-blue-100'}`}>
                                 {photoPreview ? (
@@ -1671,7 +1757,7 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
                           )}
                        </div>
                        
-                       <div className="col-span-2">
+                       <div className="md:col-span-2">
                           <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Nome Completo</label>
                           <input type="text" value={name} onChange={e => setName(e.target.value.toUpperCase())} className="w-full px-5 py-4 rounded-2xl border-2 font-bold text-slate-800 uppercase" required />
                        </div>
@@ -1730,12 +1816,12 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
 
                  {activeFormTab === 'ESCALA' && (
                     <div className="space-y-8 animate-in slide-in-from-right-4">
-                       <div className="col-span-2">
-                          <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Tipo de Escala</label>
-                          <div className="flex gap-2">
-                             {(['6x1', '12x36', 'Intermitente'] as const).map(type => (
-                               <button 
-                                 key={type}
+                        <div className="md:col-span-2">
+                           <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Tipo de Escala</label>
+                           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                              {(['6x1', '12x36', 'Intermitente', 'Horista'] as const).map(type => (
+                                <button
+                                  key={type}
                                  type="button" 
                                  onClick={() => setScheduleType(type)}
                                  className={`flex-1 py-3 rounded-xl border-2 font-black text-[10px] uppercase transition-all ${scheduleType === type ? 'bg-slate-900 border-slate-900 text-white shadow-md' : 'bg-white text-slate-400 hover:border-slate-300'}`}
@@ -1746,7 +1832,7 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
                           </div>
                        </div>
 
-                       {scheduleType === '6x1' && (
+                        {scheduleType === '6x1' && (
                           <div className="space-y-6 animate-in fade-in">
                              <div>
                                 <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Folga Fixa Semanal</label>
@@ -1780,7 +1866,68 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
                                 </div>
                              </div>
                           </div>
-                       )}
+                        )}
+
+                        {scheduleType === 'Horista' && (
+                          <div className="space-y-6 animate-in fade-in">
+                            <div>
+                              <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Dias que trabalha</label>
+                              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                                {weekDays.map(day => {
+                                  const normalizedDay = normalizeWeekday(day);
+                                  const selected = hourlyWorkDays.map(normalizeWeekday).includes(normalizedDay);
+                                  return (
+                                    <button
+                                      key={day}
+                                      type="button"
+                                      onClick={() => setHourlyWorkDays(prev => {
+                                        const normalizedPrev = prev.map(normalizeWeekday);
+                                        return normalizedPrev.includes(normalizedDay)
+                                          ? prev.filter(item => normalizeWeekday(item) !== normalizedDay)
+                                          : [...prev, day];
+                                      })}
+                                      className={`px-3 py-3 rounded-xl border-2 font-black text-[10px] uppercase transition-all ${selected ? 'bg-slate-900 border-slate-900 text-white' : 'bg-white border-slate-200 text-slate-400'}`}
+                                    >
+                                      {normalizedDay.slice(0, 3)}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+
+                            <div>
+                              <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Folgas por data do mês</label>
+                              <div className="grid grid-cols-7 sm:grid-cols-10 gap-1.5">
+                                {Array.from({ length: 31 }, (_, index) => index + 1).map(day => (
+                                  <button
+                                    key={day}
+                                    type="button"
+                                    onClick={() => setHourlyDaysOff(prev => prev.includes(day) ? prev.filter(item => item !== day) : [...prev, day].sort((a, b) => a - b))}
+                                    className={`h-9 rounded-lg border font-black text-[10px] transition-all ${hourlyDaysOff.includes(day) ? 'bg-rose-500 border-rose-500 text-white' : 'bg-white border-slate-200 text-slate-400'}`}
+                                  >
+                                    {day}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+
+                            <div>
+                              <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Domingos de folga no mês</label>
+                              <div className="flex flex-wrap gap-2">
+                                {[1, 2, 3, 4, 5].map(n => (
+                                  <button
+                                    key={n}
+                                    type="button"
+                                    onClick={() => setSundayOffs(prev => prev.includes(n) ? prev.filter(i => i !== n) : [...prev, n].sort((a, b) => a - b))}
+                                    className={`w-10 h-10 rounded-xl border-2 font-black flex items-center justify-center transition-all ${sundayOffs.includes(n) ? 'bg-emerald-500 border-emerald-500 text-white' : 'bg-white border-slate-200 text-slate-400'}`}
+                                  >
+                                    {n}º
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        )}
 
                        {scheduleType === '12x36' && (
                           <div className="animate-in fade-in">
@@ -1794,7 +1941,7 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
 
                        <div>
                           <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Turno</label>
-                          <div className="grid grid-cols-3 gap-2">
+                           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                              {shiftPeriodOptions.map(({ value, label, Icon }) => (
                                <button
                                  key={value}
@@ -1809,30 +1956,47 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
                           </div>
                        </div>
 
-                       <div>
-                          <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Horário de Trabalho</label>
-                          <input type="text" value={workingHours} onChange={e => setWorkingHours(e.target.value)} className="w-full px-5 py-4 rounded-2xl border-2 font-bold text-slate-800" placeholder="Ex: 08:00 - 16:20" />
-                       </div>
+                        {(scheduleType === '6x1' || scheduleType === 'Horista') && (
+                        <div>
+                           <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Horário de Trabalho</label>
+                           <input type="text" value={workingHours} onChange={e => setWorkingHours(e.target.value)} className="w-full px-5 py-4 rounded-2xl border-2 font-bold text-slate-800" placeholder="Ex: 08:00 - 16:20" />
+                        </div>
+                        )}
 
-                       <div>
+                        <div>
                           <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Status de Férias</label>
                           <div className="flex bg-slate-50 p-1 rounded-xl mb-4">
                              <button type="button" onClick={() => setVacationStatus('Pendente')} className={`flex-1 py-2 rounded-lg text-xs font-black uppercase transition-all ${vacationStatus === 'Pendente' ? 'bg-white shadow-sm text-slate-800' : 'text-slate-400'}`}>Trabalhando</button>
                              <button type="button" onClick={() => setVacationStatus('Concedida')} className={`flex-1 py-2 rounded-lg text-xs font-black uppercase transition-all ${vacationStatus === 'Concedida' || vacationStatus === 'Férias Atuais' ? 'bg-blue-100 text-blue-700' : 'text-slate-400'}`}>Em Férias</button>
                           </div>
-                          {(vacationStatus === 'Concedida' || vacationStatus === 'Férias Atuais') && (
-                            <div className="grid grid-cols-2 gap-4 animate-in slide-in-from-top-2">
-                               <div>
-                                  <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Início</label>
+                           {(vacationStatus === 'Concedida' || vacationStatus === 'Férias Atuais') && (
+                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 animate-in slide-in-from-top-2">
+                                <div>
+                                   <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Início</label>
                                   <input type="date" value={vacationStart} onChange={e => setVacationStart(e.target.value)} className="w-full px-4 py-3 rounded-xl border-2 font-bold text-slate-800 focus:border-blue-500" required />
                                </div>
                                <div>
                                   <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Fim</label>
                                   <input type="date" value={vacationEnd} onChange={e => setVacationEnd(e.target.value)} className="w-full px-4 py-3 rounded-xl border-2 font-bold text-slate-800 focus:border-blue-500" required />
                                </div>
+                             </div>
+                           )}
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
+                            <div>
+                              <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Início do período aquisitivo</label>
+                              <input type="date" value={vacationAccrualStart} onChange={e => setVacationAccrualStart(e.target.value)} className="w-full px-4 py-3 rounded-xl border-2 font-bold text-slate-800 focus:border-blue-500" />
+                            </div>
+                            <div>
+                              <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Limite para conceder</label>
+                              <input type="date" value={vacationDeadline} onChange={e => setVacationDeadline(e.target.value)} className={`w-full px-4 py-3 rounded-xl border-2 font-bold text-slate-800 focus:border-blue-500 ${vacationDeadline && parseLocalDate(vacationDeadline, true)! < new Date() ? 'border-rose-300 bg-rose-50' : ''}`} />
+                            </div>
+                          </div>
+                          {vacationDeadline && (
+                            <div className={`mt-3 px-4 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest ${getVacationDueInfo({ vacationDeadline } as Employee)?.tone === 'danger' ? 'bg-rose-50 text-rose-700' : 'bg-amber-50 text-amber-700'}`}>
+                              {getVacationDueInfo({ vacationDeadline } as Employee)?.label}
                             </div>
                           )}
-                       </div>
+                        </div>
                     </div>
                  )}
 
