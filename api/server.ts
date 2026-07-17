@@ -1058,7 +1058,7 @@ const GRID_COLUMNS: Record<string, string[]> = {
   employees: ['id', 'name', 'role', 'gender', 'contact', 'salary', 'sectorId', 'fixedDayOff', 'sundayOffs', 'hourlyWorkDays', 'hourlyDaysOff', 'workingHours', 'shiftPeriod', 'status', 'startDate', 'scheduleType', 'vacationStatus', 'vacationStart', 'vacationEnd', 'vacationDays', 'vacationAccrualStart', 'vacationDeadline', 'uniforms', 'history', 'tagText', 'tagColor', 'photo'],
   budgets: ['id', 'title', 'objective', 'items', 'quotes', 'status', 'createdAt', 'files'],
   extras: ['id', 'name', 'phone', 'availability', 'serviceQuality', 'observation', 'sectorId', 'doNotCall'],
-  sectors: ['id', 'name', 'standardUniform', 'roles', 'roleSalaries'],
+  sectors: ['id', 'name', 'standardUniform', 'roles', 'roleSalaries', 'employeeTags'],
   inventory: ['id', 'ean', 'name', 'category', 'quantity', 'minQuantity', 'unit', 'price', 'supplierId', 'lastUpdate', 'sectorId'],
   inventoryHistory: ['id', 'itemId', 'itemName', 'type', 'quantity', 'timestamp', 'user', 'reason', 'recipientId', 'recipientName'],
   suppliers: ['id', 'name', 'contact', 'category'],
@@ -1096,14 +1096,14 @@ function normalizeLinenItemV2(item: any) {
 function parseValue(val: any, fieldName: string) {
   if (val === undefined || val === null || val === '') {
     if (['quantity', 'minQuantity', 'price', 'value', 'laborCost', 'totalSpots', 'floor', 'roomNumber', 'serviceQuality', 'cabideQuantity', 'vacationDays', 'inventoryModelVersion', 'generatedQuantity', 'quantityPerBasis', 'idealMultiplier', 'minCleanQuantity', 'quantityClean', 'quantityInUse', 'quantityDirty', 'quantityLaundry', 'quantityStained', 'quantityTorn', 'quantityDamaged', 'quantityLost', 'totalPhysical', 'totalUsable', 'totalStained', 'totalTorn', 'totalLost', 'totalVariance'].includes(fieldName)) return 0;
-    if (['defects', 'beds', 'moveisDetalhes', 'items', 'quotes', 'files', 'standardUniform', 'roles', 'availability', 'sundayOffs', 'hourlyWorkDays', 'hourlyDaysOff', 'uniforms', 'photos', 'history', 'allowedTabs'].includes(fieldName)) return [];
+    if (['defects', 'beds', 'moveisDetalhes', 'items', 'quotes', 'files', 'standardUniform', 'roles', 'availability', 'sundayOffs', 'hourlyWorkDays', 'hourlyDaysOff', 'uniforms', 'photos', 'history', 'allowedTabs', 'employeeTags'].includes(fieldName)) return [];
     if (['customAnswers', 'roleSalaries'].includes(fieldName)) return {};
     if (fieldName.startsWith('tem') || ['temCofre', 'temCortina', 'temEspelhoCorpo', 'temPortaControle', 'temCabide', 'temSuportePapel', 'temSuporteShampoo'].includes(fieldName)) return false;
     return '';
   }
   
   // Handle JSON strings in cells
-  if (['defects', 'beds', 'moveisDetalhes', 'items', 'quotes', 'files', 'standardUniform', 'roles', 'availability', 'sundayOffs', 'hourlyWorkDays', 'hourlyDaysOff', 'uniforms', 'photos', 'history', 'allowedTabs', 'customAnswers', 'roleSalaries'].includes(fieldName)) {
+  if (['defects', 'beds', 'moveisDetalhes', 'items', 'quotes', 'files', 'standardUniform', 'roles', 'availability', 'sundayOffs', 'hourlyWorkDays', 'hourlyDaysOff', 'uniforms', 'photos', 'history', 'allowedTabs', 'customAnswers', 'roleSalaries', 'employeeTags'].includes(fieldName)) {
     if (typeof val === 'string' && (val.trim().startsWith('[') || val.trim().startsWith('{'))) {
       try {
         return JSON.parse(val.trim());

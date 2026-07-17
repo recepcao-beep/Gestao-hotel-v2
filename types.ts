@@ -111,6 +111,12 @@ export interface Sector {
   standardUniform: UniformItem[];
   roles?: string[]; // Added roles field
   roleSalaries?: Record<string, number>;
+  employeeTags?: EmployeeTagDefinition[];
+}
+
+export interface EmployeeTagDefinition {
+  label: string;
+  color: string;
 }
 
 export interface EmployeeHistoryEntry {

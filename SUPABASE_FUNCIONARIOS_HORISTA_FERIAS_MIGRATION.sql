@@ -24,9 +24,11 @@ begin
 
   if to_regclass('public.sectors') is not null then
     alter table public.sectors add column if not exists "roleSalaries" jsonb default '{}'::jsonb;
+    alter table public.sectors add column if not exists "employeeTags" jsonb default '[]'::jsonb;
   end if;
 
   if to_regclass('public.setores') is not null then
     alter table public.setores add column if not exists "roleSalaries" jsonb default '{}'::jsonb;
+    alter table public.setores add column if not exists "employeeTags" jsonb default '[]'::jsonb;
   end if;
 end $$;

@@ -3,7 +3,7 @@ import React, { useState, useRef, useMemo, useEffect } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 import pdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import villageInnLogoUrl from '../village-inn-logo.png';
-import { Employee, Sector, HotelTheme, UniformItem, ExtraLabor, InventoryOperation, EmployeeHistoryEntry } from '../types';
+import { Employee, Sector, HotelTheme, UniformItem, ExtraLabor, InventoryOperation, EmployeeHistoryEntry, EmployeeTagDefinition } from '../types';
 import { compressImage } from '../utils/imageUtils';
 import Logo from './Logo';
 
@@ -44,6 +44,7 @@ import {
   Users,
   Mars,
   Venus,
+  Tag,
   SlidersHorizontal,
   RotateCcw
 } from 'lucide-react';
@@ -53,6 +54,48 @@ type ShiftPeriodFilter = 'TODOS' | ShiftPeriod;
 type GenderFilter = 'TODOS' | 'M' | 'F';
 type ScheduleType = Employee['scheduleType'];
 type ScheduleTypeFilter = 'TODOS' | ScheduleType;
+
+const EMPLOYEE_TAG_COLORS = [
+  { name: 'Azul', value: '#2563eb' },
+  { name: 'Azul claro', value: '#0284c7' },
+  { name: 'Roxo', value: '#7c3aed' },
+  { name: 'Rosa', value: '#db2777' },
+  { name: 'Vermelho', value: '#e11d48' },
+  { name: 'Amarelo', value: '#d97706' },
+  { name: 'Verde', value: '#059669' },
+  { name: 'Turquesa', value: '#0f766e' },
+  { name: 'Cinza', value: '#475569' },
+] as const;
+
+const normalizeTagLabel = (value?: string) => String(value || '').trim().toUpperCase();
+
+const colorWithAlpha = (color: string, alpha: number) => {
+  const hex = color.replace('#', '');
+  if (!/^[0-9a-f]{6}$/i.test(hex)) return `rgba(71, 85, 105, ${alpha})`;
+  const numeric = Number.parseInt(hex, 16);
+  return `rgba(${(numeric >> 16) & 255}, ${(numeric >> 8) & 255}, ${numeric & 255}, ${alpha})`;
+};
+
+const getTagStyle = (color?: string) => {
+  const resolvedColor = color || EMPLOYEE_TAG_COLORS[0].value;
+  return {
+    color: resolvedColor,
+    borderColor: colorWithAlpha(resolvedColor, 0.55),
+    backgroundColor: colorWithAlpha(resolvedColor, 0.1),
+  };
+};
+
+const normalizeEmployeeTagDefinitions = (tags: EmployeeTagDefinition[] = []) => Array.from(
+  new Map(
+    tags
+      .map(tag => ({
+        label: normalizeTagLabel(tag?.label),
+        color: tag?.color || EMPLOYEE_TAG_COLORS[0].value,
+      }))
+      .filter(tag => tag.label)
+      .map(tag => [tag.label, tag] as const)
+  ).values()
+).sort((a, b) => a.label.localeCompare(b.label, 'pt-BR', { sensitivity: 'base' }));
 
 interface EmployeesViewProps {
   employees: Employee[];
@@ -327,7 +370,7 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
   const [vacationAccrualStart, setVacationAccrualStart] = useState('');
   const [vacationDeadline, setVacationDeadline] = useState('');
   const [tagText, setTagText] = useState('');
-  const [tagColor, setTagColor] = useState('#64748b');
+  const [tagColor, setTagColor] = useState<string>(EMPLOYEE_TAG_COLORS[0].value);
   
   // Uniforms State (Employee)
   const [uniforms, setUniforms] = useState<UniformItem[]>([]);
@@ -622,7 +665,7 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
     setWorkingHours('08:00 - 16:20'); setFixedDayOff('Segunda-feira');
     setSundayOffs([]); setHourlyWorkDays([]); setHourlyDaysOff([]); setVacationStatus('Pendente');
     setVacationStart(''); setVacationDays(30); setVacationAccrualStart(''); setVacationDeadline('');
-    setTagText(''); setTagColor('#64748b');
+    setTagText(''); setTagColor(EMPLOYEE_TAG_COLORS[0].value);
     setPhotoPreview(null); setNewPhotoFile(null); setIsPhotoRemoved(false);
     setIsAddingEmployee(false); setEditingEmployee(null); setActiveFormTab('DADOS');
   };
@@ -682,7 +725,7 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
     setVacationAccrualStart(emp.vacationAccrualStart || '');
     setVacationDeadline(emp.vacationDeadline || '');
     setTagText(emp.tagText || '');
-    setTagColor(emp.tagColor || '#64748b');
+    setTagColor(emp.tagColor || EMPLOYEE_TAG_COLORS[0].value);
     setPhotoPreview(emp.photo || null);
     setNewPhotoFile(null);
     setIsPhotoRemoved(false);
@@ -798,7 +841,8 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
       name: sectorName.trim(),
       standardUniform: nextUniforms,
       roles: nextRoles,
-      roleSalaries: nextRoleSalaries
+      roleSalaries: nextRoleSalaries,
+      employeeTags: editingSector?.employeeTags || []
     });
     const updatedEmployees = employees
       .filter(emp => emp.sectorId === sectorId)
@@ -838,10 +882,20 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
 
     const selectedRole = normalizeRoleName(role);
     const activeSector = currentSector || sectors.find(sec => sec.id === (editingEmployee?.sectorId || selectedSectorId));
-    if (activeSector && selectedRole) {
+    const normalizedTagText = normalizeTagLabel(tagText);
+    if (activeSector) {
       const updatedRoles = getSortedUniqueRoles([...(activeSector.roles || []), selectedRole]);
-      if (updatedRoles.join('|') !== getSortedUniqueRoles(activeSector.roles || []).join('|')) {
-        onSaveSector({ ...activeSector, roles: updatedRoles });
+      const existingTags = normalizeEmployeeTagDefinitions(activeSector.employeeTags || []);
+      const updatedTags = normalizedTagText
+        ? normalizeEmployeeTagDefinitions([
+            ...existingTags.filter(tag => tag.label !== normalizedTagText),
+            { label: normalizedTagText, color: tagColor || EMPLOYEE_TAG_COLORS[0].value },
+          ])
+        : existingTags;
+      const rolesChanged = updatedRoles.join('|') !== getSortedUniqueRoles(activeSector.roles || []).join('|');
+      const tagsChanged = JSON.stringify(updatedTags) !== JSON.stringify(existingTags);
+      if (rolesChanged || tagsChanged) {
+        onSaveSector({ ...activeSector, roles: updatedRoles, employeeTags: updatedTags });
       }
     }
     const normalizedVacationDays = Math.floor(Number(vacationDays) || 0);
@@ -878,8 +932,8 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
       vacationDeadline: scheduleType === 'Intermitente' ? undefined : vacationDeadline || undefined,
       uniforms,
       history: editingEmployee?.history || [],
-      tagText: tagText.trim().toUpperCase(),
-      tagColor: tagColor || '#64748b',
+      tagText: normalizedTagText,
+      tagColor: tagColor || EMPLOYEE_TAG_COLORS[0].value,
       photo: finalPhoto
     };
     const historyEntries = buildEmployeeChangeHistory(editingEmployee, employeeDraft);
@@ -913,12 +967,17 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
       .filter(emp => emp.sectorId === selectedSectorId)
       .map(emp => emp.role)
   ]), [currentSectorRoles, employees, selectedSectorId]);
-  const tagFilterOptions = useMemo(() => Array.from(new Set<string>(
-    employees
-      .filter(emp => emp.sectorId === selectedSectorId)
-      .map(emp => String(emp.tagText || '').trim().toUpperCase())
-      .filter((tag): tag is string => Boolean(tag))
-  )).sort((a, b) => a.localeCompare(b, 'pt-BR', { sensitivity: 'base' })), [employees, selectedSectorId]);
+  const savedTagOptions = useMemo(() => normalizeEmployeeTagDefinitions([
+    ...employees
+      .filter(emp => emp.sectorId === selectedSectorId && normalizeTagLabel(emp.tagText))
+      .map(emp => ({ label: normalizeTagLabel(emp.tagText), color: emp.tagColor || EMPLOYEE_TAG_COLORS[0].value })),
+    ...(currentSector?.employeeTags || []),
+  ]), [currentSector?.employeeTags, employees, selectedSectorId]);
+  const tagFilterOptions = useMemo(() => savedTagOptions.map(tag => tag.label), [savedTagOptions]);
+  const getEmployeeTagColor = (emp: Employee) =>
+    savedTagOptions.find(tag => tag.label === normalizeTagLabel(emp.tagText))?.color
+      || emp.tagColor
+      || EMPLOYEE_TAG_COLORS[0].value;
   const activeFilterCount = [
     shiftPeriodFilter !== 'TODOS',
     genderFilter !== 'TODOS',
@@ -1834,16 +1893,22 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
                     )}
                   </div>
                   <div className="min-w-0">
-                    <h4 className="font-black text-slate-800 uppercase truncate">{emp.name || 'Sem Nome'}</h4>
+                    <div className="grid grid-cols-[96px_minmax(0,1fr)] sm:grid-cols-[128px_minmax(0,1fr)] items-center gap-2 min-w-0 mb-1">
+                      <div className="min-w-0 h-7 flex items-center">
+                        {emp.tagText && (
+                          <span
+                            className="w-full min-w-0 inline-flex items-center justify-center gap-1 px-2 py-1 rounded-lg border text-[8px] font-black uppercase tracking-wider"
+                            style={getTagStyle(getEmployeeTagColor(emp))}
+                            title={emp.tagText}
+                          >
+                            <Tag size={10} className="shrink-0 opacity-70" />
+                            <span className="truncate">{emp.tagText}</span>
+                          </span>
+                        )}
+                      </div>
+                      <h4 className="min-w-0 font-black text-slate-800 uppercase truncate">{emp.name || 'Sem Nome'}</h4>
+                    </div>
                     <div className="flex flex-wrap gap-1 mb-1">
-                      {emp.tagText && (
-                        <span
-                          className="inline-flex px-3 py-1 rounded-lg text-white text-[9px] font-black uppercase tracking-widest"
-                          style={{ backgroundColor: emp.tagColor || '#64748b' }}
-                        >
-                          {emp.tagText}
-                        </span>
-                      )}
                       {getVacationBadgeText(emp) && (
                         <span className="inline-flex px-3 py-1 rounded-lg bg-blue-50 text-blue-700 text-[9px] font-black uppercase tracking-widest">
                           {getVacationBadgeText(emp)}
@@ -2391,31 +2456,66 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
                        </div>
                        <div className="md:col-span-2">
                           <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Etiqueta do colaborador</label>
-                          <div className="grid grid-cols-[1fr_56px] gap-2">
-                            <input
-                              type="text"
-                              value={tagText}
-                              onChange={e => setTagText(e.target.value.toUpperCase())}
-                              maxLength={30}
-                              placeholder="Ex: LIDER, TREINAMENTO, TEMPORARIO"
-                              className="min-w-0 w-full px-5 py-4 rounded-2xl border-2 font-bold text-slate-800 uppercase"
-                            />
-                            <label className="h-[58px] rounded-2xl border-2 border-slate-200 overflow-hidden cursor-pointer" title="Escolher cor da etiqueta">
-                              <input
-                                type="color"
-                                value={tagColor}
-                                onChange={e => setTagColor(e.target.value)}
-                                className="w-full h-full border-0 cursor-pointer bg-white"
-                                aria-label="Cor da etiqueta"
-                              />
-                            </label>
+                          {savedTagOptions.length > 0 && (
+                            <div className="mb-4">
+                              <p className="mb-2 text-[9px] font-black uppercase tracking-widest text-slate-300">Etiquetas salvas</p>
+                              <div className="flex flex-wrap gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => { setTagText(''); setTagColor(EMPLOYEE_TAG_COLORS[0].value); }}
+                                  className={`h-9 px-3 rounded-lg border text-[9px] font-black uppercase transition-all ${!tagText ? 'border-slate-500 bg-slate-100 text-slate-700' : 'border-slate-200 bg-white text-slate-400'}`}
+                                >
+                                  Sem etiqueta
+                                </button>
+                                {savedTagOptions.map(tag => {
+                                  const selected = normalizeTagLabel(tagText) === tag.label;
+                                  return (
+                                    <button
+                                      key={tag.label}
+                                      type="button"
+                                      onClick={() => { setTagText(tag.label); setTagColor(tag.color); }}
+                                      className="h-9 max-w-full px-3 rounded-lg border text-[9px] font-black uppercase transition-all inline-flex items-center gap-1.5"
+                                      style={{ ...getTagStyle(tag.color), boxShadow: selected ? `0 0 0 2px ${colorWithAlpha(tag.color, 0.24)}` : 'none' }}
+                                    >
+                                      <Tag size={11} />
+                                      <span className="max-w-40 truncate">{tag.label}</span>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+                          <p className="mb-2 text-[9px] font-black uppercase tracking-widest text-slate-300">Criar ou editar etiqueta</p>
+                          <input
+                            type="text"
+                            value={tagText}
+                            onChange={e => setTagText(e.target.value.toUpperCase())}
+                            maxLength={30}
+                            placeholder="Ex: LIDER, TREINAMENTO, TEMPORARIO"
+                            className="min-w-0 w-full px-5 py-4 rounded-2xl border-2 font-bold text-slate-800 uppercase"
+                          />
+                          <div className="mt-3 flex flex-wrap gap-2" aria-label="Cores da etiqueta">
+                            {EMPLOYEE_TAG_COLORS.map(color => (
+                              <button
+                                key={color.value}
+                                type="button"
+                                onClick={() => setTagColor(color.value)}
+                                className="h-10 w-10 rounded-xl border-2 flex items-center justify-center transition-transform hover:scale-105"
+                                style={{ ...getTagStyle(color.value), borderColor: tagColor === color.value ? color.value : colorWithAlpha(color.value, 0.38) }}
+                                aria-label={color.name}
+                                title={color.name}
+                              >
+                                {tagColor === color.value && <CheckCircle2 size={16} />}
+                              </button>
+                            ))}
                           </div>
                           {tagText.trim() && (
                             <span
-                              className="mt-2 inline-flex px-3 py-1 rounded-lg text-white text-[9px] font-black uppercase tracking-widest"
-                              style={{ backgroundColor: tagColor }}
+                              className="mt-3 inline-flex max-w-full items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[9px] font-black uppercase tracking-widest"
+                              style={getTagStyle(tagColor)}
                             >
-                              {tagText}
+                              <Tag size={11} />
+                              <span className="truncate">{tagText}</span>
                             </span>
                           )}
                        </div>

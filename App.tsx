@@ -411,7 +411,8 @@ const App: React.FC = () => {
           name: sec.name || 'Setor Sem Nome',
           standardUniform: safeJSONParse(sec.standardUniform, []),
           roles: normalizeTextList(sec.roles),
-          roleSalaries: safeJSONParse(sec.roleSalaries, {})
+          roleSalaries: safeJSONParse(sec.roleSalaries, {}),
+          employeeTags: safeJSONParse(sec.employeeTags, [])
         })));
 
         // NORMALIZAÇÃO DE ORÇAMENTOS
