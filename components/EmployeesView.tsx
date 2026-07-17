@@ -1893,7 +1893,8 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
                     )}
                   </div>
                   <div className="min-w-0">
-                    <div className="grid grid-cols-[96px_minmax(0,1fr)] sm:grid-cols-[128px_minmax(0,1fr)] items-center gap-2 min-w-0 mb-1">
+                    <div className="grid grid-cols-[minmax(0,1fr)_96px] sm:grid-cols-[minmax(0,1fr)_128px] items-center gap-2 min-w-0 mb-1">
+                      <h4 className="min-w-0 font-black text-slate-800 uppercase truncate">{emp.name || 'Sem Nome'}</h4>
                       <div className="min-w-0 h-7 flex items-center">
                         {emp.tagText && (
                           <span
@@ -1906,7 +1907,6 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
                           </span>
                         )}
                       </div>
-                      <h4 className="min-w-0 font-black text-slate-800 uppercase truncate">{emp.name || 'Sem Nome'}</h4>
                     </div>
                     <div className="flex flex-wrap gap-1 mb-1">
                       {getVacationBadgeText(emp) && (
