@@ -151,6 +151,8 @@ export interface Employee {
   vacationDeadline?: string;
   uniforms: UniformItem[];
   history?: EmployeeHistoryEntry[];
+  tagText?: string;
+  tagColor?: string;
   photo?: string; // Added photo support (Drive Link)
 }
 

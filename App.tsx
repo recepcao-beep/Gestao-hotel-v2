@@ -375,6 +375,8 @@ const App: React.FC = () => {
             vacationAccrualStart: scheduleType === 'Intermitente' ? '' : emp.vacationAccrualStart || '',
             vacationDeadline: scheduleType === 'Intermitente' ? '' : emp.vacationDeadline || '',
             history: safeJSONParse(emp.history, []),
+            tagText: String(emp.tagText || '').trim(),
+            tagColor: String(emp.tagColor || '#64748b'),
             photo: emp.photo || '' // Normalized photo field
           };
         }));

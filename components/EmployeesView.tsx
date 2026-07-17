@@ -51,6 +51,7 @@ type ShiftPeriod = 'MANHA' | 'TARDE' | 'MADRUGADA';
 type ShiftPeriodFilter = 'TODOS' | ShiftPeriod;
 type GenderFilter = 'TODOS' | 'M' | 'F';
 type ScheduleType = Employee['scheduleType'];
+type ScheduleTypeFilter = 'TODOS' | ScheduleType;
 
 interface EmployeesViewProps {
   employees: Employee[];
@@ -109,6 +110,8 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
   const [shiftPeriodFilter, setShiftPeriodFilter] = useState<ShiftPeriodFilter>('TODOS');
   const [genderFilter, setGenderFilter] = useState<GenderFilter>('TODOS');
   const [roleFilter, setRoleFilter] = useState('TODOS');
+  const [tagFilter, setTagFilter] = useState('TODOS');
+  const [scheduleTypeFilter, setScheduleTypeFilter] = useState<ScheduleTypeFilter>('TODOS');
   const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
   const [viewMode, setViewMode] = useState<'LIST' | 'SCALE' | 'TODAY' | 'EXTRAS' | 'ORDERS' | 'WEEKLY_SCALE'>('LIST');
   const [scaleView, setScaleView] = useState<'YEAR' | 'MONTH'>('YEAR');
@@ -321,6 +324,8 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
   const [vacationDays, setVacationDays] = useState(30);
   const [vacationAccrualStart, setVacationAccrualStart] = useState('');
   const [vacationDeadline, setVacationDeadline] = useState('');
+  const [tagText, setTagText] = useState('');
+  const [tagColor, setTagColor] = useState('#64748b');
   
   // Uniforms State (Employee)
   const [uniforms, setUniforms] = useState<UniformItem[]>([]);
@@ -554,6 +559,8 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
       ['vacationDays', 'Dias de férias'],
       ['vacationAccrualStart', 'Início aquisitivo'],
       ['vacationDeadline', 'Limite de férias'],
+      ['tagText', 'Etiqueta'],
+      ['tagColor', 'Cor da etiqueta'],
     ];
     const entries = fields.flatMap(([key, label, formatter]) => {
       const previous = describeValue(before[key], formatter);
@@ -613,6 +620,7 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
     setWorkingHours('08:00 - 16:20'); setFixedDayOff('Segunda-feira');
     setSundayOffs([]); setHourlyWorkDays([]); setHourlyDaysOff([]); setVacationStatus('Pendente');
     setVacationStart(''); setVacationDays(30); setVacationAccrualStart(''); setVacationDeadline('');
+    setTagText(''); setTagColor('#64748b');
     setPhotoPreview(null); setNewPhotoFile(null); setIsPhotoRemoved(false);
     setIsAddingEmployee(false); setEditingEmployee(null); setActiveFormTab('DADOS');
   };
@@ -671,6 +679,8 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
     setVacationDays(emp.vacationDays || getVacationDayCount(emp.vacationStart, emp.vacationEnd) || 30);
     setVacationAccrualStart(emp.vacationAccrualStart || '');
     setVacationDeadline(emp.vacationDeadline || '');
+    setTagText(emp.tagText || '');
+    setTagColor(emp.tagColor || '#64748b');
     setPhotoPreview(emp.photo || null);
     setNewPhotoFile(null);
     setIsPhotoRemoved(false);
@@ -866,6 +876,8 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
       vacationDeadline: scheduleType === 'Intermitente' ? undefined : vacationDeadline || undefined,
       uniforms,
       history: editingEmployee?.history || [],
+      tagText: tagText.trim().toUpperCase(),
+      tagColor: tagColor || '#64748b',
       photo: finalPhoto
     };
     const historyEntries = buildEmployeeChangeHistory(editingEmployee, employeeDraft);
@@ -898,10 +910,18 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
       .filter(emp => emp.sectorId === selectedSectorId)
       .map(emp => emp.role)
   ]), [currentSectorRoles, employees, selectedSectorId]);
+  const tagFilterOptions = useMemo(() => Array.from(new Set<string>(
+    employees
+      .filter(emp => emp.sectorId === selectedSectorId)
+      .map(emp => String(emp.tagText || '').trim().toUpperCase())
+      .filter((tag): tag is string => Boolean(tag))
+  )).sort((a, b) => a.localeCompare(b, 'pt-BR', { sensitivity: 'base' })), [employees, selectedSectorId]);
   const activeFilterCount = [
     shiftPeriodFilter !== 'TODOS',
     genderFilter !== 'TODOS',
-    roleFilter !== 'TODOS'
+    roleFilter !== 'TODOS',
+    tagFilter !== 'TODOS',
+    scheduleTypeFilter !== 'TODOS'
   ].filter(Boolean).length;
 
   useEffect(() => {
@@ -909,6 +929,12 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
       setRoleFilter('TODOS');
     }
   }, [roleFilter, roleFilterOptions]);
+
+  useEffect(() => {
+    if (tagFilter !== 'TODOS' && !tagFilterOptions.includes(tagFilter)) {
+      setTagFilter('TODOS');
+    }
+  }, [tagFilter, tagFilterOptions]);
 
   useEffect(() => {
     if (!isAddingEmployee || scheduleType === 'Intermitente') return;
@@ -1038,14 +1064,18 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
     .filter(e => {
       const matchesSector = e.sectorId === selectedSectorId;
       const normalizedSearch = searchTerm.toLowerCase();
-      const matchesSearch = (e.name || '').toLowerCase().includes(normalizedSearch) || (e.role || '').toLowerCase().includes(normalizedSearch);
+      const matchesSearch = (e.name || '').toLowerCase().includes(normalizedSearch)
+        || (e.role || '').toLowerCase().includes(normalizedSearch)
+        || (e.tagText || '').toLowerCase().includes(normalizedSearch);
       const matchesShift = e.scheduleType === 'Intermitente'
         ? shiftPeriodFilter === 'TODOS'
         : shiftPeriodFilter === 'TODOS' || getEmployeeShiftPeriod(e) === shiftPeriodFilter;
       const employeeGender = String(e.gender || 'M').toUpperCase();
       const matchesGender = genderFilter === 'TODOS' || employeeGender === genderFilter;
       const matchesRole = roleFilter === 'TODOS' || normalizeRoleName(e.role) === roleFilter;
-      return matchesSector && matchesSearch && matchesShift && matchesGender && matchesRole;
+      const matchesTag = tagFilter === 'TODOS' || String(e.tagText || '').trim().toUpperCase() === tagFilter;
+      const matchesScheduleType = scheduleTypeFilter === 'TODOS' || e.scheduleType === scheduleTypeFilter;
+      return matchesSector && matchesSearch && matchesShift && matchesGender && matchesRole && matchesTag && matchesScheduleType;
     })
     .sort((a, b) =>
       (a.name || '').localeCompare(b.name || '', 'pt-BR', { sensitivity: 'base' }) ||
@@ -1523,7 +1553,7 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
             </div>
 
             {isFilterPanelOpen && (
-              <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3">
                 <div>
                   <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Sexo</label>
                   <select value={genderFilter} onChange={e => setGenderFilter(e.target.value as GenderFilter)} className="w-full px-4 py-3 rounded-xl border border-slate-100 bg-slate-50 text-xs font-black uppercase text-slate-700">
@@ -1550,11 +1580,29 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
                     ))}
                   </select>
                 </div>
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Regime</label>
+                  <select value={scheduleTypeFilter} onChange={e => setScheduleTypeFilter(e.target.value as ScheduleTypeFilter)} className="w-full px-4 py-3 rounded-xl border border-slate-100 bg-slate-50 text-xs font-black uppercase text-slate-700">
+                    <option value="TODOS">Todos</option>
+                    {(['6x1', '12x36', 'Intermitente', 'Horista'] as const).map(type => (
+                      <option key={type} value={type}>{type}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Etiqueta</label>
+                  <select value={tagFilter} onChange={e => setTagFilter(e.target.value)} className="w-full px-4 py-3 rounded-xl border border-slate-100 bg-slate-50 text-xs font-black uppercase text-slate-700">
+                    <option value="TODOS">Todas</option>
+                    {tagFilterOptions.map(tag => (
+                      <option key={tag} value={tag}>{tag}</option>
+                    ))}
+                  </select>
+                </div>
                 {activeFilterCount > 0 && (
                   <button
                     type="button"
-                    onClick={() => { setShiftPeriodFilter('TODOS'); setGenderFilter('TODOS'); setRoleFilter('TODOS'); }}
-                    className="sm:col-span-3 inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-slate-50 text-slate-500 text-[10px] font-black uppercase hover:bg-slate-100"
+                    onClick={() => { setShiftPeriodFilter('TODOS'); setGenderFilter('TODOS'); setRoleFilter('TODOS'); setTagFilter('TODOS'); setScheduleTypeFilter('TODOS'); }}
+                    className="sm:col-span-2 xl:col-span-5 inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-slate-50 text-slate-500 text-[10px] font-black uppercase hover:bg-slate-100"
                   >
                     <RotateCcw size={14} />
                     Limpar filtros
@@ -1578,6 +1626,14 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
                   <div className="min-w-0">
                     <h4 className="font-black text-slate-800 uppercase truncate">{emp.name || 'Sem Nome'}</h4>
                     <div className="flex flex-wrap gap-1 mb-1">
+                      {emp.tagText && (
+                        <span
+                          className="inline-flex px-3 py-1 rounded-lg text-white text-[9px] font-black uppercase tracking-widest"
+                          style={{ backgroundColor: emp.tagColor || '#64748b' }}
+                        >
+                          {emp.tagText}
+                        </span>
+                      )}
                       {getVacationBadgeText(emp) && (
                         <span className="inline-flex px-3 py-1 rounded-lg bg-blue-50 text-blue-700 text-[9px] font-black uppercase tracking-widest">
                           {getVacationBadgeText(emp)}
@@ -2090,6 +2146,36 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
                                 <Plus size={18}/>
                               </button>
                             </div>
+                          )}
+                       </div>
+                       <div className="md:col-span-2">
+                          <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Etiqueta do colaborador</label>
+                          <div className="grid grid-cols-[1fr_56px] gap-2">
+                            <input
+                              type="text"
+                              value={tagText}
+                              onChange={e => setTagText(e.target.value.toUpperCase())}
+                              maxLength={30}
+                              placeholder="Ex: LIDER, TREINAMENTO, TEMPORARIO"
+                              className="min-w-0 w-full px-5 py-4 rounded-2xl border-2 font-bold text-slate-800 uppercase"
+                            />
+                            <label className="h-[58px] rounded-2xl border-2 border-slate-200 overflow-hidden cursor-pointer" title="Escolher cor da etiqueta">
+                              <input
+                                type="color"
+                                value={tagColor}
+                                onChange={e => setTagColor(e.target.value)}
+                                className="w-full h-full border-0 cursor-pointer bg-white"
+                                aria-label="Cor da etiqueta"
+                              />
+                            </label>
+                          </div>
+                          {tagText.trim() && (
+                            <span
+                              className="mt-2 inline-flex px-3 py-1 rounded-lg text-white text-[9px] font-black uppercase tracking-widest"
+                              style={{ backgroundColor: tagColor }}
+                            >
+                              {tagText}
+                            </span>
                           )}
                        </div>
                        <div>
