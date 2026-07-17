@@ -1057,7 +1057,7 @@ const GRID_COLUMNS: Record<string, string[]> = {
   apartments: ['id', 'roomNumber', 'floor', 'pisoType', 'pisoStatus', 'banheiroType', 'banheiroStatus', 'temCofre', 'temCortina', 'cortinaStatus', 'cortinaSize', 'cortinaCoverage', 'temEspelhoCorpo', 'espelhoCorpoStatus', 'acBrand', 'moveisStatus', 'moveisDetalhes', 'beds', 'temPortaControle', 'temCabide', 'cabideQuantity', 'temSuportePapel', 'temSuporteShampoo', 'suporteShampooStatus', 'luminariaType', 'luminariaColor', 'tvBrand', 'defects', 'customAnswers'],
   employees: ['id', 'name', 'role', 'gender', 'contact', 'salary', 'sectorId', 'fixedDayOff', 'sundayOffs', 'hourlyWorkDays', 'hourlyDaysOff', 'workingHours', 'shiftPeriod', 'status', 'startDate', 'scheduleType', 'vacationStatus', 'vacationStart', 'vacationEnd', 'vacationDays', 'vacationAccrualStart', 'vacationDeadline', 'uniforms', 'history', 'tagText', 'tagColor', 'photo'],
   budgets: ['id', 'title', 'objective', 'items', 'quotes', 'status', 'createdAt', 'files'],
-  extras: ['id', 'name', 'phone', 'availability', 'serviceQuality', 'observation', 'sectorId'],
+  extras: ['id', 'name', 'phone', 'availability', 'serviceQuality', 'observation', 'sectorId', 'doNotCall'],
   sectors: ['id', 'name', 'standardUniform', 'roles', 'roleSalaries'],
   inventory: ['id', 'ean', 'name', 'category', 'quantity', 'minQuantity', 'unit', 'price', 'supplierId', 'lastUpdate', 'sectorId'],
   inventoryHistory: ['id', 'itemId', 'itemName', 'type', 'quantity', 'timestamp', 'user', 'reason', 'recipientId', 'recipientName'],

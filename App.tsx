@@ -85,11 +85,20 @@ const normalizeLinenItemV2 = (item: any): LinenItem => {
   } as LinenItem;
 };
 
+const normalizeBooleanFlag = (value: any) => {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value === 1;
+  return ['true', '1', 'sim', 'yes'].includes(String(value || '').trim().toLowerCase());
+};
+
 const normalizeCachedHotelData = (data: Partial<HotelData> | undefined): HotelData => {
   const initial = getInitialHotelData();
   const merged = { ...initial, ...(data || {}) } as HotelData;
   return {
     ...merged,
+    extras: Array.isArray(merged.extras)
+      ? merged.extras.map(extra => ({ ...extra, doNotCall: normalizeBooleanFlag(extra.doNotCall) }))
+      : [],
     linenItems: Array.isArray(merged.linenItems) ? merged.linenItems.map(normalizeLinenItemV2) : [],
     linenHistory: Array.isArray(merged.linenHistory) ? merged.linenHistory : [],
     linenMonthlyInventories: Array.isArray(merged.linenMonthlyInventories) ? merged.linenMonthlyInventories : [],
@@ -391,7 +400,8 @@ const App: React.FC = () => {
           availability: safeJSONParse(ext.availability, []),
           serviceQuality: parseFloat(ext.serviceQuality) || 0,
           sectorId: ext.sectorId?.toString() || '',
-          observation: ext.observation || ''
+          observation: ext.observation || '',
+          doNotCall: normalizeBooleanFlag(ext.doNotCall)
         })));
 
         const rawSectors = Array.isArray(incomingData.sectors) ? incomingData.sectors : [];

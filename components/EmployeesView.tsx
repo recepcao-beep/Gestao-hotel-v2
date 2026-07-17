@@ -1,8 +1,8 @@
 
 import React, { useState, useRef, useMemo, useEffect } from 'react';
-import * as XLSX from 'xlsx';
 import * as pdfjsLib from 'pdfjs-dist';
 import pdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+import villageInnLogoUrl from '../village-inn-logo.png';
 import { Employee, Sector, HotelTheme, UniformItem, ExtraLabor, InventoryOperation, EmployeeHistoryEntry } from '../types';
 import { compressImage } from '../utils/imageUtils';
 import Logo from './Logo';
@@ -32,6 +32,7 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   Phone,
+  PhoneOff,
   Settings,
   List,
   AlertCircle,
@@ -121,6 +122,7 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
 
   // Scale Date State
   const [scaleDate, setScaleDate] = useState(new Date());
+  const [isDownloadingScale, setIsDownloadingScale] = useState(false);
   const [hpoUploaded, setHpoUploaded] = useState(false);
   const [weeklyScaleData, setWeeklyScaleData] = useState<any[]>([]);
 
@@ -896,7 +898,8 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
       availability: extraAvailability,
       serviceQuality: extraQuality,
       observation: extraObservation,
-      sectorId: selectedSectorId || editingExtra?.sectorId || ''
+      sectorId: selectedSectorId || editingExtra?.sectorId || '',
+      doNotCall: editingExtra?.doNotCall || false
     });
     resetExtraForm();
   };
@@ -1034,30 +1037,235 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
     return '';
   };
 
-  const downloadScaleExcel = () => {
-    const workbook = XLSX.utils.book_new();
-    const rows = [
-      ['COLABORADOR', 'JORNADA', 'FOLGA FIXA', ...scaleData.map(d => d.date.toString())],
-      ['', '', '', ...scaleData.map(d => d.weekdayShort.toUpperCase())]
-    ];
-    
-    scaleEmployees.forEach(emp => {
-      const row = [
-        emp.name,
-        emp.workingHours || '08:00-16:20',
-        formatFixedDay(emp.fixedDayOff),
-        ...scaleData.map(d => {
-          const status = getShiftStatus(emp, d);
-          if (status === 'FÉRIAS') return 'F';
-          return status || '';
-        })
+  const downloadScaleExcel = async () => {
+    if (isDownloadingScale) return;
+    setIsDownloadingScale(true);
+
+    try {
+      const ExcelJS = (await import('exceljs')).default;
+      const workbook = new ExcelJS.Workbook();
+      workbook.creator = 'Gestão Hotel Village Inn';
+      workbook.created = new Date();
+
+      const worksheet = workbook.addWorksheet('VILAGE', {
+        pageSetup: {
+          orientation: 'landscape',
+          paperSize: 9,
+          fitToPage: true,
+          fitToWidth: 1,
+          fitToHeight: 1,
+          margins: { left: 0.2, right: 0.2, top: 0.3, bottom: 0.3, header: 0.1, footer: 0.1 }
+        }
+      });
+      worksheet.views = [{ showGridLines: false }];
+
+      const dayStartColumn = 6;
+      const lastColumn = dayStartColumn + scaleData.length - 1;
+      const employeeStartRow = 5;
+      const employeeRowCount = Math.max(scaleEmployees.length, 1);
+      const employeeEndRow = employeeStartRow + employeeRowCount - 1;
+      const thinBorder = {
+        top: { style: 'thin', color: { argb: 'FF64748B' } },
+        left: { style: 'thin', color: { argb: 'FF64748B' } },
+        bottom: { style: 'thin', color: { argb: 'FF64748B' } },
+        right: { style: 'thin', color: { argb: 'FF64748B' } }
+      } as const;
+      const center = { horizontal: 'center', vertical: 'middle', wrapText: true } as const;
+
+      worksheet.getColumn(1).width = 4;
+      worksheet.getColumn(2).width = 5;
+      worksheet.getColumn(3).width = 38;
+      worksheet.getColumn(4).width = 16;
+      worksheet.getColumn(5).width = 19;
+      for (let column = dayStartColumn; column <= lastColumn; column++) {
+        worksheet.getColumn(column).width = 4.2;
+      }
+
+      worksheet.getRow(1).height = 31;
+      worksheet.getRow(2).height = 31;
+      worksheet.getRow(3).height = 78;
+      worksheet.getRow(4).height = 25;
+
+      worksheet.mergeCells(1, dayStartColumn, 2, lastColumn);
+      const titleCell = worksheet.getCell(1, dayStartColumn);
+      titleCell.value = scaleTitle;
+      titleCell.font = { name: 'Arial', size: 16, bold: true, color: { argb: 'FF0F172A' } };
+      titleCell.alignment = center;
+
+      const logoResponse = await fetch(villageInnLogoUrl);
+      if (!logoResponse.ok) throw new Error('Não foi possível carregar a logo do Village Inn.');
+      const logoBlob = await logoResponse.blob();
+      const logoBase64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(logoBlob);
+      });
+      const logoId = workbook.addImage({ base64: logoBase64, extension: 'png' });
+      worksheet.addImage(logoId, {
+        tl: { col: 0.35, row: 0.55 },
+        ext: { width: 210, height: 54 }
+      });
+
+      scaleData.forEach((day, index) => {
+        const column = dayStartColumn + index;
+        const weekdayCell = worksheet.getCell(3, column);
+        weekdayCell.value = day.weekdayFull.toLowerCase();
+        weekdayCell.font = { name: 'Arial', size: 8, bold: true };
+        weekdayCell.alignment = { ...center, textRotation: 90 };
+        weekdayCell.border = thinBorder as any;
+
+        const dateCell = worksheet.getCell(4, column);
+        dateCell.value = day.date;
+        dateCell.font = { name: 'Arial', size: 9, bold: true };
+        dateCell.alignment = center;
+        dateCell.border = thinBorder as any;
+
+        if (day.isSunday) {
+          weekdayCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE0F2F1' } };
+          dateCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFB2DFDB' } };
+        }
+      });
+
+      worksheet.mergeCells(4, 1, employeeEndRow, 1);
+      const staffFrame = worksheet.getCell(4, 1);
+      staffFrame.value = 'QUADRO DE FUNCIONÁRIOS';
+      staffFrame.font = { name: 'Arial', size: 9, bold: true };
+      staffFrame.alignment = { ...center, textRotation: 90 };
+      staffFrame.border = thinBorder as any;
+
+      const fixedHeaders: Array<[number, string]> = [
+        [2, 'Nº'],
+        [3, 'COLABORADOR'],
+        [4, 'JORNADA'],
+        [5, 'FOLGA FIXA']
       ];
-      rows.push(row);
-    });
-    
-    const worksheet = XLSX.utils.aoa_to_sheet(rows);
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Escala");
-    XLSX.writeFile(workbook, `Escala_${scaleDate.toISOString().slice(0, 7)}.xlsx`);
+      fixedHeaders.forEach(([column, label]) => {
+        const cell = worksheet.getCell(4, column);
+        cell.value = label;
+        cell.font = { name: 'Arial', size: 9, bold: true };
+        cell.alignment = center;
+        cell.border = thinBorder as any;
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } };
+      });
+
+      if (scaleEmployees.length === 0) {
+        worksheet.getCell(employeeStartRow, 3).value = 'NENHUM COLABORADOR 6X1 OU HORISTA CADASTRADO';
+      }
+
+      scaleEmployees.forEach((employee, employeeIndex) => {
+        const row = employeeStartRow + employeeIndex;
+        worksheet.getRow(row).height = 20;
+        worksheet.getCell(row, 2).value = employeeIndex + 1;
+        worksheet.getCell(row, 3).value = employee.name.toUpperCase();
+        worksheet.getCell(row, 4).value = employee.workingHours || '08:00-16:20';
+        worksheet.getCell(row, 5).value = formatFixedDay(employee.fixedDayOff);
+
+        scaleData.forEach((day, dayIndex) => {
+          const status = getShiftStatus(employee, day);
+          const displayStatus = status === 'F'
+            ? 'F'
+            : status.startsWith('D')
+              ? status
+              : status
+                ? 'FR'
+                : '';
+          worksheet.getCell(row, dayStartColumn + dayIndex).value = displayStatus;
+        });
+
+        for (let column = 2; column <= lastColumn; column++) {
+          const cell = worksheet.getCell(row, column);
+          cell.border = thinBorder as any;
+          cell.font = { name: 'Arial', size: column === 3 ? 8.5 : 8, bold: column !== 4 };
+          cell.alignment = column === 3
+            ? { horizontal: 'left', vertical: 'middle', shrinkToFit: true }
+            : center;
+          if (column >= dayStartColumn && scaleData[column - dayStartColumn]?.isSunday) {
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF0FDFA' } };
+          }
+          if (cell.value === 'FR') {
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDBEAFE' } };
+            cell.font = { ...cell.font, color: { argb: 'FF1D4ED8' }, bold: true };
+          }
+        }
+      });
+
+      const legendStartRow = employeeEndRow + 3;
+      const legendEntries = [
+        ['F', 'FOLGA CONFORME REGISTRO'],
+        ['D1', 'PRIMEIRO DOMINGO DO MÊS'],
+        ['D2', 'SEGUNDO DOMINGO DO MÊS'],
+        ['FF+ DIA DO FERIADO', 'FOLGA REF AO FERIADO DO DIA X'],
+        ['FR', 'FÉRIAS'],
+        ['AF', 'SE O COLABORADOR ESTIVER AFASTADO'],
+        ['BC', 'BANCO DE HORAS']
+      ];
+      worksheet.mergeCells(legendStartRow, 3, legendStartRow, 11);
+      const legendTitle = worksheet.getCell(legendStartRow, 3);
+      legendTitle.value = 'LEGENDA';
+      legendTitle.font = { name: 'Arial', size: 9, bold: true };
+      legendTitle.alignment = center;
+      legendTitle.border = thinBorder as any;
+      legendTitle.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } };
+
+      legendEntries.forEach(([code, description], index) => {
+        const row = legendStartRow + 1 + index;
+        worksheet.getRow(row).height = 20;
+        worksheet.getCell(row, 3).value = code;
+        worksheet.mergeCells(row, 4, row, 11);
+        worksheet.getCell(row, 4).value = description;
+        for (let column = 3; column <= 11; column++) {
+          const cell = worksheet.getCell(row, column);
+          cell.border = thinBorder as any;
+          cell.font = { name: 'Arial', size: 8, bold: column === 3 };
+          cell.alignment = column === 3 ? center : { horizontal: 'left', vertical: 'middle' };
+        }
+      });
+
+      const observationsStartColumn = 13;
+      worksheet.mergeCells(legendStartRow, observationsStartColumn, legendStartRow, lastColumn);
+      const observationsTitle = worksheet.getCell(legendStartRow, observationsStartColumn);
+      observationsTitle.value = 'OBSERVAÇÕES GERAIS:';
+      observationsTitle.font = { name: 'Arial', size: 9, bold: true };
+      observationsTitle.alignment = { horizontal: 'left', vertical: 'middle' };
+      observationsTitle.border = thinBorder as any;
+      observationsTitle.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } };
+      for (let index = 1; index <= 5; index++) {
+        const row = legendStartRow + index;
+        worksheet.mergeCells(row, observationsStartColumn, row, lastColumn);
+        worksheet.getCell(row, observationsStartColumn).border = thinBorder as any;
+      }
+
+      const signatureRow = legendStartRow + legendEntries.length + 3;
+      worksheet.mergeCells(signatureRow, 8, signatureRow, Math.min(lastColumn - 5, 24));
+      const signatureCell = worksheet.getCell(signatureRow, 8);
+      signatureCell.value = 'Ass: ( Nome do Lider de Setor)';
+      signatureCell.font = { name: 'Arial', size: 8 };
+      signatureCell.alignment = { horizontal: 'center', vertical: 'top' };
+      signatureCell.border = { top: { style: 'thin', color: { argb: 'FF64748B' } } } as any;
+
+      const lastColumnLetter = worksheet.getColumn(lastColumn).letter;
+      worksheet.pageSetup.printArea = `A1:${lastColumnLetter}${signatureRow}`;
+      worksheet.pageSetup.printTitlesRow = '1:4';
+
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer as BlobPart], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `Escala_${(currentSector?.name || 'Setor').replace(/[^a-z0-9]+/gi, '_')}_${scaleDate.toISOString().slice(0, 7)}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Erro ao gerar escala em Excel:', error);
+      window.alert('Não foi possível gerar a escala em Excel. Tente novamente.');
+    } finally {
+      setIsDownloadingScale(false);
+    }
   };
 
   const filteredEmployees = employees
@@ -1462,6 +1670,7 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
     <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-500 pb-20">
       
       {/* HIDDEN PRINT LAYOUT */}
+      {viewMode === 'ORDERS' && (
       <div className="hidden print:block fixed inset-0 z-[9999] bg-white p-8 overflow-y-auto">
          <div className="text-center mb-8 border-b-2 border-slate-800 pb-4">
             <h1 className="text-2xl font-black uppercase tracking-widest text-slate-900">Pedido de Uniformes</h1>
@@ -1495,6 +1704,7 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
             </tfoot>
          </table>
       </div>
+      )}
 
       {/* Header and Controls */}
       <div className="flex flex-col md:flex-row gap-4 justify-between items-center bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm print:hidden">
@@ -1681,7 +1891,7 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
       )}
 
       {viewMode === 'SCALE' && (
-        <div className="bg-white rounded-[1rem] border border-slate-200 shadow-sm overflow-hidden animate-in slide-in-from-right-2 print:border-none print:shadow-none">
+        <div className="monthly-scale-document bg-white rounded-[1rem] border border-slate-200 shadow-sm overflow-hidden animate-in slide-in-from-right-2 print:border-none print:shadow-none">
           {scaleView === 'YEAR' ? (
             <div className="p-5 md:p-8 bg-white print:hidden">
               <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-6">
@@ -1783,9 +1993,13 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
                   <button onClick={() => window.print()} className="bg-slate-200 text-slate-700 px-3 py-2 rounded font-bold flex items-center space-x-2 hover:bg-slate-300 transition-colors text-xs">
                      <Printer size={14} /> <span>Imprimir</span>
                    </button>
-                  <button onClick={downloadScaleExcel} className="bg-emerald-600 text-white px-3 py-2 rounded font-bold flex items-center space-x-2 hover:bg-emerald-700 transition-colors text-xs">
-                     <Download size={14} /> <span>Excel</span>
-                 </button>
+                  <button
+                    onClick={downloadScaleExcel}
+                    disabled={isDownloadingScale}
+                    className="bg-emerald-600 text-white px-3 py-2 rounded font-bold flex items-center space-x-2 hover:bg-emerald-700 transition-colors text-xs disabled:cursor-wait disabled:opacity-60"
+                  >
+                     <Download size={14} /> <span>{isDownloadingScale ? 'Gerando...' : 'Excel'}</span>
+                  </button>
                  <input 
                     type="month" 
                     value={scaleDate.toISOString().slice(0, 7)}
@@ -1795,11 +2009,12 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
                 </div>
               </div>
            </div>
-           <div className="hidden print:block p-4 text-center">
-              <h3 className="font-black text-slate-800 uppercase text-xl tracking-widest">{scaleTitle}</h3>
+           <div className="scale-sheet-header flex flex-col sm:flex-row items-center justify-between gap-5 p-5 border-b border-slate-300 bg-white print:flex-row print:p-2">
+               <img src={villageInnLogoUrl} alt="Hotel Village Inn" className="w-[220px] max-w-[55vw] h-auto object-contain" />
+               <h3 className="flex-1 text-center font-black text-slate-800 uppercase text-lg sm:text-xl tracking-widest">{scaleTitle}</h3>
            </div>
-           <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse border border-slate-300">
+           <div className="monthly-scale-scroll overflow-x-auto">
+               <table className="monthly-scale-table w-full text-left border-collapse border border-slate-300">
                  <thead>
                     <tr>
                        <th rowSpan={2} className="sticky left-0 bg-white z-20 px-4 py-2 font-black text-xs uppercase text-slate-800 border border-slate-300 min-w-[250px] text-center align-bottom">
@@ -1897,25 +2112,23 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
                        <tr>
                           <th colSpan={2} className="border border-slate-300 bg-slate-100 py-1 text-center uppercase">LEGENDA</th>
                        </tr>
-                    </thead>
-                    <tbody>
-                       <tr>
-                          <td className="border border-slate-300 py-1 text-center w-1/3">F</td>
-                          <td className="border border-slate-300 py-1 px-2 uppercase text-[10px]">FOLGA</td>
-                       </tr>
-                       <tr>
-                          <td className="border border-slate-300 py-1 text-center"></td>
-                          <td className="border border-slate-300 py-1 px-2 uppercase text-[10px]">DIA DE TRABALHO</td>
-                       </tr>
-                       <tr>
-                          <td className="border border-slate-300 py-1 text-center">BH</td>
-                          <td className="border border-slate-300 py-1 px-2 uppercase text-[10px]">BANCO DE HORA</td>
-                       </tr>
-                       <tr>
-                          <td className="border border-slate-300 py-1 text-center">D</td>
-                          <td className="border border-slate-300 py-1 px-2 uppercase text-[10px]">DOMINGO</td>
-                       </tr>
-                    </tbody>
+                     </thead>
+                     <tbody>
+                        {[
+                          ['F', 'FOLGA CONFORME REGISTRO'],
+                          ['D1', 'PRIMEIRO DOMINGO DO MÊS'],
+                          ['D2', 'SEGUNDO DOMINGO DO MÊS'],
+                          ['FF+ DIA DO FERIADO', 'FOLGA REF AO FERIADO DO DIA X'],
+                          ['FR', 'FÉRIAS'],
+                          ['AF', 'SE O COLABORADOR ESTIVER AFASTADO'],
+                          ['BC', 'BANCO DE HORAS']
+                        ].map(([code, description]) => (
+                          <tr key={code}>
+                            <td className="border border-slate-300 py-1 text-center w-1/3 text-[9px]">{code}</td>
+                            <td className="border border-slate-300 py-1 px-2 uppercase text-[9px]">{description}</td>
+                          </tr>
+                        ))}
+                     </tbody>
                  </table>
               </div>
               <div className="w-full md:w-2/3">
@@ -1924,15 +2137,18 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
                        <tr>
                           <th className="border border-slate-300 bg-slate-100 py-1 text-center uppercase">OBSERVAÇÕES GERAIS:</th>
                        </tr>
-                    </thead>
-                    <tbody>
-                       <tr><td className="border border-slate-300 h-6"></td></tr>
-                       <tr><td className="border border-slate-300 h-6"></td></tr>
-                       <tr><td className="border border-slate-300 h-6"></td></tr>
-                    </tbody>
-                 </table>
-              </div>
-           </div>
+                     </thead>
+                     <tbody>
+                        {[0, 1, 2, 3, 4].map(line => (
+                          <tr key={line}><td className="border border-slate-300 h-6"></td></tr>
+                        ))}
+                     </tbody>
+                  </table>
+               </div>
+            </div>
+            <div className="mx-auto mt-8 mb-5 w-2/3 border-t border-slate-500 pt-2 text-center text-[9px] font-bold text-slate-600">
+              Ass: ( Nome do Lider de Setor)
+            </div>
           </>
           )}
         </div>
@@ -2011,14 +2227,26 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
                   </div>
                ) : (
                   filteredExtras.map(extra => (
-                     <div key={extra.id} className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm relative group hover:shadow-lg transition-all">
+                     <div
+                       key={extra.id}
+                       className={`p-6 rounded-[2rem] border shadow-sm relative group hover:shadow-lg transition-all ${
+                         extra.doNotCall
+                           ? 'bg-rose-50 border-rose-300 shadow-rose-100'
+                           : 'bg-white border-slate-100'
+                       }`}
+                     >
                         <div className="flex items-center space-x-4 mb-4">
-                           <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 font-black text-lg">
+                           <div className={`w-12 h-12 rounded-full flex items-center justify-center font-black text-lg ${extra.doNotCall ? 'bg-rose-200 text-rose-700' : 'bg-slate-100 text-slate-400'}`}>
                               {extra.name[0]}
                            </div>
                            <div>
-                              <h4 className="font-black text-slate-800 text-lg">{extra.name}</h4>
-                              <p className="text-[10px] font-bold text-slate-400 flex items-center"><Phone size={10} className="mr-1"/> {extra.phone}</p>
+                              <div className="flex flex-wrap items-center gap-2 pr-16">
+                                <h4 className={`font-black text-lg ${extra.doNotCall ? 'text-rose-900' : 'text-slate-800'}`}>{extra.name}</h4>
+                                {extra.doNotCall && (
+                                  <span className="rounded-full bg-rose-600 px-2.5 py-1 text-[8px] font-black uppercase tracking-widest text-white">Não chamar</span>
+                                )}
+                              </div>
+                              <p className={`text-[10px] font-bold flex items-center ${extra.doNotCall ? 'text-rose-600' : 'text-slate-400'}`}><Phone size={10} className="mr-1"/> {extra.phone}</p>
                            </div>
                         </div>
                         
@@ -2031,7 +2259,7 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
                                  ))}
                               </div>
                            </div>
-                           <div className="flex justify-between items-center bg-slate-50 p-3 rounded-xl">
+                           <div className={`flex justify-between items-center p-3 rounded-xl ${extra.doNotCall ? 'bg-white/70' : 'bg-slate-50'}`}>
                               <span className="text-[9px] font-black text-slate-400 uppercase">Qualidade</span>
                               <div className="flex gap-0.5">
                                  {[1, 2, 3, 4, 5].map(star => (
@@ -2039,6 +2267,19 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
                                  ))}
                               </div>
                            </div>
+                           <button
+                             type="button"
+                             onClick={() => onSaveExtra({ ...extra, doNotCall: !extra.doNotCall })}
+                             className={`w-full rounded-xl px-4 py-3 text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${
+                               extra.doNotCall
+                                 ? 'bg-white text-rose-700 border border-rose-200 hover:bg-rose-100'
+                                 : 'bg-rose-50 text-rose-600 border border-rose-100 hover:bg-rose-100'
+                             }`}
+                             title={extra.doNotCall ? 'Permitir que esta extra volte a ser chamada' : 'Marcar esta extra para não chamar'}
+                           >
+                             <PhoneOff size={14} />
+                             {extra.doNotCall ? 'Voltar a chamar' : 'Não chamar'}
+                           </button>
                         </div>
 
                         <div className="absolute top-4 right-4 flex space-x-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">

@@ -164,6 +164,7 @@ export interface ExtraLabor {
   serviceQuality: number; // 0 a 10
   observation: string;
   sectorId: string;
+  doNotCall?: boolean;
 }
 
 export interface Supplier {

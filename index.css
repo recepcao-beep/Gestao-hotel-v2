@@ -1,1 +1,54 @@
 /* Estilos globais complementares. A maior parte do layout utiliza classes Tailwind definidas no index.html. */
+
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 6mm;
+  }
+
+  body {
+    background: #fff !important;
+  }
+
+  .monthly-scale-document {
+    overflow: visible !important;
+    width: 100% !important;
+    border: 0 !important;
+    box-shadow: none !important;
+  }
+
+  .monthly-scale-scroll {
+    overflow: visible !important;
+  }
+
+  .monthly-scale-table {
+    width: 100% !important;
+    table-layout: fixed;
+  }
+
+  .monthly-scale-table th,
+  .monthly-scale-table td {
+    padding: 1px !important;
+    font-size: 7px !important;
+  }
+
+  .monthly-scale-table th:first-child,
+  .monthly-scale-table td:first-child {
+    position: static !important;
+    width: 36mm !important;
+    min-width: 36mm !important;
+  }
+
+  .monthly-scale-table th:nth-child(2),
+  .monthly-scale-table td:nth-child(2),
+  .monthly-scale-table th:nth-child(3),
+  .monthly-scale-table td:nth-child(3) {
+    position: static !important;
+    width: 16mm !important;
+    min-width: 16mm !important;
+  }
+
+  .scale-sheet-header img {
+    width: 42mm !important;
+  }
+}
