@@ -52,10 +52,13 @@ MAPINHA_NAME_CELLS_JSON={"200":"Mapinha!E41","300":"Mapinha!J41","400":"Mapinha!
 
 - `verificacao_diaria`: executa `mr.py`, `obs.py`, `vinc2.py`.
 - `vinculacao_semanal`: executa `limpeza.py`, `mr.py`, `obs.py`, `vinc2.py`.
-- `mapa`: executa `mapa.py`.
+
+O workflow usa `robots/vinculacao/run.py`, com 3 tentativas por robo. O MR
+processa a projecao de 7 dias. O clique de overbooking fica desativado por
+padrao e pode ser reativado com `PERMITIR_CLIQUE_OVERBOOKING=1`.
 
 ## Teste manual
 
-No GitHub, abra `Actions > Vinculacao HITS > Run workflow` e escolha a rotina.
+No GitHub, abra `Actions > Robos HITS > Run workflow` e escolha a rotina.
 
 Depois de validar manualmente, use a aba `Robos` no app para disparar pelo Vercel.

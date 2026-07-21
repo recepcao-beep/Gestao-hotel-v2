@@ -25,6 +25,7 @@ def executar_mapeamento_total(headless=None, fator_pausa=0.5):
     # --- CONFIGURAÇÕES ---
     ID_PLANILHA = "1oMKFu9aobTP5sBuF0jjSR4In3Z6EcWfATCe_9ijNFXA"
     BASE_DIR = Path(__file__).resolve().parent
+    DIAS_PROJECAO = 7
 
     caminho_token = Path(os.getenv("GOOGLE_TOKEN_PATH", str(BASE_DIR / "token.json")))
     if not caminho_token.exists() and Path("token.json").exists():
@@ -151,11 +152,11 @@ def executar_mapeamento_total(headless=None, fator_pausa=0.5):
         js_click(wait.until(EC.element_to_be_clickable((By.XPATH, '//*[@id="menureservations"]/a'))))
         pausar(10)
 
-        for i in range(7):
+        for i in range(DIAS_PROJECAO):
             data_alvo = datetime.datetime.now() + datetime.timedelta(days=i)
             data_str = data_alvo.strftime("%d/%m/%y")
             str_range = f"{data_str} - {data_str}"
-            print(f"🕒 Reservas - Dia {i+1}/7: {data_str}")
+            print(f"🕒 Reservas - Dia {i+1}/{DIAS_PROJECAO}: {data_str}")
 
             if focar_quadro_do_elemento('//*[@id="one-search-filters-container"]/div[2]/span[2]/one-translate'):
                 js_click(driver.find_element(By.XPATH, '//*[@id="one-search-filters-container"]/div[2]/span[2]/one-translate'))

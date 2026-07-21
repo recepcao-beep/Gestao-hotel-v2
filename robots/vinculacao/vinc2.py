@@ -50,6 +50,7 @@ def executar_vinculacao_2_0(headless=None, fator_pausa=0.8):
     CATEGORIAS_SEM_SACADA = {"2CC", "2CSS"}
     CATEGORIAS_ISOLADAS = {"SP", "3CS"}
     CATEGORIAS_VALIDAS = sorted(XPATH_CATS.keys(), key=len, reverse=True)
+    PERMITIR_CLIQUE_OVERBOOKING = os.getenv("PERMITIR_CLIQUE_OVERBOOKING", "0") == "1"
 
     chrome_options = Options()
     chrome_options.add_argument("--start-maximized")
@@ -169,6 +170,13 @@ def executar_vinculacao_2_0(headless=None, fator_pausa=0.8):
                 return False
 
             print(f"AP selecionado validado para overbooking: {ap_overbooking}")
+            if not PERMITIR_CLIQUE_OVERBOOKING:
+                print(
+                    "Clique de permitir/confirmar overbooking DESATIVADO. "
+                    "Para reativar, defina PERMITIR_CLIQUE_OVERBOOKING=1."
+                )
+                return False
+
             if clicar_confirmacao_overbooking(timeout=10):
                 print("Confirmacao de overbooking enviada!")
                 esperar_loading_sumir(timeout=15)
@@ -414,6 +422,7 @@ def executar_vinculacao_2_0(headless=None, fator_pausa=0.8):
     def fechar_modal_quartos():
         xpaths_cancelar = [
             "//button[@ng-click='cancelRooms(reservationRoom)' or @title='Cancelar']",
+            "//*[@id='btn_cancel_selectUpdateRoom']/em",
             "/html/body/div[1]/div/div/modal-reservation-edit-select-update-grouped-rooms/div[3]/button[2]",
             "//*[@id='abandonUpdateRooms']",
         ]
@@ -426,6 +435,79 @@ def executar_vinculacao_2_0(headless=None, fator_pausa=0.8):
         ActionChains(driver).send_keys(Keys.ESCAPE).perform()
         esperar_loading_sumir(timeout=8)
         return False
+
+    def normalizar_data_curta(texto):
+        match = re.search(r"(\d{1,2})/(\d{1,2})/(\d{2,4})", texto or "")
+        if not match:
+            return ""
+        dia, mes, ano = match.groups()
+        return f"{dia.zfill(2)}/{mes.zfill(2)}/{ano[-2:]}"
+
+    def ler_checkin_modal_quartos(timeout=5):
+        xpath_checkin_modal = (
+            "/html/body/div[1]/div/div/modal-reservation-edit-select-update-grouped-rooms"
+            "/div[2]/div/div[2]/div/div[2]/span[1]"
+        )
+
+        try:
+            elemento = WebDriverWait(driver, timeout, poll_frequency=0.2).until(
+                EC.presence_of_element_located((By.XPATH, xpath_checkin_modal))
+            )
+            texto = driver.execute_script(
+                "return arguments[0].innerText || arguments[0].textContent || '';",
+                elemento,
+            )
+            return normalizar_data_curta(texto), texto.replace("\n", " ").strip()
+        except Exception as erro:
+            print(f"Nao consegui ler a data de check-in do modal: {erro}")
+            return "", ""
+
+    def cancelar_selecao_update_room():
+        xpath_cancelar_x = "//*[@id='btn_cancel_selectUpdateRoom']/em"
+        if clicar_quando_pronto(xpath_cancelar_x, timeout=3, descricao="X cancelar selecao de quarto"):
+            esperar_loading_sumir(timeout=8)
+            return True
+        return fechar_modal_quartos()
+
+    def abrir_cama_validando_checkin(botao_cama, data_ui_alvo, indice_bloco, validar_data=True):
+        try:
+            js_click(botao_cama)
+            esperar_loading_sumir(timeout=12)
+        except Exception as erro:
+            print(f"Falha ao abrir o bloco {indice_bloco + 1}: {erro}")
+            return False
+
+        if not validar_data or not data_ui_alvo:
+            return True
+
+        data_modal, texto_modal = ler_checkin_modal_quartos(timeout=6)
+        if data_modal == data_ui_alvo:
+            print(
+                f"Bloco {indice_bloco + 1} validado: check-in do modal "
+                f"{data_modal} bate com a planilha."
+            )
+            return True
+
+        print(
+            f"Bloco {indice_bloco + 1} ignorado: check-in do modal "
+            f"'{texto_modal or data_modal or 'nao lido'}' nao bate com "
+            f"{data_ui_alvo}."
+        )
+        cancelar_selecao_update_room()
+        return False
+
+    def aguardar_proximo_quarto_grupo(qtd_quartos_reserva, ap_alvo):
+        if qtd_quartos_reserva <= 1:
+            return
+
+        print(
+            f"AP {ap_alvo} confirmado. Aguardando 3s antes do proximo "
+            "quarto do grupo para evitar sobreposicao de abas/modais..."
+        )
+        time.sleep(3)
+        esperar_loading_sumir(timeout=15)
+        driver.switch_to.default_content()
+        focar_quadro_do_elemento("//button[contains(@id, 'btnRoomSelectInEdit')]", 10)
 
     def elemento_clicavel_do_ap(elemento):
         clicavel = driver.execute_script(
@@ -455,6 +537,58 @@ def executar_vinculacao_2_0(headless=None, fator_pausa=0.8):
             elemento,
         )
         return clicavel or elemento
+
+    def apartamento_normal_selecionado(ap_alvo, timeout=5):
+        fim = time.time() + timeout
+
+        while time.time() < fim:
+            try:
+                botoes = driver.find_elements(
+                    By.XPATH,
+                    "//modal-reservation-edit-select-update-grouped-rooms"
+                    "//button[contains(normalize-space(), '%s') or .//*[contains(normalize-space(), '%s')]]"
+                    % (ap_alvo, ap_alvo),
+                )
+                for botao in botoes:
+                    if not botao.is_displayed():
+                        continue
+
+                    texto = driver.execute_script(
+                        "return arguments[0].innerText || arguments[0].textContent || '';",
+                        botao,
+                    ).replace("\n", " ").strip()
+                    classes = botao.get_attribute("class") or ""
+                    icones = botao.find_elements(
+                        By.XPATH,
+                        ".//*[contains(@class, 'fa-check') or contains(@class, 'check') "
+                        "or contains(normalize-space(.), 'clear')]",
+                    )
+
+                    if texto_tem_ap(texto, ap_alvo) and (
+                        "btn-success" in classes
+                        or "active" in classes
+                        or "selected" in classes
+                        or any(icone.is_displayed() for icone in icones)
+                        or "clear" in texto.lower()
+                    ):
+                        return True
+
+                area_modal = driver.find_element(
+                    By.XPATH,
+                    "//modal-reservation-edit-select-update-grouped-rooms",
+                )
+                texto_modal = driver.execute_script(
+                    "return arguments[0].innerText || arguments[0].textContent || '';",
+                    area_modal,
+                )
+                if texto_tem_ap(texto_modal, ap_alvo) and "clear" in texto_modal.lower():
+                    return True
+            except Exception:
+                pass
+
+            pausar(0.2)
+
+        return False
 
     def texto_apartamento_selecionado_overbooking():
         xpath_area_selecionado = "/html/body/div[1]/div/div/modal-update-room-type/div[2]/div[5]/div[1]"
@@ -816,6 +950,8 @@ def executar_vinculacao_2_0(headless=None, fator_pausa=0.8):
                 f"Validando com os {len(lista_aps)} requeridos na planilha..."
             )
 
+            aps_processados_no_voucher = set()
+
             for dados_alvo in lista_aps:
                 ap_alvo = dados_alvo["ap"]
                 cat_alvo = dados_alvo["cat"]
@@ -823,15 +959,45 @@ def executar_vinculacao_2_0(headless=None, fator_pausa=0.8):
 
                 print(f"\nProcessando destino: {ap_alvo} (Cat: {cat_alvo}) | Data Alvo: {data_ui_alvo}")
 
+                driver.switch_to.default_content()
+                esperar_loading_sumir(timeout=10)
+                if not focar_quadro_do_elemento("//button[contains(@id, 'btnRoomSelectInEdit')]", 10):
+                    print(
+                        "Nao achei os botoes de quarto na reserva aberta. "
+                        "Tentando reabrir o voucher para continuar o grupo..."
+                    )
+                    driver.switch_to.default_content()
+                    esperar_loading_sumir(timeout=10)
+                    if not abrir_reserva_do_voucher(voucher):
+                        print(
+                            f"Nao consegui reabrir o voucher {voucher}. "
+                            "Parando este grupo para evitar mexer na reserva errada."
+                        )
+                        break
+                    if not focar_quadro_do_elemento("//button[contains(@id, 'btnRoomSelectInEdit')]", 15):
+                        print(
+                            "Reserva reaberta, mas botoes de quarto nao apareceram. "
+                            "Parando este grupo."
+                        )
+                        break
+
                 botoes_cama = driver.find_elements(By.XPATH, "//button[contains(@id, 'btnRoomSelectInEdit')]")
                 cama_selecionada = None
                 indice_da_cama = -1
+                modal_quartos_aberto = False
+                validar_checkin_modal = qtd_quartos_reserva > 1
 
                 print("Cruzando a data da planilha com os blocos da tela...")
                 texto_card_selecionado = ""
 
                 for idx, btn_c in enumerate(botoes_cama):
                     texto_card = texto_card_da_cama(btn_c)
+                    if any(texto_tem_ap(texto_card, ap_ok) for ap_ok in aps_processados_no_voucher):
+                        print(
+                            f"Pulando bloco {idx + 1}: ja contem AP processado "
+                            f"neste voucher ({sorted(aps_processados_no_voucher)})."
+                        )
+                        continue
 
                     is_disabled = (
                         btn_c.get_attribute("disabled")
@@ -862,28 +1028,87 @@ def executar_vinculacao_2_0(headless=None, fator_pausa=0.8):
                             break
 
                 if not cama_selecionada:
-                    print(
-                        f"Nao achei bloco exato com data {data_ui_alvo} e AP N/D. "
-                        "Pegando a primeira cama livre..."
-                    )
-
-                    for idx, btn_c in enumerate(botoes_cama):
-                        is_disabled = (
-                            btn_c.get_attribute("disabled")
-                            or "disabled" in (btn_c.get_attribute("class") or "")
+                    if validar_checkin_modal:
+                        print(
+                            f"Nao achei bloco exato pelo card. Reserva com "
+                            f"{qtd_quartos_reserva} quartos: testando botoes "
+                            "pelo check-in do modal..."
                         )
-                        if not is_disabled:
-                            cama_selecionada = btn_c
-                            indice_da_cama = idx
-                            texto_card_selecionado = texto_card_da_cama(btn_c)
-                            break
+
+                        for idx, btn_c in enumerate(botoes_cama):
+                            is_disabled = (
+                                btn_c.get_attribute("disabled")
+                                or "disabled" in (btn_c.get_attribute("class") or "")
+                            )
+                            if is_disabled:
+                                continue
+
+                            texto_card = texto_card_da_cama(btn_c)
+                            if any(texto_tem_ap(texto_card, ap_ok) for ap_ok in aps_processados_no_voucher):
+                                print(
+                                    f"Pulando bloco {idx + 1}: ja contem AP processado "
+                                    f"neste voucher ({sorted(aps_processados_no_voucher)})."
+                                )
+                                continue
+                            if abrir_cama_validando_checkin(
+                                btn_c,
+                                data_ui_alvo,
+                                idx,
+                                validar_data=True,
+                            ):
+                                cama_selecionada = btn_c
+                                indice_da_cama = idx
+                                texto_card_selecionado = texto_card
+                                modal_quartos_aberto = True
+                                break
+                    else:
+                        print(
+                            f"Nao achei bloco exato com data {data_ui_alvo} e AP N/D. "
+                            "Pegando a primeira cama livre..."
+                        )
+
+                        for idx, btn_c in enumerate(botoes_cama):
+                            texto_card = texto_card_da_cama(btn_c)
+                            if any(texto_tem_ap(texto_card, ap_ok) for ap_ok in aps_processados_no_voucher):
+                                print(
+                                    f"Pulando bloco {idx + 1}: ja contem AP processado "
+                                    f"neste voucher ({sorted(aps_processados_no_voucher)})."
+                                )
+                                continue
+                            is_disabled = (
+                                btn_c.get_attribute("disabled")
+                                or "disabled" in (btn_c.get_attribute("class") or "")
+                            )
+                            if not is_disabled:
+                                cama_selecionada = btn_c
+                                indice_da_cama = idx
+                                texto_card_selecionado = texto_card
+                                break
 
                 if not cama_selecionada:
                     print(
                         f"Erro fatal: nao ha icones de cama livres "
-                        f"para processar o AP {ap_alvo}."
+                        f"com check-in {data_ui_alvo} para processar o AP {ap_alvo}."
                     )
                     break
+
+                if validar_checkin_modal and not modal_quartos_aberto:
+                    print(
+                        f"Validando no modal o bloco {indice_da_cama + 1} "
+                        f"antes de vincular..."
+                    )
+                    modal_quartos_aberto = abrir_cama_validando_checkin(
+                        cama_selecionada,
+                        data_ui_alvo,
+                        indice_da_cama,
+                        validar_data=True,
+                    )
+                    if not modal_quartos_aberto:
+                        print(
+                            "Bloco descartado pela data do modal. "
+                            "Voltando ao fluxo da proxima reserva/alvo."
+                        )
+                        break
 
                 cat_bloco_atual = obter_categoria_bloco(
                     indice_da_cama,
@@ -919,13 +1144,17 @@ def executar_vinculacao_2_0(headless=None, fator_pausa=0.8):
                         f"{cat_alvo_normalizada}. Indo direto ao overbooking "
                         "para corrigir a categoria e vincular o apartamento."
                     )
+                    if modal_quartos_aberto:
+                        fechar_modal_quartos()
+                        modal_quartos_aberto = False
                     driver.switch_to.default_content()
                     esperar_loading_sumir()
                 else:
                     # Categoria correta ou não identificada:
                     # preserva integralmente o fluxo atual que já encontra os quartos.
-                    js_click(cama_selecionada)
-                    esperar_loading_sumir(timeout=12)
+                    if not modal_quartos_aberto:
+                        js_click(cama_selecionada)
+                        esperar_loading_sumir(timeout=12)
 
                     quarto_vinculado_btn = None
                     botoes_tela = driver.find_elements(
@@ -954,8 +1183,12 @@ def executar_vinculacao_2_0(headless=None, fator_pausa=0.8):
                                 f"A cama ja esta com o AP {ap_alvo} marcado. "
                                 "Confirmando e seguindo..."
                             )
-                            confirmar_acao(is_overbooking=False)
-                            continue
+                            if confirmar_acao(is_overbooking=False):
+                                aps_processados_no_voucher.add(ap_alvo)
+                                aguardar_proximo_quarto_grupo(qtd_quartos_reserva, ap_alvo)
+                                continue
+                            print(f"Confirmacao falhou para o AP {ap_alvo}.")
+                            break
 
                         print(
                             "Desmarcando quarto errado/antigo "
@@ -981,15 +1214,29 @@ def executar_vinculacao_2_0(headless=None, fator_pausa=0.8):
 
                     if elemento_clicavel:
                         print(f"Selecionando {ap_alvo} na tela atual...")
+                        alvo_click = elemento_clicavel_do_ap(elemento_clicavel)
                         try:
                             ActionChains(driver).move_to_element(
-                                elemento_clicavel
+                                alvo_click
                             ).click().perform()
                         except Exception:
-                            js_click(elemento_clicavel)
+                            js_click(alvo_click)
 
-                        confirmar_acao(is_overbooking=False)
-                        continue
+                        time.sleep(0.5)
+                        if not apartamento_normal_selecionado(ap_alvo, timeout=5):
+                            print(
+                                f"BLOQUEADO: clique no AP {ap_alvo} foi feito, "
+                                "mas ele nao apareceu como selecionado. "
+                                "Nao vou confirmar nem sair da tela."
+                            )
+                            continue
+
+                        if confirmar_acao(is_overbooking=False):
+                            aps_processados_no_voucher.add(ap_alvo)
+                            aguardar_proximo_quarto_grupo(qtd_quartos_reserva, ap_alvo)
+                            continue
+                        print(f"Confirmacao falhou para o AP {ap_alvo}.")
+                        break
 
                     if categoria_igual:
                         print(
