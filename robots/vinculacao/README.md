@@ -4,8 +4,7 @@ Esta pasta contem o fluxo operacional disparado pelo GitHub Actions.
 
 ## Fluxos
 
-- `verificacao_diaria`: `mr.py` -> `obs.py` -> `vinc2.py`.
-- `vinculacao_semanal`: `limpeza.py` -> `mr.py` -> `obs.py` -> `vinc2.py`.
+- `vinculacao_diaria`: `limpeza.py` -> `mr.py` -> `obs.py` -> `vinc2.py`.
 
 O `run.py` executa os robos em sequencia e repete somente o robo que falhar. Por
 padrao sao feitas 3 tentativas, com intervalo de 20 segundos. Os valores podem
@@ -16,15 +15,13 @@ ser alterados por `ROBOT_RETRIES` e `ROBOT_RETRY_SLEEP`.
 No GitHub Actions, o fluxo sempre usa Chrome headless:
 
 ```bash
-python robots/vinculacao/run.py verificacao_diaria --headless
-python robots/vinculacao/run.py vinculacao_semanal --headless
+python robots/vinculacao/run.py vinculacao_diaria --headless
 ```
 
 Para acompanhar o navegador localmente, execute na pasta do repositorio:
 
 ```bash
-python robots/vinculacao/run.py verificacao_diaria --visual
-python robots/vinculacao/run.py vinculacao_semanal --visual
+python robots/vinculacao/run.py vinculacao_diaria --visual
 ```
 
 ## Arquivos operacionais

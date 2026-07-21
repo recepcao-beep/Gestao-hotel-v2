@@ -50,8 +50,7 @@ MAPINHA_NAME_CELLS_JSON={"200":"Mapinha!E41","300":"Mapinha!J41","400":"Mapinha!
 
 ## Rotinas disponiveis
 
-- `verificacao_diaria`: executa `mr.py`, `obs.py`, `vinc2.py`.
-- `vinculacao_semanal`: executa `limpeza.py`, `mr.py`, `obs.py`, `vinc2.py`.
+- `vinculacao_diaria`: executa `limpeza.py`, `mr.py`, `obs.py`, `vinc2.py`.
 
 O workflow usa `robots/vinculacao/run.py`, com 3 tentativas por robo. O MR
 processa a projecao de 7 dias. O clique de overbooking fica desativado por

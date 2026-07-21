@@ -7,11 +7,10 @@ on:
       rotina:
         description: Rotina para executar
         required: true
-        default: verificacao_diaria
+        default: vinculacao_diaria
         type: choice
         options:
-          - verificacao_diaria
-          - vinculacao_semanal
+          - vinculacao_diaria
 
 concurrency:
   group: robos-hits-operacionais
@@ -60,10 +59,5 @@ jobs:
         run: |
           google-chrome --version || chromium-browser --version || chromium --version
 
-      - name: Executar verificacao diaria
-        if: ${{ inputs.rotina == 'verificacao_diaria' }}
-        run: python robots/vinculacao/run.py verificacao_diaria --headless
-
-      - name: Executar vinculacao semanal
-        if: ${{ inputs.rotina == 'vinculacao_semanal' }}
-        run: python robots/vinculacao/run.py vinculacao_semanal --headless
+      - name: Executar vinculacao diaria
+        run: python robots/vinculacao/run.py vinculacao_diaria --headless

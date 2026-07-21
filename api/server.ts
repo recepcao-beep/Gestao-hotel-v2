@@ -97,17 +97,16 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-type VinculacaoRotina = 'verificacao_diaria' | 'vinculacao_semanal' | 'mapa' | 'checkin_email' | 'checkin_whatsapp';
+type VinculacaoRotina = 'vinculacao_diaria' | 'mapa' | 'checkin_email' | 'checkin_whatsapp';
 
 const VINCULACAO_ROTINAS = new Set<VinculacaoRotina>([
-  'verificacao_diaria',
-  'vinculacao_semanal',
+  'vinculacao_diaria',
   'mapa',
   'checkin_email',
   'checkin_whatsapp',
 ]);
 
-function getGitHubWorkflowConfig(rotina: VinculacaoRotina = 'verificacao_diaria') {
+function getGitHubWorkflowConfig(rotina: VinculacaoRotina = 'vinculacao_diaria') {
   const isCheckinEmail = rotina === 'checkin_email';
   const owner = process.env.GITHUB_OWNER || process.env.VERCEL_GIT_REPO_OWNER || '';
   const repo = process.env.GITHUB_REPO || process.env.VERCEL_GIT_REPO_SLUG || '';
@@ -149,7 +148,7 @@ function githubHeaders(token: string) {
 
 app.post('/api/robots/vinculacao/run', async (req, res) => {
   try {
-    const rotina = String(req.body?.rotina || 'verificacao_diaria') as VinculacaoRotina;
+    const rotina = String(req.body?.rotina || 'vinculacao_diaria') as VinculacaoRotina;
     if (!VINCULACAO_ROTINAS.has(rotina)) {
       return res.status(400).json({ status: 'error', message: 'Rotina invalida.' });
     }
@@ -178,7 +177,7 @@ app.post('/api/robots/vinculacao/run', async (req, res) => {
 
 app.get('/api/robots/vinculacao/status', async (req, res) => {
   try {
-    const rotina = String(req.query?.rotina || 'verificacao_diaria') as VinculacaoRotina;
+    const rotina = String(req.query?.rotina || 'vinculacao_diaria') as VinculacaoRotina;
     if (!VINCULACAO_ROTINAS.has(rotina)) {
       return res.status(400).json({ status: 'error', message: 'Rotina invalida.' });
     }

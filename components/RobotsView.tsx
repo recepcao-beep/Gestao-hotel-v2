@@ -7,7 +7,6 @@ import {
   Bot,
   CalendarDays,
   CalendarCheck2,
-  CalendarRange,
   CheckCircle2,
   Clipboard,
   ClipboardCheck,
@@ -34,7 +33,7 @@ import {
 } from 'lucide-react';
 import { HotelTheme } from '../types';
 
-type Rotina = 'verificacao_diaria' | 'vinculacao_semanal' | 'checkin_email' | 'checkin_whatsapp';
+type Rotina = 'vinculacao_diaria' | 'checkin_email' | 'checkin_whatsapp';
 type ObservacaoSetor = 'restaurante' | 'governanca' | 'recepcao';
 type ReceptionTab = 'robos' | 'mensagens' | 'observacoes' | 'lavanderia';
 
@@ -96,27 +95,24 @@ interface CheckinWhatsappContact {
 }
 
 const rotinaLabels: Record<Rotina, string> = {
-  verificacao_diaria: 'Verificacao diaria',
-  vinculacao_semanal: 'Vinculacao semanal',
+  vinculacao_diaria: 'Vinculacao diaria',
   checkin_email: 'Check-in por email',
   checkin_whatsapp: 'Contatos WhatsApp',
 };
 
 const rotinaDescriptions: Record<Rotina, string> = {
-  verificacao_diaria: 'MR + OBS + vinculacao',
-  vinculacao_semanal: 'Limpeza + MR + OBS + vinculacao',
+  vinculacao_diaria: 'Limpeza + MR + OBS + vinculacao',
   checkin_email: 'Anexos + cadastro + etiquetas',
   checkin_whatsapp: 'Entradas de hoje + telefones',
 };
 
 const rotinaIcons: Record<Rotina, React.ElementType> = {
-  verificacao_diaria: CalendarCheck2,
-  vinculacao_semanal: CalendarRange,
+  vinculacao_diaria: CalendarCheck2,
   checkin_email: MailCheck,
   checkin_whatsapp: MessageCircle,
 };
 
-const vinculacaoRotinas: Rotina[] = ['verificacao_diaria', 'vinculacao_semanal'];
+const vinculacaoRotinas: Rotina[] = ['vinculacao_diaria'];
 const outrosRobos: Rotina[] = ['checkin_email'];
 
 const receptionTabs: { id: ReceptionTab; label: string; description: string; icon: React.ElementType }[] = [
@@ -230,7 +226,7 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
   const [run, setRun] = useState<RobotRun | null>(null);
   const [loadingStatus, setLoadingStatus] = useState(false);
   const [running, setRunning] = useState<Rotina | null>(null);
-  const [trackingRotina, setTrackingRotina] = useState<Rotina>('verificacao_diaria');
+  const [trackingRotina, setTrackingRotina] = useState<Rotina>('vinculacao_diaria');
   const [trackingStartedAt, setTrackingStartedAt] = useState<number | null>(null);
   const [trackedRunId, setTrackedRunId] = useState<number | null>(null);
   const [isWatchingRun, setIsWatchingRun] = useState(false);

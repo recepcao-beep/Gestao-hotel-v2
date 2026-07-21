@@ -7,12 +7,7 @@ from pathlib import Path
 
 
 ROTINAS = {
-    "verificacao_diaria": [
-        ["mr.py", "--fator-pausa", "0.5"],
-        ["obs.py", "--fator-pausa", "0.7"],
-        ["vinc2.py", "--fator-pausa", "0.8"],
-    ],
-    "vinculacao_semanal": [
+    "vinculacao_diaria": [
         ["limpeza.py", "--pausa-rolagem", "1.0", "--pausa-acao", "1.0"],
         ["mr.py", "--fator-pausa", "0.5"],
         ["obs.py", "--fator-pausa", "0.7"],
