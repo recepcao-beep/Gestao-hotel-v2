@@ -16,7 +16,11 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.keys import Keys
-from selenium.common.exceptions import TimeoutException, StaleElementReferenceException
+from selenium.common.exceptions import (
+    NoSuchElementException,
+    StaleElementReferenceException,
+    TimeoutException,
+)
 
 
 def executar_vinculacao_2_0(headless=None, fator_pausa=0.8):
@@ -75,6 +79,7 @@ def executar_vinculacao_2_0(headless=None, fator_pausa=0.8):
     wait = WebDriverWait(driver, 20)
     wait_medio = WebDriverWait(driver, 10)
     wait_rapido = WebDriverWait(driver, 3)
+    ultima_confirmacao_registro_modificado = False
 
     def js_click(elemento):
         driver.execute_script("arguments[0].scrollIntoView({block: 'center', inline: 'center'});", elemento)
@@ -149,15 +154,46 @@ def executar_vinculacao_2_0(headless=None, fator_pausa=0.8):
             avisos = driver.find_elements(By.XPATH, xpath_ok_erro)
             for aviso in avisos:
                 if aviso.is_displayed():
-                    print("Detectado pop-up 'Registro Modificado'. Fechando...")
+                    texto_modal = driver.execute_script(
+                        """
+                        var node = arguments[0];
+                        while (node && node !== document.body) {
+                            var classes = String(node.className || '');
+                            if (classes.indexOf('modal-content') >= 0 ||
+                                node.getAttribute('role') === 'dialog') {
+                                return node.innerText || node.textContent || '';
+                            }
+                            node = node.parentNode;
+                        }
+                        return arguments[0].parentNode
+                            ? (arguments[0].parentNode.innerText || '')
+                            : '';
+                        """,
+                        aviso,
+                    ) or ""
+                    texto_visivel = ""
+                    try:
+                        texto_visivel = driver.find_element(By.TAG_NAME, "body").text
+                    except Exception:
+                        pass
+                    registro_modificado = (
+                        "registro modificado"
+                        in f"{texto_modal}\n{texto_visivel}".lower()
+                    )
+                    if registro_modificado:
+                        print("Detectado pop-up 'Registro Modificado'. Fechando...")
+                    else:
+                        print("Detectado pop-up de confirmacao. Fechando...")
                     js_click(aviso)
                     esperar_loading_sumir(timeout=5)
-                    return True
+                    return registro_modificado
         except Exception:
             pass
         return False
 
     def confirmar_acao(is_overbooking=False, ap_overbooking=None):
+        nonlocal ultima_confirmacao_registro_modificado
+        ultima_confirmacao_registro_modificado = False
         fechar_aviso_modificado()
 
         if is_overbooking:
@@ -180,7 +216,7 @@ def executar_vinculacao_2_0(headless=None, fator_pausa=0.8):
             if clicar_confirmacao_overbooking(timeout=10):
                 print("Confirmacao de overbooking enviada!")
                 esperar_loading_sumir(timeout=15)
-                fechar_aviso_modificado()
+                ultima_confirmacao_registro_modificado = fechar_aviso_modificado()
                 return True
             print("Nao consegui clicar no botao de confirmar overbooking.")
             return False
@@ -189,14 +225,14 @@ def executar_vinculacao_2_0(headless=None, fator_pausa=0.8):
         if clicar_quando_pronto(xpath_btn_confirmar, timeout=10, descricao="confirmacao de vinculacao"):
             print("Confirmacao de vinculacao enviada!")
             esperar_loading_sumir(timeout=15)
-            fechar_aviso_modificado()
+            ultima_confirmacao_registro_modificado = fechar_aviso_modificado()
             return True
 
         xpath_fallback = "/html/body/div[1]/div/div/modal-reservation-edit-select-update-grouped-rooms/div[3]/button[1]"
         if clicar_quando_pronto(xpath_fallback, timeout=5, descricao="confirmacao fallback"):
             print("Confirmacao enviada via fallback!")
             esperar_loading_sumir(timeout=15)
-            fechar_aviso_modificado()
+            ultima_confirmacao_registro_modificado = fechar_aviso_modificado()
             return True
 
         return False
@@ -286,6 +322,117 @@ def executar_vinculacao_2_0(headless=None, fator_pausa=0.8):
             ) or ""
         except Exception:
             return ""
+
+    def id_card_da_cama(botao_cama):
+        """Guarda o card exato do bloco para validar o resultado apos salvar."""
+        try:
+            return driver.execute_script(
+                """
+                var node = arguments[0];
+                while (node) {
+                    if (node.id && node.id.indexOf('cardRoomType') === 0) {
+                        return node.id;
+                    }
+                    node = node.parentNode;
+                }
+                return '';
+                """,
+                botao_cama,
+            ) or ""
+        except Exception:
+            return ""
+
+    def ler_status_ap_no_card(card_id, indice_bloco, ap_esperado, timeout=5):
+        """Rele o campo de apartamento ate ele sair de N/D ou expirar."""
+        nonlocal ultima_confirmacao_registro_modificado
+        houve_registro_modificado = ultima_confirmacao_registro_modificado
+        ultima_confirmacao_registro_modificado = False
+
+        xpath_cancelar_selecao = "//*[@id='btn_cancel_selectUpdateRoom']/em"
+        if focar_quadro_do_elemento(xpath_cancelar_selecao, 2):
+            for botao_cancelar in driver.find_elements(
+                By.XPATH,
+                xpath_cancelar_selecao,
+            ):
+                if botao_cancelar.is_displayed():
+                    print("Fechando o seletor para conferir o card da reserva...")
+                    js_click(botao_cancelar)
+                    esperar_loading_sumir(timeout=8)
+                    break
+
+        xpath_botoes = "//button[contains(@id, 'btnRoomSelectInEdit')]"
+        driver.switch_to.default_content()
+        esperar_loading_sumir(timeout=15)
+
+        if focar_quadro_do_elemento(xpath_botoes, timeout):
+            botoes_atuais = driver.find_elements(By.XPATH, xpath_botoes)
+            if 0 <= indice_bloco < len(botoes_atuais):
+                card_id_atual = id_card_da_cama(botoes_atuais[indice_bloco])
+                if card_id_atual:
+                    card_id = card_id_atual
+
+        if not card_id:
+            print(
+                "Nao consegui identificar o card para conferir a vinculacao. "
+                "Tratando como N/D para repetir com seguranca."
+            )
+            return "N/D"
+
+        xpath_status = (
+            f'//*[@id="{card_id}"]/div[1]/div[1]/div[1]/span[4]/one-translate'
+        )
+        if not focar_quadro_do_elemento(xpath_status, timeout):
+            xpath_card = f'//*[@id="{card_id}"]'
+            if focar_quadro_do_elemento(xpath_card, 3):
+                limite_card = time.time() + timeout
+                while time.time() < limite_card:
+                    try:
+                        texto_card = driver.find_element(By.XPATH, xpath_card).text
+                        if re.search(r"(^|\s)N/D($|\s)", texto_card or ""):
+                            print(
+                                f"Conferencia do card {card_id}: N/D "
+                                "(HITS recriou o campo interno)."
+                            )
+                            return "N/D"
+                        if texto_tem_ap(texto_card, ap_esperado):
+                            print(
+                                f"Conferencia do card {card_id}: AP "
+                                f"{ap_esperado} vinculado."
+                            )
+                            return ap_esperado
+                    except (NoSuchElementException, StaleElementReferenceException):
+                        pass
+                    time.sleep(0.5)
+            print(
+                f"Nao foi possivel confirmar o AP no campo do card {card_id}. "
+                "Tratando como N/D para repetir com seguranca."
+            )
+            if houve_registro_modificado:
+                print(
+                    "A confirmacao foi recusada por Registro Modificado; "
+                    "o AP sera tratado como N/D e repetido."
+                )
+            return "N/D"
+
+        limite = time.time() + timeout
+        ultimo_status = ""
+        while time.time() < limite:
+            try:
+                campo = driver.find_element(By.XPATH, xpath_status)
+                ultimo_status = (
+                    campo.text or campo.get_attribute("textContent") or ""
+                ).strip()
+                if ultimo_status and ultimo_status.upper() != "N/D":
+                    break
+            except (NoSuchElementException, StaleElementReferenceException):
+                pass
+            time.sleep(0.5)
+
+        print(
+            f"Conferencia do card {card_id}: "
+            f"{ultimo_status or 'campo vazio/nao lido'}."
+        )
+        return ultimo_status or "N/D"
 
     def obter_categoria_bloco(indice_bloco, botao_cama=None, texto_card=""):
         """
@@ -951,8 +1098,35 @@ def executar_vinculacao_2_0(headless=None, fator_pausa=0.8):
             )
 
             aps_processados_no_voucher = set()
+            repeticoes_por_ap = {}
 
-            for dados_alvo in lista_aps:
+            def reagendar_se_continua_nd(
+                status_card,
+                dados,
+                indice_atual,
+                apartamento,
+                data_alvo,
+            ):
+                if status_card.upper() != "N/D":
+                    return False
+
+                chave_repeticao = (apartamento, data_alvo)
+                repeticoes = repeticoes_por_ap.get(chave_repeticao, 0)
+                if repeticoes < 3:
+                    repeticoes_por_ap[chave_repeticao] = repeticoes + 1
+                    lista_aps.insert(indice_atual + 1, dados.copy())
+                    print(
+                        f"AP {apartamento} continuou N/D apos confirmar. "
+                        f"Repetindo a vinculacao agora ({repeticoes + 1}/3)."
+                    )
+                else:
+                    print(
+                        f"BLOQUEADO: AP {apartamento} permaneceu N/D apos "
+                        "3 repeticoes. Seguindo sem marcar como vinculado."
+                    )
+                return True
+
+            for indice_alvo, dados_alvo in enumerate(lista_aps):
                 ap_alvo = dados_alvo["ap"]
                 cat_alvo = dados_alvo["cat"]
                 data_ui_alvo = dados_alvo["data_ui"]
@@ -1092,6 +1266,8 @@ def executar_vinculacao_2_0(headless=None, fator_pausa=0.8):
                     )
                     break
 
+                card_id_selecionado = id_card_da_cama(cama_selecionada)
+
                 if validar_checkin_modal and not modal_quartos_aberto:
                     print(
                         f"Validando no modal o bloco {indice_da_cama + 1} "
@@ -1184,6 +1360,19 @@ def executar_vinculacao_2_0(headless=None, fator_pausa=0.8):
                                 "Confirmando e seguindo..."
                             )
                             if confirmar_acao(is_overbooking=False):
+                                status_card = ler_status_ap_no_card(
+                                    card_id_selecionado,
+                                    indice_da_cama,
+                                    ap_alvo,
+                                )
+                                if reagendar_se_continua_nd(
+                                    status_card,
+                                    dados_alvo,
+                                    indice_alvo,
+                                    ap_alvo,
+                                    data_ui_alvo,
+                                ):
+                                    continue
                                 aps_processados_no_voucher.add(ap_alvo)
                                 aguardar_proximo_quarto_grupo(qtd_quartos_reserva, ap_alvo)
                                 continue
@@ -1232,6 +1421,19 @@ def executar_vinculacao_2_0(headless=None, fator_pausa=0.8):
                             continue
 
                         if confirmar_acao(is_overbooking=False):
+                            status_card = ler_status_ap_no_card(
+                                card_id_selecionado,
+                                indice_da_cama,
+                                ap_alvo,
+                            )
+                            if reagendar_se_continua_nd(
+                                status_card,
+                                dados_alvo,
+                                indice_alvo,
+                                ap_alvo,
+                                data_ui_alvo,
+                            ):
+                                continue
                             aps_processados_no_voucher.add(ap_alvo)
                             aguardar_proximo_quarto_grupo(qtd_quartos_reserva, ap_alvo)
                             continue
