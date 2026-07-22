@@ -50,8 +50,8 @@ MAPINHA_NAME_CELLS_JSON={"200":"Mapinha!E41","300":"Mapinha!J41","400":"Mapinha!
 
 ## Rotinas disponiveis
 
-- `verificacao_diaria`: executa `mr.py`, `obs.py`, `vinc2.py`.
-- `vinculacao_semanal`: executa `limpeza.py`, `mr.py`, `obs.py`, `vinc2.py`.
+- `verificacao_diaria`: executa `mr.py`, `obs.py`, `vinc3.py`.
+- `vinculacao_semanal`: executa `limpeza.py`, `mr.py`, `obs.py`, `vinc3.py`.
 - `mapa`: executa `mapa.py`.
 
 ## Teste manual

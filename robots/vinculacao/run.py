@@ -6,11 +6,11 @@ from pathlib import Path
 
 
 ROTINAS = {
-    "verificacao_diaria": ["mr.py", "obs.py", "vinc2.py"],
-    "verificacao_diaria_conciliada": ["mr.py", "obs.py", "conciliar.py", "vinc2.py", "mr.py"],
+    "verificacao_diaria": ["mr.py", "obs.py", "vinc3.py --headless"],
+    "verificacao_diaria_conciliada": ["mr.py", "obs.py", "conciliar.py", "vinc3.py --headless", "mr.py"],
     "conciliacao_dry_run": ["conciliar.py --dry-run"],
-    "vinc2_dry_run": ["vinc2.py --dry-run"],
-    "vinculacao_semanal": ["limpeza.py", "mr.py", "obs.py", "vinc2.py"],
+    "vinc3_dry_run": ["vinc3.py --headless --dry-run"],
+    "vinculacao_semanal": ["limpeza.py", "mr.py", "obs.py", "vinc3.py --headless"],
     "mapa": ["mapa.py"],
     "checkin_whatsapp": ["checkin_whatsapp.py"],
 }
