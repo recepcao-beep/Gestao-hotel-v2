@@ -32,7 +32,6 @@ def executar_limpeza(headless=None, pausa_rolagem=1.0, pausa_acao=1.0):
     wait_medio = WebDriverWait(driver, 8)
     wait_rapido = WebDriverWait(driver, 2)
 
-    ids_processados = set()
     contador_limpeza = 0
 
     def js_click(elemento):
@@ -77,6 +76,25 @@ def executar_limpeza(headless=None, pausa_rolagem=1.0, pausa_acao=1.0):
         aguardar_overlay_sumir(timeout=15)
         print("Mapa aberto.")
 
+    def fechar_mapa_reservas():
+        print("Fechando Mapa de Reservas...")
+        driver.switch_to.default_content()
+        try:
+            botao_fechar = WebDriverWait(driver, 8).until(
+                EC.element_to_be_clickable((By.XPATH, '//*[@id="closeTabnewChart"]'))
+            )
+            js_click(botao_fechar)
+            aguardar_overlay_sumir(timeout=15)
+            time.sleep(1)
+            print("Mapa fechado.")
+            return True
+        except TimeoutException:
+            print("Botao de fechar mapa nao apareceu; seguindo com a finalizacao.")
+            return False
+        except Exception as erro:
+            print(f"Nao consegui fechar o mapa: {erro}")
+            return False
+
     def rolar_mapa_inteligente(pixels):
         try:
             scroll_div = wait_medio.until(
@@ -98,34 +116,24 @@ def executar_limpeza(headless=None, pausa_rolagem=1.0, pausa_acao=1.0):
             driver.execute_script("window.scrollBy(0, arguments[0]);", pixels)
             return True
 
-    try:
-        driver.get(URL_PADRAO)
-        print("Realizando login...")
-
-        hits_email = os.getenv("HITS_EMAIL") or input("Digite o HITS_EMAIL: ").strip()
-        hits_password = os.getenv("HITS_PASSWORD") or getpass.getpass("Digite o HITS_PASSWORD: ")
-        if not hits_email or not hits_password:
-            raise RuntimeError("HITS_EMAIL/HITS_PASSWORD não configurados.")
-        wait.until(EC.visibility_of_element_located((By.ID, "Email"))).send_keys(hits_email)
-        driver.find_element(By.ID, "Password").send_keys(hits_password)
-        driver.find_element(By.XPATH, "//button[@type='submit']").click()
-        aguardar_overlay_sumir(timeout=25)
-
-        print("Navegando ate o Mapa...")
-        clicar_primeiro_disponivel([(By.XPATH, '//*[@id="menuPrimary"]/a')], timeout=10, descricao="menu principal")
-        clicar_primeiro_disponivel([(By.ID, "menufrontdesk")], timeout=10, descricao="front desk")
-        clicar_primeiro_disponivel([(By.XPATH, '//*[@id="menunewChart"]/a')], timeout=10, descricao="new chart")
-
-        abrir_mapa_reservas()
-
+    def varrer_mapa_reservas(numero_ciclo):
+        ids_processados = set()
+        limpos_no_ciclo = 0
         xpath_container_botoes = "/html/body/div[1]/div/div/create-reservation-component/div/div[1]/div/div[3]/div/div/div[2]/button"
         xpath_confirmar_sim = "/html/body/div[6]/div[7]/div/button"
 
         scrolls_vazios = 0
         limite_scrolls_vazios = 20
 
+        print(f"Iniciando ciclo de limpeza {numero_ciclo}...")
+
         while scrolls_vazios < limite_scrolls_vazios:
-            wait_medio.until(EC.presence_of_element_located((By.CLASS_NAME, "scheduler_default_event_inner")))
+            try:
+                wait_medio.until(EC.presence_of_element_located((By.CLASS_NAME, "scheduler_default_event_inner")))
+            except TimeoutException:
+                print("Nenhuma reserva visivel no mapa neste ciclo.")
+                break
+
             reservas_visiveis = driver.find_elements(By.CLASS_NAME, "scheduler_default_event_inner")
             achou_algo_nesta_tela = False
 
@@ -137,6 +145,7 @@ def executar_limpeza(headless=None, pausa_rolagem=1.0, pausa_acao=1.0):
                 scroll_top = 0
 
             for res in reservas_visiveis:
+                res_id_unico = None
                 try:
                     loc = res.location
 
@@ -183,7 +192,7 @@ def executar_limpeza(headless=None, pausa_rolagem=1.0, pausa_acao=1.0):
                     aguardar_overlay_sumir(timeout=15)
 
                     print("   Sucesso!")
-                    contador_limpeza += 1
+                    limpos_no_ciclo += 1
                     achou_algo_nesta_tela = True
                     ids_processados.add(res_id_unico)
                     time.sleep(0.2)
@@ -195,7 +204,8 @@ def executar_limpeza(headless=None, pausa_rolagem=1.0, pausa_acao=1.0):
                         driver.execute_script("document.body.click();")
                     except Exception:
                         pass
-                    ids_processados.add(res_id_unico)
+                    if res_id_unico:
+                        ids_processados.add(res_id_unico)
                 except Exception:
                     continue
 
@@ -210,6 +220,41 @@ def executar_limpeza(headless=None, pausa_rolagem=1.0, pausa_acao=1.0):
                 scrolls_vazios += 1
             else:
                 scrolls_vazios = 0
+
+        print(f"Ciclo {numero_ciclo} finalizado. Limpos no ciclo: {limpos_no_ciclo}")
+        return limpos_no_ciclo
+
+    try:
+        driver.get(URL_PADRAO)
+        print("Realizando login...")
+
+        hits_email = os.getenv("HITS_EMAIL") or input("Digite o HITS_EMAIL: ").strip()
+        hits_password = os.getenv("HITS_PASSWORD") or getpass.getpass("Digite o HITS_PASSWORD: ")
+        if not hits_email or not hits_password:
+            raise RuntimeError("HITS_EMAIL/HITS_PASSWORD não configurados.")
+        wait.until(EC.visibility_of_element_located((By.ID, "Email"))).send_keys(hits_email)
+        driver.find_element(By.ID, "Password").send_keys(hits_password)
+        driver.find_element(By.XPATH, "//button[@type='submit']").click()
+        aguardar_overlay_sumir(timeout=25)
+
+        print("Navegando ate o Mapa...")
+        clicar_primeiro_disponivel([(By.XPATH, '//*[@id="menuPrimary"]/a')], timeout=10, descricao="menu principal")
+        clicar_primeiro_disponivel([(By.ID, "menufrontdesk")], timeout=10, descricao="front desk")
+        clicar_primeiro_disponivel([(By.XPATH, '//*[@id="menunewChart"]/a')], timeout=10, descricao="new chart")
+
+        ciclo = 1
+        while True:
+            abrir_mapa_reservas()
+            limpos_no_ciclo = varrer_mapa_reservas(ciclo)
+            contador_limpeza += limpos_no_ciclo
+            fechar_mapa_reservas()
+
+            if limpos_no_ciclo == 0:
+                print("Ciclo de conferencia sem apartamentos para desvincular. Encerrando limpeza.")
+                break
+
+            print("Foram feitas desvinculacoes. Reiniciando o mapa para conferir novamente por seguranca.")
+            ciclo += 1
 
     except Exception as e:
         print(f"Erro Geral: {e}")
