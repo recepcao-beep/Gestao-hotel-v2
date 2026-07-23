@@ -26,7 +26,7 @@ jobs:
       ROBOT_HEADLESS: "1"
       ROBOT_RETRIES: "3"
       ROBOT_RETRY_SLEEP: "20"
-      PERMITIR_CLIQUE_OVERBOOKING: "0"
+      PERMITIR_CLIQUE_OVERBOOKING: "1"
       HITS_EMAIL: ${{ secrets.HITS_EMAIL }}
       HITS_PASSWORD: ${{ secrets.HITS_PASSWORD }}
       GOOGLE_TOKEN_JSON: ${{ secrets.GOOGLE_TOKEN_JSON }}
@@ -52,7 +52,7 @@ jobs:
             robots/vinculacao/limpeza.py \
             robots/vinculacao/mr.py \
             robots/vinculacao/obs.py \
-            robots/vinculacao/vinc2.py \
+            robots/vinculacao/vinc3.py \
             robots/vinculacao/run.py
 
       - name: Verificar Chrome
