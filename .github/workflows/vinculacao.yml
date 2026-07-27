@@ -11,6 +11,9 @@ on:
         type: choice
         options:
           - vinculacao_diaria
+          - mr
+          - vinc3
+          - limpeza
 
 concurrency:
   group: robos-hits-operacionais
@@ -59,5 +62,5 @@ jobs:
         run: |
           google-chrome --version || chromium-browser --version || chromium --version
 
-      - name: Executar vinculacao diaria
-        run: python robots/vinculacao/run.py vinculacao_diaria --headless
+      - name: Executar rotina selecionada
+        run: python robots/vinculacao/run.py "${{ inputs.rotina }}" --headless

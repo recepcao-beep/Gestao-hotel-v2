@@ -97,10 +97,13 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-type VinculacaoRotina = 'vinculacao_diaria' | 'mapa' | 'checkin_email' | 'checkin_whatsapp';
+type VinculacaoRotina = 'vinculacao_diaria' | 'mr' | 'vinc3' | 'limpeza' | 'mapa' | 'checkin_email' | 'checkin_whatsapp';
 
 const VINCULACAO_ROTINAS = new Set<VinculacaoRotina>([
   'vinculacao_diaria',
+  'mr',
+  'vinc3',
+  'limpeza',
   'mapa',
   'checkin_email',
   'checkin_whatsapp',
