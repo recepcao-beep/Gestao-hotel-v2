@@ -13,6 +13,15 @@ ROTINAS = {
         ["obs.py", "--fator-pausa", "0.7"],
         ["vinc3.py", "--fator-pausa", "0.8"],
     ],
+    "mr": [
+        ["mr.py", "--fator-pausa", "0.5"],
+    ],
+    "vinc3": [
+        ["vinc3.py", "--fator-pausa", "0.8"],
+    ],
+    "limpeza": [
+        ["limpeza.py", "--pausa-rolagem", "1.0", "--pausa-acao", "1.0"],
+    ],
 }
 
 

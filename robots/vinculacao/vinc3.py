@@ -4,6 +4,7 @@ import getpass
 import os
 import time
 import re
+from datetime import date, datetime, timedelta
 from pathlib import Path
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
@@ -391,8 +392,92 @@ def executar_vinculacao_2_0(headless=None, fator_pausa=0.8, credenciais_json=Non
         cliente = gspread.authorize(creds)
         aba = cliente.open_by_key(ID_PLANILHA).worksheet(NOME_ABA)
 
-        linhas = aba.get_all_values()[1:]
+        valores = aba.get_all_values()
+        if not valores:
+            return {}
+
+        cabecalho = valores[0]
+        linhas = valores[1:]
         agrupados = {}
+        hoje = date.today()
+
+        def normalizar_header(valor):
+            return re.sub(r"[^a-z0-9]+", "", str(valor or "").strip().lower())
+
+        def normalizar_data_planilha(valor):
+            texto = str(valor or "").strip()
+            if not texto:
+                return None, ""
+
+            if re.fullmatch(r"\d+([,.]\d+)?", texto):
+                try:
+                    serial = float(texto.replace(",", "."))
+                    base = datetime(1899, 12, 30)
+                    data = (base + timedelta(days=serial)).date()
+                    return data, data.strftime("%d/%m/%y")
+                except Exception:
+                    pass
+
+            formatos = (
+                "%d/%m/%Y",
+                "%d/%m/%y",
+                "%Y-%m-%d",
+                "%d-%m-%Y",
+                "%d-%m-%y",
+            )
+            for formato in formatos:
+                try:
+                    data = datetime.strptime(texto.split()[0], formato).date()
+                    return data, data.strftime("%d/%m/%y")
+                except ValueError:
+                    continue
+
+            if "/" in texto:
+                partes = texto.split("/")
+                if len(partes) >= 3:
+                    data_ui = f"{partes[0].zfill(2)}/{partes[1].zfill(2)}/{partes[2][-2:]}"
+                    return None, data_ui
+
+            return None, ""
+
+        def indice_coluna_data():
+            nomes_data = {
+                "data",
+                "checkin",
+                "datacheckin",
+                "entrada",
+                "datadeentrada",
+            }
+            for idx, nome in enumerate(cabecalho):
+                if normalizar_header(nome) in nomes_data:
+                    return idx
+
+            candidatos = [idx for idx in (3, 4) if len(cabecalho) > idx]
+            melhor_idx = None
+            melhor_pontuacao = -1
+            for idx in candidatos:
+                pontuacao = 0
+                for linha in linhas[:25]:
+                    if len(linha) <= idx:
+                        continue
+                    data_linha, _ = normalizar_data_planilha(linha[idx])
+                    if data_linha == hoje:
+                        pontuacao += 100
+                    elif data_linha:
+                        pontuacao += 1
+                if pontuacao > melhor_pontuacao:
+                    melhor_idx = idx
+                    melhor_pontuacao = pontuacao
+            if melhor_idx is not None and melhor_pontuacao > 0:
+                return melhor_idx
+
+            return 3 if len(cabecalho) >= 4 else 4
+
+        idx_data = indice_coluna_data()
+        print(
+            f"Filtro de data ativo: somente {hoje.strftime('%d/%m/%y')} "
+            f"(coluna {idx_data + 1})."
+        )
 
         for linha in linhas:
             if len(linha) < 3:
@@ -402,16 +487,24 @@ def executar_vinculacao_2_0(headless=None, fator_pausa=0.8, credenciais_json=Non
             a_s = str(linha[1]).strip()
             c_s = str(linha[2]).strip().upper()
 
-            data_in = str(linha[4]).strip() if len(linha) >= 5 else ""
-            data_ui = ""
-            if data_in and "/" in data_in:
-                partes = data_in.split("/")
-                if len(partes) >= 3:
-                    data_ui = f"{partes[0].zfill(2)}/{partes[1].zfill(2)}/{partes[2][-2:]}"
+            data_in = str(linha[idx_data]).strip() if len(linha) > idx_data else ""
+            data_linha, data_ui = normalizar_data_planilha(data_in)
+
+            if data_linha != hoje:
+                print(
+                    f"Ignorando voucher {v_s or '(sem voucher)'}: "
+                    f"data da planilha '{data_in or 'vazia'}' nao e hoje."
+                )
+                continue
 
             if v_s and a_s and c_s:
                 agrupados.setdefault(v_s, []).append({"ap": a_s, "cat": c_s, "data_ui": data_ui})
 
+        total_linhas = sum(len(itens) for itens in agrupados.values())
+        print(
+            f"Linhas validas para vinculacao hoje: {total_linhas} "
+            f"em {len(agrupados)} voucher(s)."
+        )
         return agrupados
 
     def mesma_familia_sacada(cat_origem, cat_destino):
@@ -1221,6 +1314,10 @@ def executar_vinculacao_2_0(headless=None, fator_pausa=0.8, credenciais_json=Non
 
     try:
         dados = obter_dados()
+        if not dados:
+            print("Nenhuma linha de hoje encontrada em VINCULACAO_HOJE. Nada a vincular.")
+            return
+
         driver.get(URL_HITS)
 
         hits_email = os.getenv("HITS_EMAIL") or input("Digite o HITS_EMAIL: ").strip()

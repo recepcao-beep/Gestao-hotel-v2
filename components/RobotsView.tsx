@@ -33,7 +33,7 @@ import {
 } from 'lucide-react';
 import { HotelTheme } from '../types';
 
-type Rotina = 'vinculacao_diaria' | 'checkin_email' | 'checkin_whatsapp';
+type Rotina = 'vinculacao_diaria' | 'mr' | 'vinc3' | 'limpeza' | 'checkin_email' | 'checkin_whatsapp';
 type ObservacaoSetor = 'restaurante' | 'governanca' | 'recepcao';
 type ReceptionTab = 'robos' | 'mensagens' | 'observacoes' | 'lavanderia';
 
@@ -96,23 +96,32 @@ interface CheckinWhatsappContact {
 
 const rotinaLabels: Record<Rotina, string> = {
   vinculacao_diaria: 'Vinculacao diaria',
+  mr: 'Atualizar mapinha',
+  vinc3: 'Vinculacao',
+  limpeza: 'Limpar mapa',
   checkin_email: 'Check-in por email',
   checkin_whatsapp: 'Contatos WhatsApp',
 };
 
 const rotinaDescriptions: Record<Rotina, string> = {
-  vinculacao_diaria: 'Limpeza + MR + OBS + vinculacao',
+  vinculacao_diaria: 'Limpeza + MR + OBS + VINC3',
+  mr: 'Roda apenas o MR e atualiza a projecao do mapinha.',
+  vinc3: 'Roda apenas o VINC3 para vincular apartamentos de hoje.',
+  limpeza: 'Roda apenas a limpeza do mapa de reservas.',
   checkin_email: 'Anexos + cadastro + etiquetas',
   checkin_whatsapp: 'Entradas de hoje + telefones',
 };
 
 const rotinaIcons: Record<Rotina, React.ElementType> = {
   vinculacao_diaria: CalendarCheck2,
+  mr: CalendarDays,
+  vinc3: Bot,
+  limpeza: Trash2,
   checkin_email: MailCheck,
   checkin_whatsapp: MessageCircle,
 };
 
-const vinculacaoRotinas: Rotina[] = ['vinculacao_diaria'];
+const vinculacaoRotinas: Rotina[] = ['vinculacao_diaria', 'mr', 'vinc3', 'limpeza'];
 const outrosRobos: Rotina[] = ['checkin_email'];
 
 const receptionTabs: { id: ReceptionTab; label: string; description: string; icon: React.ElementType }[] = [
