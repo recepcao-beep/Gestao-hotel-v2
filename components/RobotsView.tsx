@@ -2,9 +2,12 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AlertCircle,
   AlertTriangle,
+  ArrowDownToLine,
+  ArrowUpFromLine,
   BedDouble,
   BellRing,
   Bot,
+  Building2,
   CalendarDays,
   CalendarCheck2,
   CheckCircle2,
@@ -12,9 +15,11 @@ import {
   ClipboardCheck,
   Clock3,
   ConciergeBell,
+  DoorOpen,
   ExternalLink,
   FileText,
   Home,
+  LayoutDashboard,
   Loader2,
   MailCheck,
   MessageCircle,
@@ -29,6 +34,7 @@ import {
   Terminal,
   Trash2,
   Utensils,
+  Wrench,
   X,
 } from 'lucide-react';
 import { HotelTheme } from '../types';
@@ -36,6 +42,7 @@ import { HotelTheme } from '../types';
 type Rotina = 'vinculacao_diaria' | 'mr' | 'vinc3' | 'limpeza' | 'checkin_email' | 'checkin_whatsapp';
 type ObservacaoSetor = 'restaurante' | 'governanca' | 'recepcao';
 type ReceptionTab = 'robos' | 'mensagens' | 'observacoes' | 'lavanderia';
+type OperationalSection = 'recepcao' | 'governanca';
 
 interface RobotsViewProps {
   theme: HotelTheme;
@@ -81,6 +88,45 @@ interface ObservacoesPayload {
 interface ExceptionFloor {
   date: string;
   floor: string;
+}
+
+interface HousekeepingMetrics {
+  occupied?: number;
+  vacant: number;
+  blocked?: number;
+  maintenance?: number;
+  checkins: number;
+  checkouts: number;
+}
+
+interface HousekeepingCorridor {
+  corridor: string;
+  rooms: number;
+  today: HousekeepingMetrics;
+  tomorrow: HousekeepingMetrics;
+  workload: number;
+}
+
+interface HousekeepingDashboard {
+  updatedAt: string;
+  dates: {
+    today: string;
+    tomorrow: string;
+    todayLabel: string;
+    tomorrowLabel: string;
+  };
+  totals: {
+    rooms: number;
+    occupied: number;
+    vacant: number;
+    blocked: number;
+    maintenance: number;
+    checkinsToday: number;
+    checkoutsToday: number;
+    checkinsTomorrow: number;
+    checkoutsTomorrow: number;
+  };
+  corridors: HousekeepingCorridor[];
 }
 
 interface CheckinWhatsappContact {
@@ -129,6 +175,11 @@ const receptionTabs: { id: ReceptionTab; label: string; description: string; ico
   { id: 'mensagens', label: 'Mensagens', description: 'Contatos e WhatsApp', icon: MessageCircle },
   { id: 'observacoes', label: 'Observacoes', description: 'Setores e alertas', icon: FileText },
   { id: 'lavanderia', label: 'Lavanderia', description: 'Orcamentos de pecas', icon: Shirt },
+];
+
+const operationalSections: { id: OperationalSection; label: string; description: string; icon: React.ElementType }[] = [
+  { id: 'recepcao', label: 'Recepcao', description: 'Automacoes e ferramentas do atendimento', icon: ConciergeBell },
+  { id: 'governanca', label: 'Governanca', description: 'Mapa, bloqueios e planejamento dos andares', icon: BedDouble },
 ];
 
 const laundryPriceList = [
@@ -259,7 +310,11 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
   const [informativeLink, setInformativeLink] = useState(defaultInformativeLink);
   const [savingWhatsappConfig, setSavingWhatsappConfig] = useState(false);
   const [whatsappConfigMessage, setWhatsappConfigMessage] = useState('');
+  const [activeOperationalSection, setActiveOperationalSection] = useState<OperationalSection>('recepcao');
   const [activeReceptionTab, setActiveReceptionTab] = useState<ReceptionTab>('robos');
+  const [housekeepingDashboard, setHousekeepingDashboard] = useState<HousekeepingDashboard | null>(null);
+  const [loadingHousekeeping, setLoadingHousekeeping] = useState(false);
+  const [housekeepingError, setHousekeepingError] = useState('');
   const [laundrySearch, setLaundrySearch] = useState('');
   const [laundryCart, setLaundryCart] = useState<{ id: string; name: string; price: number; quantity: number }[]>([]);
   const [laundryUrgent, setLaundryUrgent] = useState(false);
@@ -300,6 +355,29 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
   useEffect(() => {
     loadStatus();
   }, [loadStatus]);
+
+  const loadHousekeepingDashboard = useCallback(async () => {
+    setLoadingHousekeeping(true);
+    setHousekeepingError('');
+    try {
+      const response = await fetch('/api/robots/governanca-painel');
+      const data = await response.json();
+      if (!response.ok || data.status !== 'success') {
+        throw new Error(data.message || 'Falha ao carregar painel da Governanca.');
+      }
+      setHousekeepingDashboard(data);
+    } catch (err: any) {
+      setHousekeepingError(err.message || 'Falha ao carregar painel da Governanca.');
+    } finally {
+      setLoadingHousekeeping(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeOperationalSection === 'governanca' && !housekeepingDashboard) {
+      loadHousekeepingDashboard();
+    }
+  }, [activeOperationalSection, housekeepingDashboard, loadHousekeepingDashboard]);
 
   const loadObservacoes = useCallback(async () => {
     setLoadingObservacoes(true);
@@ -407,6 +485,10 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
         if (latestRun.conclusion === 'success') {
           addRobotLog('Execucao concluida com sucesso.', 'success');
           setMessage('Robo concluido com sucesso.');
+          if (trackingRotina === 'mr') {
+            addRobotLog('Atualizando indicadores da Governanca...', 'info');
+            void loadHousekeepingDashboard();
+          }
         } else {
           addRobotLog(`Execucao finalizada com status: ${latestRun.conclusion || 'falha'}.`, 'error');
           setError(`Robo finalizado com status: ${latestRun.conclusion || 'falha'}.`);
@@ -416,7 +498,7 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
     }, 5000);
 
     return () => window.clearInterval(interval);
-  }, [addRobotLog, isWatchingRun, loadStatus, trackedRunId, trackingRotina, trackingStartedAt]);
+  }, [addRobotLog, isWatchingRun, loadHousekeepingDashboard, loadStatus, trackedRunId, trackingRotina, trackingStartedAt]);
 
   const runRobot = async (rotina: Rotina) => {
     setRunning(rotina);
@@ -653,6 +735,18 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
     setLaundryCart((current) => current.map((item) => item.id === id ? { ...item, quantity } : item));
   };
 
+  const maxHousekeepingWorkload = Math.max(
+    1,
+    ...(housekeepingDashboard?.corridors.map((corridor) => corridor.workload) || [1]),
+  );
+  const priorityCorridor = housekeepingDashboard?.corridors.reduce<HousekeepingCorridor | null>(
+    (priority, corridor) => !priority || corridor.workload > priority.workload ? corridor : priority,
+    null,
+  );
+  const housekeepingUpdatedAt = housekeepingDashboard?.updatedAt
+    ? new Date(housekeepingDashboard.updatedAt).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })
+    : '';
+
   return (
     <div className="max-w-7xl mx-auto p-4 md:p-8 space-y-5">
       <div className="flex flex-col xl:flex-row xl:items-start justify-between gap-4">
@@ -661,7 +755,7 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
             <ConciergeBell size={22} />
           </div>
           <div>
-            <h1 className="text-2xl font-black text-slate-900 tracking-tight">Recepcao</h1>
+            <h1 className="text-2xl font-black text-slate-900 tracking-tight">Operacional</h1>
             <div className="mt-1 flex items-center gap-2">
               <span className={`inline-flex items-center gap-2 rounded-lg border px-2.5 py-1 text-xs font-black ${statusColor}`}>
                 <StatusIcon size={14} />
@@ -697,7 +791,33 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
         </div>
       </div>
 
-      <div className="rounded-[1.25rem] border border-slate-200 bg-white p-3 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-2 border-b border-slate-200 pb-4">
+        {operationalSections.map((section) => {
+          const SectionIcon = section.icon;
+          const active = activeOperationalSection === section.id;
+          return (
+            <button
+              key={section.id}
+              onClick={() => setActiveOperationalSection(section.id)}
+              className={`flex min-h-16 items-center gap-3 border-b-2 px-3 py-3 text-left transition-colors ${
+                active ? 'bg-slate-50' : 'border-transparent hover:bg-slate-50'
+              }`}
+              style={active ? { borderBottomColor: theme.primary } : undefined}
+            >
+              <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${active ? 'text-white' : 'bg-slate-100 text-slate-500'}`} style={active ? { backgroundColor: theme.primary } : undefined}>
+                <SectionIcon size={18} />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-sm font-black text-slate-900">{section.label}</span>
+                <span className="mt-0.5 block text-[11px] font-bold text-slate-500">{section.description}</span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      {activeOperationalSection === 'recepcao' && (
+      <div className="rounded-lg border border-slate-200 bg-white p-3 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
         {receptionTabs.map((tab) => {
           const TabIcon = tab.icon;
           const active = activeReceptionTab === tab.id;
@@ -727,8 +847,241 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
           );
         })}
       </div>
+      )}
 
-      {activeReceptionTab === 'robos' && (
+      {activeOperationalSection === 'governanca' && (
+      <div className="space-y-5">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <LayoutDashboard size={18} style={{ color: theme.primary }} />
+              <h2 className="text-base font-black text-slate-900">Painel dos corredores</h2>
+            </div>
+            <p className="mt-1 text-xs font-bold text-slate-500">
+              Ocupacao de hoje e demanda de limpeza para amanha.
+              {housekeepingUpdatedAt && ` Atualizado em ${housekeepingUpdatedAt}.`}
+            </p>
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            <button
+              onClick={() => runRobot('mr')}
+              disabled={!!running}
+              className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg px-3 text-xs font-black text-white disabled:opacity-60"
+              style={{ backgroundColor: theme.primary }}
+              title="Executar apenas o robo MR"
+            >
+              {running === 'mr' ? <Loader2 size={15} className="animate-spin" /> : <Play size={15} />}
+              <span className="hidden sm:inline">Atualizar mapa</span>
+            </button>
+            <button
+              onClick={loadHousekeepingDashboard}
+              disabled={loadingHousekeeping}
+              className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 disabled:opacity-60"
+              title="Recarregar painel"
+            >
+              <RefreshCw size={15} className={loadingHousekeeping ? 'animate-spin' : ''} />
+              <span className="hidden sm:inline">Recarregar</span>
+            </button>
+            <button
+              onClick={printMapinha}
+              className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-xs font-black text-slate-700"
+              title="Abrir PDF do mapinha"
+            >
+              <Printer size={15} />
+              <span className="hidden sm:inline">Mapinha</span>
+            </button>
+          </div>
+        </div>
+
+        {housekeepingError && (
+          <div className="rounded-lg border border-red-100 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">
+            {housekeepingError}
+          </div>
+        )}
+
+        {loadingHousekeeping && !housekeepingDashboard && (
+          <div className="flex min-h-48 items-center justify-center border-y border-slate-200 bg-slate-50 text-sm font-black text-slate-500">
+            <Loader2 size={18} className="mr-2 animate-spin" /> Carregando operacao dos andares...
+          </div>
+        )}
+
+        {housekeepingDashboard && (
+        <>
+          <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-2">
+            {[
+              { label: 'Ocupados hoje', value: housekeepingDashboard.totals.occupied, icon: BedDouble, tone: 'text-sky-700 bg-sky-50 border-sky-100' },
+              { label: 'Vagos hoje', value: housekeepingDashboard.totals.vacant, icon: DoorOpen, tone: 'text-emerald-700 bg-emerald-50 border-emerald-100' },
+              { label: 'Saidas amanha', value: housekeepingDashboard.totals.checkoutsTomorrow, icon: ArrowUpFromLine, tone: 'text-amber-700 bg-amber-50 border-amber-100' },
+              { label: 'Entradas amanha', value: housekeepingDashboard.totals.checkinsTomorrow, icon: ArrowDownToLine, tone: 'text-indigo-700 bg-indigo-50 border-indigo-100' },
+              { label: 'Bloqueados', value: housekeepingDashboard.totals.blocked, icon: AlertTriangle, tone: 'text-rose-700 bg-rose-50 border-rose-100' },
+              { label: 'Manutencao', value: housekeepingDashboard.totals.maintenance, icon: Wrench, tone: 'text-slate-700 bg-slate-100 border-slate-200' },
+            ].map((item) => {
+              const MetricIcon = item.icon;
+              return (
+                <div key={item.label} className={`min-h-24 rounded-lg border p-3 ${item.tone}`}>
+                  <MetricIcon size={16} />
+                  <div className="mt-2 text-2xl font-black leading-none">{item.value}</div>
+                  <div className="mt-1 text-[10px] font-black uppercase">{item.label}</div>
+                </div>
+              );
+            })}
+          </div>
+
+          {priorityCorridor && (
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-y border-amber-200 bg-amber-50 px-4 py-3">
+              <div className="flex items-start gap-3">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-amber-700">
+                  <BellRing size={17} />
+                </div>
+                <div>
+                  <div className="text-sm font-black text-amber-950">Prioridade de amanha: corredor {priorityCorridor.corridor}</div>
+                  <div className="text-xs font-bold text-amber-800">
+                    {priorityCorridor.tomorrow.checkouts} saidas, {priorityCorridor.tomorrow.checkins} entradas e {priorityCorridor.tomorrow.vacant} apartamentos vagos.
+                  </div>
+                </div>
+              </div>
+              <div className="text-xs font-black uppercase text-amber-800">{priorityCorridor.workload} movimentos</div>
+            </div>
+          )}
+
+          <div className="space-y-2">
+            {housekeepingDashboard.corridors.map((corridor) => {
+              const isPriority = priorityCorridor?.corridor === corridor.corridor && corridor.workload > 0;
+              return (
+                <div key={corridor.corridor} className={`rounded-lg border bg-white p-3 md:p-4 ${isPriority ? 'border-amber-300' : 'border-slate-200'}`}>
+                  <div className="grid grid-cols-1 xl:grid-cols-[150px_1.3fr_1fr_160px] gap-4 xl:items-center">
+                    <div className="flex items-center justify-between xl:block">
+                      <div className="flex items-center gap-2">
+                        <Building2 size={18} style={{ color: theme.primary }} />
+                        <div className="text-lg font-black text-slate-900">Corredor {corridor.corridor}</div>
+                      </div>
+                      <div className="mt-1 text-[10px] font-black uppercase text-slate-400">{corridor.rooms} apartamentos</div>
+                    </div>
+
+                    <div>
+                      <div className="mb-2 text-[10px] font-black uppercase text-slate-400">Hoje</div>
+                      <div className="grid grid-cols-3 sm:grid-cols-6 xl:grid-cols-3 2xl:grid-cols-6 gap-1.5">
+                        {[
+                          ['Ocup.', corridor.today.occupied || 0, 'text-sky-700'],
+                          ['Vagos', corridor.today.vacant, 'text-emerald-700'],
+                          ['Bloq.', corridor.today.blocked || 0, 'text-rose-700'],
+                          ['Manut.', corridor.today.maintenance || 0, 'text-slate-700'],
+                          ['Entram', corridor.today.checkins, 'text-indigo-700'],
+                          ['Saem', corridor.today.checkouts, 'text-amber-700'],
+                        ].map(([label, value, tone]) => (
+                          <div key={String(label)} className="min-w-0 rounded-lg bg-slate-50 px-2 py-2 text-center">
+                            <div className={`text-base font-black ${tone}`}>{value}</div>
+                            <div className="truncate text-[9px] font-black uppercase text-slate-400">{label}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="mb-2 text-[10px] font-black uppercase text-slate-400">Amanha</div>
+                      <div className="grid grid-cols-3 gap-1.5">
+                        <div className="rounded-lg bg-amber-50 px-2 py-2 text-center text-amber-800">
+                          <div className="text-lg font-black">{corridor.tomorrow.checkouts}</div>
+                          <div className="text-[9px] font-black uppercase">Saidas</div>
+                        </div>
+                        <div className="rounded-lg bg-indigo-50 px-2 py-2 text-center text-indigo-800">
+                          <div className="text-lg font-black">{corridor.tomorrow.checkins}</div>
+                          <div className="text-[9px] font-black uppercase">Entradas</div>
+                        </div>
+                        <div className="rounded-lg bg-emerald-50 px-2 py-2 text-center text-emerald-800">
+                          <div className="text-lg font-black">{corridor.tomorrow.vacant}</div>
+                          <div className="text-[9px] font-black uppercase">Vagos</div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="flex items-center justify-between text-[10px] font-black uppercase text-slate-400">
+                        <span>Demanda</span>
+                        <span>{corridor.workload}</span>
+                      </div>
+                      <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100">
+                        <div
+                          className="h-full rounded-full bg-amber-500"
+                          style={{ width: `${Math.max(4, (corridor.workload / maxHousekeepingWorkload) * 100)}%` }}
+                        />
+                      </div>
+                      <div className={`mt-2 text-[10px] font-black uppercase ${isPriority ? 'text-amber-700' : 'text-slate-400'}`}>
+                        {isPriority ? 'Maior prioridade' : corridor.workload > 20 ? 'Demanda alta' : corridor.workload > 10 ? 'Demanda media' : 'Demanda leve'}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </>
+        )}
+
+        <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
+          <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Home size={17} style={{ color: theme.primary }} />
+              <div>
+                <span className="text-sm font-black text-slate-900">Andares bloqueados</span>
+                <div className="text-[10px] font-bold text-slate-400">Excecoes usadas na atualizacao do mapa</div>
+              </div>
+            </div>
+            <button
+              onClick={loadObservacoes}
+              disabled={loadingObservacoes}
+              className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-60"
+              title="Atualizar bloqueios"
+            >
+              <RefreshCw size={15} className={loadingObservacoes ? 'animate-spin' : ''} />
+            </button>
+          </div>
+          <div className="p-4 space-y-2">
+            {exceptionsDraft.length > 0 ? exceptionsDraft.map((item, index) => (
+              <div key={`${index}-${item.date}-${item.floor}`} className="grid grid-cols-[1fr_1fr_32px] gap-2 rounded-lg border border-slate-100 bg-slate-50 p-2">
+                <input
+                  type="date"
+                  value={dateToIso(item.date)}
+                  onChange={(event) => updateExceptionDraft(index, 'date', isoToBrDate(event.target.value))}
+                  className="min-w-0 rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs font-black text-slate-700 outline-none"
+                />
+                <input
+                  value={item.floor}
+                  onChange={(event) => updateExceptionDraft(index, 'floor', event.target.value)}
+                  placeholder="Ex.: 500, 300"
+                  className="min-w-0 rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs font-black text-slate-700 outline-none"
+                />
+                <button
+                  onClick={() => removeExceptionDraft(index)}
+                  disabled={savingExceptions}
+                  className="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-red-50 hover:text-red-600"
+                  title="Remover e salvar"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            )) : (
+              <div className="text-xs font-bold text-slate-400">Nenhum andar bloqueado.</div>
+            )}
+            <div className="flex items-center gap-2 pt-2">
+              <button onClick={addExceptionDraft} className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700">
+                <Plus size={14} /> Adicionar
+              </button>
+              <button
+                onClick={() => saveExceptions()}
+                disabled={savingExceptions}
+                className="inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-xs font-black text-white disabled:opacity-60"
+                style={{ backgroundColor: theme.primary }}
+              >
+                <Save size={14} /> Salvar
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+      )}
+
+      {activeOperationalSection === 'recepcao' && activeReceptionTab === 'robos' && (
       <>
       <div className="space-y-3">
         <div className="flex items-center gap-2">
@@ -766,7 +1119,7 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
         </div>
       </div>
 
-      <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
+      <div className="hidden rounded-lg border border-slate-200 bg-white overflow-hidden">
         <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <Home size={17} style={{ color: theme.primary }} />
@@ -833,7 +1186,7 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
       </>
       )}
 
-      {activeReceptionTab === 'mensagens' && (
+      {activeOperationalSection === 'recepcao' && activeReceptionTab === 'mensagens' && (
       <>
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
         {renderRobotCard('checkin_whatsapp')}
@@ -972,7 +1325,7 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
         </div>
       )}
 
-      {activeReceptionTab === 'observacoes' && (
+      {activeOperationalSection === 'recepcao' && activeReceptionTab === 'observacoes' && (
       <div className="grid grid-cols-1 gap-4">
         <div className="hidden rounded-lg border border-slate-200 bg-white overflow-hidden">
           <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between gap-2">
@@ -1195,7 +1548,7 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
       </div>
       )}
 
-      {activeReceptionTab === 'observacoes' && romanticAlertKey && dismissedRomanticAlertKey !== romanticAlertKey && (
+      {activeOperationalSection === 'recepcao' && activeReceptionTab === 'observacoes' && romanticAlertKey && dismissedRomanticAlertKey !== romanticAlertKey && (
         <div className="fixed bottom-4 right-4 z-[450] w-[calc(100%-2rem)] max-w-sm rounded-2xl border border-amber-200 bg-amber-50 shadow-2xl p-4 animate-in slide-in-from-bottom-4">
           <div className="flex items-start justify-between gap-3">
             <div className="flex items-start gap-3">
@@ -1222,7 +1575,7 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
         </div>
       )}
 
-      {activeReceptionTab === 'lavanderia' && (
+      {activeOperationalSection === 'recepcao' && activeReceptionTab === 'lavanderia' && (
         <div className="grid grid-cols-1 xl:grid-cols-[420px_1fr] gap-4">
           <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
             <div className="px-4 py-3 border-b border-slate-100 flex items-center gap-2">

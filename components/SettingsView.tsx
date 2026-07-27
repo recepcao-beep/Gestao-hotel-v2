@@ -61,7 +61,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({
     [ViewType.LINEN]: 'Controle de Enxoval',
     [ViewType.REPORTS]: 'Relatórios e BI',
     [ViewType.PARKING]: 'Estacionamento / Vagas',
-    [ViewType.ROBOTS]: 'Recepção',
+    [ViewType.ROBOTS]: 'Operacional',
     [ViewType.SETTINGS]: 'Configurações'
   };
   
@@ -882,7 +882,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({
                              REPORTS: 'Relatorios',
                              PARKING: 'Estacionamento',
                              LINEN: 'Enxoval',
-                             ROBOTS: 'Recepcao'
+                             ROBOTS: 'Operacional'
                            };
                            
                            return (
