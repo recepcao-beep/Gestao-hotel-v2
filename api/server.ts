@@ -255,6 +255,7 @@ const MAPINHA_PRINT_RANGE = process.env.MAPINHA_PRINT_RANGE || 'Mapinha!A1:L145'
 const MAPINHA_ESCALA_RANGE = process.env.MAPINHA_ESCALA_RANGE || 'ESCALA!A1:H12';
 const OBSERVACOES_RANGE = process.env.OBSERVACOES_RANGE || 'SOLICITAÇÕES!A1:F2000';
 const DADOS_BRUTOS_HITS_RANGE = process.env.DADOS_BRUTOS_HITS_RANGE || 'DADOS_BRUTOS_HITS!A1:P5000';
+const MAPA_7_DIAS_RANGE = process.env.MAPA_7_DIAS_RANGE || 'MAPA_7_DIAS!A1:J1000';
 const CHECKIN_WHATSAPP_RANGE = process.env.CHECKIN_WHATSAPP_RANGE || 'CHECKIN_WHATSAPP!A1:H500';
 const CHECKIN_WHATSAPP_CONFIG_RANGE = process.env.CHECKIN_WHATSAPP_CONFIG_RANGE || 'CHECKIN_WHATSAPP_CONFIG!A1:B20';
 const CHECKIN_WHATSAPP_HEADERS = [
@@ -560,6 +561,235 @@ function normalizeExceptionDate(value: any) {
   return `${brMatch[1].padStart(2, '0')}/${brMatch[2].padStart(2, '0')}/${year}`;
 }
 
+function getSaoPauloIsoDate() {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Sao_Paulo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
+function addDaysToIsoDate(isoDate: string, days: number) {
+  const [year, month, day] = isoDate.split('-').map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day + days));
+  return date.toISOString().slice(0, 10);
+}
+
+function sheetDateToIso(value: any) {
+  const text = String(value || '').trim().split(' ')[0];
+  const isoMatch = text.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (isoMatch) {
+    return `${isoMatch[1]}-${isoMatch[2].padStart(2, '0')}-${isoMatch[3].padStart(2, '0')}`;
+  }
+  const brMatch = text.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+  if (!brMatch) return '';
+  const year = brMatch[3].length === 2 ? `20${brMatch[3]}` : brMatch[3];
+  return `${year}-${brMatch[2].padStart(2, '0')}-${brMatch[1].padStart(2, '0')}`;
+}
+
+function corridorFromApartment(value: any) {
+  const apartment = String(value || '').trim();
+  if (!/^[2-7]\d{2}$/.test(apartment)) return '';
+  return `${apartment[0]}00`;
+}
+
+function isMaintenanceDescription(value: any) {
+  const normalized = normalizeSheetText(value);
+  return [
+    'manut', 'reparo', 'obra', 'pintura', 'eletric', 'hidraul', 'encanamento',
+    'ar condicionado', 'infiltr', 'vazamento', 'quebrado', 'troca', 'reforma',
+  ].some((term) => normalized.includes(term));
+}
+
+type RoomDaySets = {
+  occupied: Set<string>;
+  vacant: Set<string>;
+  blocked: Set<string>;
+  maintenance: Set<string>;
+  checkins: Set<string>;
+  checkouts: Set<string>;
+};
+
+function createRoomDaySets(): RoomDaySets {
+  return {
+    occupied: new Set(),
+    vacant: new Set(),
+    blocked: new Set(),
+    maintenance: new Set(),
+    checkins: new Set(),
+    checkouts: new Set(),
+  };
+}
+
+function buildHousekeepingDashboard(mapValues: any[][], rawValues: any[][]) {
+  const corridors = ['200', '300', '400', '500', '600', '700'];
+  const todayIso = getSaoPauloIsoDate();
+  const tomorrowIso = addDaysToIsoDate(todayIso, 1);
+  const roomSets = Object.fromEntries(corridors.map((corridor) => [
+    corridor,
+    { today: createRoomDaySets(), tomorrow: createRoomDaySets(), rooms: new Set<string>() },
+  ])) as Record<string, { today: RoomDaySets; tomorrow: RoomDaySets; rooms: Set<string> }>;
+  const mappedRooms: { apartment: string; corridor: string; today: string; tomorrow: string }[] = [];
+
+  const mapHeaders = mapValues[0] || [];
+  mapValues.slice(1).forEach((row) => {
+    const apartment = String(row?.[0] || '').trim();
+    const corridor = corridorFromApartment(apartment);
+    if (!corridor || !roomSets[corridor]) return;
+    roomSets[corridor].rooms.add(apartment);
+    mappedRooms.push({
+      apartment,
+      corridor,
+      today: normalizeSheetText(row?.[3]),
+      tomorrow: normalizeSheetText(row?.[4]),
+    });
+
+    ([['today', row?.[3]], ['tomorrow', row?.[4]]] as const).forEach(([dayKey, rawStatus]) => {
+      const sets = roomSets[corridor][dayKey];
+      const normalized = normalizeSheetText(rawStatus);
+      if (!normalized) {
+        sets.vacant.add(apartment);
+        return;
+      }
+      if (normalized.includes('manut')) sets.maintenance.add(apartment);
+      else if (['interdit', 'bloq', 'out of order'].some((term) => normalized.includes(term))) sets.blocked.add(apartment);
+      else sets.occupied.add(apartment);
+      if (['entrada', 'checkin', 'check in'].some((term) => normalized.includes(term))) sets.checkins.add(apartment);
+      if (['saida', 'checkout', 'check out'].some((term) => normalized.includes(term))) sets.checkouts.add(apartment);
+    });
+  });
+
+  const rawHeaders = rawValues[0] || [];
+  const apartmentIndex = findHeaderIndex(rawHeaders, ['apartamento', 'apto', 'quarto', 'uh', 'ap']);
+  const checkinIndex = findHeaderIndex(rawHeaders, ['check-in', 'checkin', 'entrada']);
+  const checkoutIndex = findHeaderIndex(rawHeaders, ['check-out', 'checkout', 'saida']);
+  const statusIndex = findHeaderIndex(rawHeaders, ['status', 'situacao']);
+  const descriptionIndex = findHeaderIndex(rawHeaders, ['hospede', 'motivo', 'descricao', 'observacao']);
+
+  rawValues.slice(1).forEach((row) => {
+    const apartment = getCell(row, apartmentIndex >= 0 ? apartmentIndex : 0);
+    const corridor = corridorFromApartment(apartment);
+    const checkin = sheetDateToIso(getCell(row, checkinIndex >= 0 ? checkinIndex : 2));
+    const checkout = sheetDateToIso(getCell(row, checkoutIndex >= 0 ? checkoutIndex : 3));
+    const status = normalizeSheetText(getCell(row, statusIndex >= 0 ? statusIndex : 4));
+    const description = getCell(row, descriptionIndex >= 0 ? descriptionIndex : 6);
+    const guestKey = normalizeSheetText(description);
+    const directRoom = corridor && roomSets[corridor]
+      ? [{ apartment, corridor }]
+      : [];
+    const roomsForDay = (dayKey: 'today' | 'tomorrow') => {
+      if (directRoom.length > 0) return directRoom;
+      if (guestKey.length < 5 || status.includes('interdit')) return [];
+      return mappedRooms
+        .filter((room) => room[dayKey].includes(guestKey))
+        .map(({ apartment: mappedApartment, corridor: mappedCorridor }) => ({
+          apartment: mappedApartment,
+          corridor: mappedCorridor,
+        }));
+    };
+
+    if (checkin === todayIso) {
+      roomsForDay('today').forEach((room) => roomSets[room.corridor].today.checkins.add(room.apartment));
+    }
+    if (checkin === tomorrowIso) {
+      roomsForDay('tomorrow').forEach((room) => roomSets[room.corridor].tomorrow.checkins.add(room.apartment));
+    }
+    if (checkout === todayIso) {
+      roomsForDay('today').forEach((room) => roomSets[room.corridor].today.checkouts.add(room.apartment));
+    }
+    if (checkout === tomorrowIso) {
+      roomsForDay('tomorrow').forEach((room) => roomSets[room.corridor].tomorrow.checkouts.add(room.apartment));
+    }
+
+    if (!status.includes('interdit') || !corridor || !roomSets[corridor]) return;
+    const targetSet = isMaintenanceDescription(description) ? 'maintenance' : 'blocked';
+    ([['today', todayIso], ['tomorrow', tomorrowIso]] as const).forEach(([dayKey, date]) => {
+      const activeFrom = !checkin || checkin <= date;
+      const activeThrough = !checkout || checkout >= date;
+      if (activeFrom && activeThrough) roomSets[corridor][dayKey][targetSet].add(apartment);
+    });
+  });
+
+  const corridorPayload = corridors.map((corridor) => {
+    const source = roomSets[corridor];
+    const summarize = (sets: RoomDaySets) => {
+      sets.maintenance.forEach((room) => {
+        sets.occupied.delete(room);
+        sets.vacant.delete(room);
+        sets.blocked.delete(room);
+      });
+      sets.blocked.forEach((room) => {
+        sets.occupied.delete(room);
+        sets.vacant.delete(room);
+      });
+      return {
+        occupied: sets.occupied.size,
+        vacant: sets.vacant.size,
+        blocked: sets.blocked.size,
+        maintenance: sets.maintenance.size,
+        checkins: sets.checkins.size,
+        checkouts: sets.checkouts.size,
+      };
+    };
+    const today = summarize(source.today);
+    const tomorrow = summarize(source.tomorrow);
+    const tomorrowCheckins = Math.max(
+      tomorrow.checkins,
+      tomorrow.occupied - today.occupied + today.checkouts,
+      0,
+    );
+    return {
+      corridor,
+      rooms: source.rooms.size,
+      today,
+      tomorrow: {
+        checkins: tomorrowCheckins,
+        checkouts: tomorrow.checkouts,
+        vacant: tomorrow.vacant,
+        blocked: tomorrow.blocked,
+        maintenance: tomorrow.maintenance,
+      },
+      workload: tomorrow.checkouts + tomorrowCheckins,
+    };
+  });
+
+  const totals = corridorPayload.reduce((result, corridor) => ({
+    rooms: result.rooms + corridor.rooms,
+    occupied: result.occupied + corridor.today.occupied,
+    vacant: result.vacant + corridor.today.vacant,
+    blocked: result.blocked + corridor.today.blocked,
+    maintenance: result.maintenance + corridor.today.maintenance,
+    checkinsToday: result.checkinsToday + corridor.today.checkins,
+    checkoutsToday: result.checkoutsToday + corridor.today.checkouts,
+    checkinsTomorrow: result.checkinsTomorrow + corridor.tomorrow.checkins,
+    checkoutsTomorrow: result.checkoutsTomorrow + corridor.tomorrow.checkouts,
+  }), {
+    rooms: 0,
+    occupied: 0,
+    vacant: 0,
+    blocked: 0,
+    maintenance: 0,
+    checkinsToday: 0,
+    checkoutsToday: 0,
+    checkinsTomorrow: 0,
+    checkoutsTomorrow: 0,
+  });
+
+  return {
+    dates: {
+      today: todayIso,
+      tomorrow: tomorrowIso,
+      todayLabel: String(mapHeaders?.[3] || 'Hoje'),
+      tomorrowLabel: String(mapHeaders?.[4] || 'Amanha'),
+    },
+    totals,
+    corridors: corridorPayload,
+  };
+}
+
 function getHeaderValue(row: any[], headers: any[], aliases: string[]) {
   const index = findHeaderIndex(headers, aliases);
   return getCell(row, index);
@@ -691,6 +921,29 @@ app.post('/api/robots/checkin-whatsapp/config', async (req, res) => {
   } catch (error: any) {
     console.error('[Checkin WhatsApp Config Save Error]', error);
     res.status(500).json({ status: 'error', message: error.message || 'Erro ao salvar configuração do WhatsApp.' });
+  }
+});
+
+app.get('/api/robots/governanca-painel', async (req, res) => {
+  try {
+    const response = await sheets.spreadsheets.values.batchGet({
+      spreadsheetId: MAPINHA_SHEET_ID,
+      ranges: [MAPA_7_DIAS_RANGE, DADOS_BRUTOS_HITS_RANGE],
+      valueRenderOption: 'FORMATTED_VALUE',
+    });
+    const [mapRange, rawRange] = response.data.valueRanges || [];
+    const dashboard = buildHousekeepingDashboard(
+      mapRange?.values || [],
+      rawRange?.values || [],
+    );
+    res.json({
+      status: 'success',
+      updatedAt: new Date().toISOString(),
+      ...dashboard,
+    });
+  } catch (error: any) {
+    console.error('[Governanca Painel Error]', error);
+    res.status(500).json({ status: 'error', message: error.message || 'Erro ao carregar painel da Governanca.' });
   }
 });
 
