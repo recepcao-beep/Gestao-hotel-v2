@@ -29,12 +29,13 @@ python robots/vinculacao/run.py vinculacao_diaria --visual
 - `limpeza.py`: desvincula reservas no mapa antes da rotina semanal.
 - `mr.py`: atualiza a projecao de reservas dos proximos 7 dias.
 - `obs.py`: atualiza as solicitacoes das reservas.
-- `vinc2.py`: vincula os apartamentos, incluindo reservas de grupo.
+- `vinc3.py`: vincula os apartamentos, incluindo reservas de grupo.
 - `run.py`: coordena a ordem, o modo visual/headless e as novas tentativas.
 - `requirements.txt`: dependencias Python do fluxo.
 
-O clique de overbooking permanece desativado. Para reativar de forma explicita,
-defina `PERMITIR_CLIQUE_OVERBOOKING=1`.
+O VINC3 confirma o overbooking por padrao depois de validar o apartamento e a
+categoria. Para desativar o clique emergencialmente, defina
+`PERMITIR_CLIQUE_OVERBOOKING=0`.
 
 ## Credenciais
 

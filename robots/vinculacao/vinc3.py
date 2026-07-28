@@ -24,6 +24,12 @@ from selenium.common.exceptions import (
 )
 
 
+def clique_overbooking_habilitado(valor=None):
+    if valor is None:
+        valor = os.getenv("PERMITIR_CLIQUE_OVERBOOKING", "1")
+    return str(valor).strip().lower() not in {"0", "false", "no", "nao", "off"}
+
+
 def executar_vinculacao_2_0(headless=None, fator_pausa=0.8, credenciais_json=None):
     ID_PLANILHA = "1oMKFu9aobTP5sBuF0jjSR4In3Z6EcWfATCe_9ijNFXA"
     NOME_ABA = "VINCULACAO_HOJE"
@@ -59,6 +65,7 @@ def executar_vinculacao_2_0(headless=None, fator_pausa=0.8, credenciais_json=Non
     CATEGORIAS_SEM_SACADA = {"2CC", "2CSS"}
     CATEGORIAS_ISOLADAS = {"SP", "3CS"}
     CATEGORIAS_VALIDAS = sorted(XPATH_CATS.keys(), key=len, reverse=True)
+    PERMITIR_CLIQUE_OVERBOOKING = clique_overbooking_habilitado()
 
     chrome_options = Options()
     chrome_options.add_argument("--start-maximized")
@@ -78,7 +85,8 @@ def executar_vinculacao_2_0(headless=None, fator_pausa=0.8, credenciais_json=Non
 
     print(
         f"Modo: {'HEADLESS/GITHUB ACTIONS' if headless else 'VISUAL'} | "
-        f"Fator de pausa: {fator_pausa}"
+        f"Fator de pausa: {fator_pausa} | "
+        f"Permitir overbooking: {'SIM' if PERMITIR_CLIQUE_OVERBOOKING else 'NAO'}"
     )
     wait = WebDriverWait(driver, 20)
     wait_medio = WebDriverWait(driver, 10)
@@ -195,7 +203,7 @@ def executar_vinculacao_2_0(headless=None, fator_pausa=0.8, credenciais_json=Non
             pass
         return False
 
-    def confirmar_acao(is_overbooking=False, ap_overbooking=None, permitir_overbooking=False, contexto_overbooking=""):
+    def confirmar_acao(is_overbooking=False, ap_overbooking=None, permitir_overbooking=True, contexto_overbooking=""):
         nonlocal ultima_confirmacao_registro_modificado
         ultima_confirmacao_registro_modificado = False
         fechar_aviso_modificado()
@@ -1829,20 +1837,14 @@ def executar_vinculacao_2_0(headless=None, fator_pausa=0.8, credenciais_json=Non
 
                 # Usa exatamente a categoria indicada pela planilha.
                 categoria_destino = cat_alvo_normalizada
-                permitir_overbooking_categoria = bool(
-                    cat_bloco_atual
-                    and cat_bloco_atual != categoria_destino
-                    and mesma_familia_sacada(cat_bloco_atual, categoria_destino)
-                )
                 contexto_overbooking = (
                     f"Origem: {cat_bloco_atual or 'desconhecida'} | "
                     f"Destino: {categoria_destino}."
                 )
-                if not permitir_overbooking_categoria:
+                if not PERMITIR_CLIQUE_OVERBOOKING:
                     print(
-                        "Bloqueado por seguranca: overbooking permitido somente "
-                        "entre categorias da mesma familia de sacada "
-                        "(1CC<->1CSS ou 2CC<->2CSS). "
+                        "Clique de permitir overbooking desativado por "
+                        "PERMITIR_CLIQUE_OVERBOOKING=0. "
                         f"{contexto_overbooking}"
                     )
                     continue
@@ -1863,7 +1865,7 @@ def executar_vinculacao_2_0(headless=None, fator_pausa=0.8, credenciais_json=Non
                 if not confirmar_acao(
                     is_overbooking=True,
                     ap_overbooking=ap_alvo,
-                    permitir_overbooking=permitir_overbooking_categoria,
+                    permitir_overbooking=PERMITIR_CLIQUE_OVERBOOKING,
                     contexto_overbooking=contexto_overbooking,
                 ):
                     print(f"Erro: confirmacao de overbooking nao foi enviada para o AP {ap_alvo}.")
