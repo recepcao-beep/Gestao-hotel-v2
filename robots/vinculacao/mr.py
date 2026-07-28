@@ -7,6 +7,7 @@ from pathlib import Path
 import time
 import datetime
 import gspread
+import requests
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -20,10 +21,55 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.action_chains import ActionChains
 
-try:
-    from .webhook_google import acionar_webhook_mapa
-except ImportError:
-    from webhook_google import acionar_webhook_mapa
+
+URL_WEBHOOK_MR = (
+    "https://script.google.com/macros/s/"
+    "AKfycbwcfhQySj2OoJVSzaWnjMCHZzfHPCQHc5fZHKt5sLmhJ7wTtD24SvR-kk-at7lFo_31EA/exec"
+)
+MENSAGEM_SUCESSO_WEBHOOK_MR = "script executado com sucesso"
+
+
+def resumir_erro_webhook_mr(erro):
+    if isinstance(erro, requests.HTTPError) and erro.response is not None:
+        return f"HTTP {erro.response.status_code}"
+    if isinstance(erro, requests.RequestException):
+        return erro.__class__.__name__
+    return str(erro)
+
+
+def acionar_webhook_mr(
+    url=URL_WEBHOOK_MR,
+    tentativas=3,
+    timeout=60,
+    pausa_entre_tentativas=5,
+):
+    ultimo_erro = None
+
+    for tentativa in range(1, tentativas + 1):
+        try:
+            resposta = requests.get(url, timeout=timeout)
+            resposta.raise_for_status()
+            corpo = resposta.text.strip()
+
+            if MENSAGEM_SUCESSO_WEBHOOK_MR not in corpo.casefold():
+                resumo = " ".join(corpo.split())[:200] or "resposta vazia"
+                raise RuntimeError(f"Resposta inesperada do Google no MR: {resumo}")
+
+            return corpo
+        except (requests.RequestException, RuntimeError) as erro:
+            ultimo_erro = erro
+            print(
+                f"Webhook do MR falhou na tentativa {tentativa}/{tentativas}: "
+                f"{resumir_erro_webhook_mr(erro)}",
+                flush=True,
+            )
+            if tentativa < tentativas:
+                time.sleep(pausa_entre_tentativas)
+
+    raise RuntimeError(
+        f"Webhook do MR falhou apos {tentativas} tentativas: "
+        f"{resumir_erro_webhook_mr(ultimo_erro)}"
+    ) from ultimo_erro
 
 
 def executar_mapeamento_total(headless=None, fator_pausa=0.5):
@@ -314,7 +360,7 @@ def executar_mapeamento_total(headless=None, fator_pausa=0.5):
 
         # --- GATILHO WEBHOOK ---
         print("🚀 Acionando o Google Sheets para reorganizar os andares...")
-        resposta_webhook = acionar_webhook_mapa()
+        resposta_webhook = acionar_webhook_mr()
         print(f"🤖 Resposta do Google Sheets: {resposta_webhook}")
 
     except Exception as e:

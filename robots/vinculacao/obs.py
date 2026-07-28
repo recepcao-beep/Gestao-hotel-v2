@@ -7,6 +7,7 @@ import os
 import random
 import datetime
 import gspread
+import requests
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -20,10 +21,55 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.keys import Keys
 
-try:
-    from .webhook_google import acionar_webhook_mapa
-except ImportError:
-    from webhook_google import acionar_webhook_mapa
+
+URL_WEBHOOK_OBS = (
+    "https://script.google.com/macros/s/"
+    "AKfycbwcfhQySj2OoJVSzaWnjMCHZzfHPCQHc5fZHKt5sLmhJ7wTtD24SvR-kk-at7lFo_31EA/exec"
+)
+MENSAGEM_SUCESSO_WEBHOOK_OBS = "script executado com sucesso"
+
+
+def resumir_erro_webhook_obs(erro):
+    if isinstance(erro, requests.HTTPError) and erro.response is not None:
+        return f"HTTP {erro.response.status_code}"
+    if isinstance(erro, requests.RequestException):
+        return erro.__class__.__name__
+    return str(erro)
+
+
+def acionar_webhook_obs(
+    url=URL_WEBHOOK_OBS,
+    tentativas=3,
+    timeout=60,
+    pausa_entre_tentativas=5,
+):
+    ultimo_erro = None
+
+    for tentativa in range(1, tentativas + 1):
+        try:
+            resposta = requests.get(url, timeout=timeout)
+            resposta.raise_for_status()
+            corpo = resposta.text.strip()
+
+            if MENSAGEM_SUCESSO_WEBHOOK_OBS not in corpo.casefold():
+                resumo = " ".join(corpo.split())[:200] or "resposta vazia"
+                raise RuntimeError(f"Resposta inesperada do Google no OBS: {resumo}")
+
+            return corpo
+        except (requests.RequestException, RuntimeError) as erro:
+            ultimo_erro = erro
+            print(
+                f"Webhook do OBS falhou na tentativa {tentativa}/{tentativas}: "
+                f"{resumir_erro_webhook_obs(erro)}",
+                flush=True,
+            )
+            if tentativa < tentativas:
+                time.sleep(pausa_entre_tentativas)
+
+    raise RuntimeError(
+        f"Webhook do OBS falhou apos {tentativas} tentativas: "
+        f"{resumir_erro_webhook_obs(ultimo_erro)}"
+    ) from ultimo_erro
 
 
 class RoboHITS:
@@ -598,7 +644,7 @@ class RoboHITS:
             print("✅ SUCESSO ABSOLUTO! Planilha limpa e atualizada com os novos 7 dias.")
 
             print("🚀 Acionando o Google Sheets para processar as solicitações especiais e atualizar o mapa...")
-            resposta_webhook = acionar_webhook_mapa()
+            resposta_webhook = acionar_webhook_obs()
             print(f"🤖 Resposta do Google Sheets: {resposta_webhook}")
 
         except Exception as e:

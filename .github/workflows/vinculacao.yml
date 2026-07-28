@@ -56,9 +56,9 @@ jobs:
             robots/vinculacao/mr.py \
             robots/vinculacao/obs.py \
             robots/vinculacao/vinc3.py \
-            robots/vinculacao/webhook_google.py \
             robots/vinculacao/run.py
-          python -m unittest discover -s tests -p 'test_webhook_google.py' -v
+          python -m unittest discover -s tests -p 'test_webhook_mr.py' -v
+          python -m unittest discover -s tests -p 'test_webhook_obs.py' -v
 
       - name: Testar ciclo de limpeza
         run: python -m unittest discover -s tests -p "test_limpeza.py" -v
