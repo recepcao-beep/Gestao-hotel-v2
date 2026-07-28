@@ -623,11 +623,11 @@ function buildHousekeepingDashboard(mapValues: any[][], rawValues: any[][]) {
     { today: createRoomDaySets(), tomorrow: createRoomDaySets(), rooms: new Set<string>() },
   ])) as Record<string, { today: RoomDaySets; tomorrow: RoomDaySets; rooms: Set<string> }>;
   const mappedRooms: { apartment: string; corridor: string; today: string; tomorrow: string }[] = [];
-  const checkinVouchers = {
-    today: new Set<string>(),
-    tomorrow: new Set<string>(),
+  const reservationFlows = {
+    today: { checkins: 0, checkouts: 0 },
+    tomorrow: { checkins: 0, checkouts: 0 },
   };
-  const assignedCheckinVouchers = {
+  const assignedCheckinRows = {
     today: new Set<string>(),
     tomorrow: new Set<string>(),
   };
@@ -667,7 +667,7 @@ function buildHousekeepingDashboard(mapValues: any[][], rawValues: any[][]) {
   const paxIndex = findHeaderIndex(rawHeaders, ['pax']);
   const descriptionIndex = findHeaderIndex(rawHeaders, ['hospede', 'motivo', 'descricao', 'observacao']);
 
-  rawValues.slice(1).forEach((row) => {
+  rawValues.slice(1).forEach((row, rowIndex) => {
     const apartment = getCell(row, apartmentIndex >= 0 ? apartmentIndex : 0);
     const voucher = String(getCell(row, voucherIndex >= 0 ? voucherIndex : 1) || '').trim();
     const corridor = corridorFromApartment(apartment);
@@ -678,6 +678,7 @@ function buildHousekeepingDashboard(mapValues: any[][], rawValues: any[][]) {
     const description = getCell(row, descriptionIndex >= 0 ? descriptionIndex : 6);
     const guestKey = normalizeSheetText(description);
     const isInterdicted = paxStatus.includes('interdit') || status.includes('interdit');
+    const reservationRowKey = `${voucher || 'sem-voucher'}:${rowIndex + 2}`;
     const directRoom = corridor && roomSets[corridor]
       ? [{ apartment, corridor }]
       : [];
@@ -692,24 +693,23 @@ function buildHousekeepingDashboard(mapValues: any[][], rawValues: any[][]) {
         }));
     };
 
-    const addCheckinVoucher = (dayKey: 'today' | 'tomorrow', date: string) => {
+    const addCheckinRow = (dayKey: 'today' | 'tomorrow', date: string) => {
       if (checkin !== date || !voucher || isInterdicted) return;
-      checkinVouchers[dayKey].add(voucher);
-      if (assignedCheckinVouchers[dayKey].has(voucher)) return;
+      reservationFlows[dayKey].checkins += 1;
       const assignedRoom = roomsForDay(dayKey)[0];
       if (assignedRoom) {
-        roomSets[assignedRoom.corridor][dayKey].checkins.add(voucher);
-        assignedCheckinVouchers[dayKey].add(voucher);
+        roomSets[assignedRoom.corridor][dayKey].checkins.add(reservationRowKey);
+        assignedCheckinRows[dayKey].add(reservationRowKey);
       }
     };
-    addCheckinVoucher('today', todayIso);
-    addCheckinVoucher('tomorrow', tomorrowIso);
-    if (checkout === todayIso) {
-      roomsForDay('today').forEach((room) => roomSets[room.corridor].today.checkouts.add(room.apartment));
-    }
-    if (checkout === tomorrowIso) {
-      roomsForDay('tomorrow').forEach((room) => roomSets[room.corridor].tomorrow.checkouts.add(room.apartment));
-    }
+    const addCheckoutRow = (dayKey: 'today' | 'tomorrow', date: string) => {
+      if (checkout !== date || !voucher || isInterdicted) return;
+      reservationFlows[dayKey].checkouts += 1;
+    };
+    addCheckinRow('today', todayIso);
+    addCheckinRow('tomorrow', tomorrowIso);
+    addCheckoutRow('today', todayIso);
+    addCheckoutRow('tomorrow', tomorrowIso);
 
     if (!isInterdicted || !corridor || !roomSets[corridor]) return;
     ([['today', todayIso], ['tomorrow', tomorrowIso]] as const).forEach(([dayKey, date]) => {
@@ -769,11 +769,13 @@ function buildHousekeepingDashboard(mapValues: any[][], rawValues: any[][]) {
     checkinsTomorrow: 0,
     checkoutsTomorrow: 0,
   });
-  totals.checkinsToday = checkinVouchers.today.size;
-  totals.checkinsTomorrow = checkinVouchers.tomorrow.size;
+  totals.checkinsToday = reservationFlows.today.checkins;
+  totals.checkoutsToday = reservationFlows.today.checkouts;
+  totals.checkinsTomorrow = reservationFlows.tomorrow.checkins;
+  totals.checkoutsTomorrow = reservationFlows.tomorrow.checkouts;
   const unassignedCheckins = {
-    today: Math.max(0, checkinVouchers.today.size - assignedCheckinVouchers.today.size),
-    tomorrow: Math.max(0, checkinVouchers.tomorrow.size - assignedCheckinVouchers.tomorrow.size),
+    today: Math.max(0, reservationFlows.today.checkins - assignedCheckinRows.today.size),
+    tomorrow: Math.max(0, reservationFlows.tomorrow.checkins - assignedCheckinRows.tomorrow.size),
   };
 
   return {
