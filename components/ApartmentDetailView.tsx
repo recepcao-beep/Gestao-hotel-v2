@@ -5,6 +5,8 @@ import { DEFAULT_CHECKLIST } from '../defaultChecklist';
 import { getDirectDriveUrl, compressImage } from '../utils/imageUtils';
 import { 
   ChevronLeft, 
+  ChevronRight,
+  CheckCircle2,
   Save, 
   Trash2, 
   Wind,
@@ -33,6 +35,31 @@ interface ApartmentDetailViewProps {
   checklistConfig?: any[]; // FormFieldConfig[]
 }
 
+const FORM_STEPS = [
+  { title: 'Entrada', description: 'Hall e itens iniciais' },
+  { title: 'Quarto', description: 'Piso, mobiliario e camas' },
+  { title: 'Banheiro', description: 'Banheiro e itens adicionais' },
+  { title: 'Revisao', description: 'Avarias e conferencia final' },
+];
+
+const FIELD_STEPS: Record<string, number> = {
+  luminariaType: 0,
+  temCabide: 0,
+  temEspelhoCorpo: 0,
+  temCofre: 0,
+  pisoType: 1,
+  moveisStatus: 1,
+  temCortina: 1,
+  tvBrand: 1,
+  acBrand: 1,
+  temPortaControle: 1,
+  beds: 1,
+  banheiroType: 2,
+  temSuportePapel: 2,
+  temSuporteShampoo: 2,
+  defects: 3,
+};
+
 const ApartmentDetailView: React.FC<ApartmentDetailViewProps> = ({ apartment, theme, onBack, onSave, integrationUrl, checklistConfig = [] }) => {
   const [data, setData] = useState<Apartment>(() => {
     const initial = { ...apartment };
@@ -50,6 +77,8 @@ const ApartmentDetailView: React.FC<ApartmentDetailViewProps> = ({ apartment, th
   const [isSaving, setIsSaving] = useState(false);
   const [newFiles, setNewFiles] = useState<{data: string, mimeType: string, fileName: string}[]>([]);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [currentStep, setCurrentStep] = useState(0);
+  const [formError, setFormError] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const updateField = (field: keyof Apartment, value: any) => {
@@ -118,6 +147,54 @@ const ApartmentDetailView: React.FC<ApartmentDetailViewProps> = ({ apartment, th
 
   const isFieldVisible = (id: string) => !!getFieldConfig(id);
 
+  const getFieldStep = (id: string) => FIELD_STEPS[id] ?? 2;
+
+  const validateStep = (step: number) => {
+    const configList = checklistConfig && checklistConfig.length > 0 ? checklistConfig : DEFAULT_CHECKLIST;
+    const missingField = configList.find((field) => {
+      if (!field.required || getFieldStep(field.id) !== step) return false;
+      const value = DEFAULT_CHECKLIST.some((defaultField) => defaultField.id === field.id)
+        ? (data as any)[field.id]
+        : data.customAnswers?.[field.id];
+      return value === undefined || value === null || value === '';
+    });
+
+    if (!missingField) {
+      setFormError('');
+      return true;
+    }
+
+    setFormError(`Preencha o campo obrigatório: ${missingField.title}.`);
+    window.requestAnimationFrame(() => {
+      const target = document.querySelector(`[data-field-id="${missingField.id}"]`) as HTMLElement | null;
+      target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      target?.focus?.();
+    });
+    return false;
+  };
+
+  const goToNextStep = () => {
+    if (!validateStep(currentStep)) return;
+    setCurrentStep((step) => Math.min(FORM_STEPS.length - 1, step + 1));
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const goToPreviousStep = () => {
+    setFormError('');
+    setCurrentStep((step) => Math.max(0, step - 1));
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleFinalSave = () => {
+    for (let step = 0; step < FORM_STEPS.length; step += 1) {
+      if (!validateStep(step)) {
+        setCurrentStep(step);
+        return;
+      }
+    }
+    void handleSaveAndExit();
+  };
+
   const getStatusBtnClass = (current: any, target: any, activeBg: string) => {
     const isActive = current === target;
     return `flex-1 py-4 rounded-2xl text-[10px] font-black border-2 transition-all shadow-sm ${
@@ -161,13 +238,34 @@ const ApartmentDetailView: React.FC<ApartmentDetailViewProps> = ({ apartment, th
           </button>
           <h2 className="text-xl font-black text-slate-800 leading-none">Apto {data.roomNumber}</h2>
         </div>
+        <div className="text-right">
+          <div className="text-[9px] font-black uppercase text-slate-400">Etapa {currentStep + 1} de {FORM_STEPS.length}</div>
+          <div className="text-xs font-black text-slate-700">{FORM_STEPS[currentStep].title}</div>
+        </div>
       </div>
 
-      <div className="px-4 py-6 space-y-10 max-w-lg mx-auto">
+      <div className="mx-auto max-w-5xl px-4 pt-5">
+        <div className="grid grid-cols-4 gap-2" aria-label="Progresso da vistoria">
+          {FORM_STEPS.map((step, index) => (
+            <div key={step.title} className="min-w-0">
+              <div className={`h-1.5 rounded-full ${index <= currentStep ? 'bg-slate-800' : 'bg-slate-200'}`} />
+              <div className={`mt-2 truncate text-[9px] font-black uppercase ${index === currentStep ? 'text-slate-800' : 'text-slate-400'}`}>{step.title}</div>
+            </div>
+          ))}
+        </div>
+        {formError && (
+          <div className="mt-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-bold text-rose-700" role="alert">
+            {formError}
+          </div>
+        )}
+      </div>
+
+      <div className="mx-auto max-w-5xl space-y-8 px-4 py-6">
         
         {/* SECTION 1: HALL DE ENTRADA */}
-        <section className="space-y-6">
-          <div className="flex items-center space-x-3 px-2 mb-2">
+        {currentStep === 0 && (
+        <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <div className="col-span-full flex items-center space-x-3 px-2 mb-2">
             <div className="h-px flex-1 bg-slate-200"></div>
             <h2 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em]">Hall de Entrada</h2>
             <div className="h-px flex-1 bg-slate-200"></div>
@@ -234,10 +332,12 @@ const ApartmentDetailView: React.FC<ApartmentDetailViewProps> = ({ apartment, th
             </div>
           )}
         </section>
+        )}
 
         {/* SECTION 2: QUARTO */}
-        <section className="space-y-6">
-          <div className="flex items-center space-x-3 px-2 mb-2">
+        {currentStep === 1 && (
+        <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <div className="col-span-full flex items-center space-x-3 px-2 mb-2">
             <div className="h-px flex-1 bg-slate-200"></div>
             <h2 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em]">Quarto</h2>
             <div className="h-px flex-1 bg-slate-200"></div>
@@ -403,10 +503,12 @@ const ApartmentDetailView: React.FC<ApartmentDetailViewProps> = ({ apartment, th
             </div>
           )}
         </section>
+        )}
 
         {/* SECTION 3: BANHEIRO */}
-        <section className="space-y-6">
-          <div className="flex items-center space-x-3 px-2 mb-2">
+        {currentStep === 2 && (
+        <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <div className="col-span-full flex items-center space-x-3 px-2 mb-2">
             <div className="h-px flex-1 bg-slate-200"></div>
             <h2 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em]">Banheiro</h2>
             <div className="h-px flex-1 bg-slate-200"></div>
@@ -456,9 +558,10 @@ const ApartmentDetailView: React.FC<ApartmentDetailViewProps> = ({ apartment, th
             </div>
           )}
         </section>
+        )}
 
         {/* CUSTOM CHECKLIST ITEMS */}
-        {(() => {
+        {currentStep === 2 && (() => {
           const configList = checklistConfig && checklistConfig.length > 0 ? checklistConfig : DEFAULT_CHECKLIST;
           const customFields = configList.filter(f => !DEFAULT_CHECKLIST.some(df => df.id === f.id));
           
@@ -472,7 +575,7 @@ const ApartmentDetailView: React.FC<ApartmentDetailViewProps> = ({ apartment, th
                   const answer = data.customAnswers?.[field.id];
                   
                   return (
-                    <div key={field.id} className="p-4 bg-slate-50 rounded-2xl space-y-3">
+                    <div key={field.id} data-field-id={field.id} tabIndex={-1} className="p-4 bg-slate-50 rounded-2xl space-y-3 outline-none">
                       <div className="flex items-center justify-between">
                         <span className="text-[10px] font-black text-slate-500 uppercase">{field.title}</span>
                         {field.type === 'boolean' && (
@@ -517,8 +620,28 @@ const ApartmentDetailView: React.FC<ApartmentDetailViewProps> = ({ apartment, th
         })()}
 
         {/* RELATO DE DEFEITOS */}
+        {currentStep === 3 && (
+        <>
+        <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex items-center gap-2"><CheckCircle2 size={18} className="text-emerald-600" /><h3 className="text-sm font-black text-slate-800">Revisao da vistoria</h3></div>
+          <div className="mt-4 grid grid-cols-2 gap-2 md:grid-cols-3">
+            {[
+              ['Apartamento', data.roomNumber || '-'],
+              ['Piso', data.pisoType || 'Nao informado'],
+              ['Estado do piso', data.pisoStatus || 'Nao informado'],
+              ['Banheiro', data.banheiroType || 'Nao informado'],
+              ['TV', data.tvBrand || 'Nao informado'],
+              ['Avarias', (data.defects || []).length],
+            ].map(([label, value]) => (
+              <div key={String(label)} className="rounded-lg bg-slate-50 px-3 py-2">
+                <div className="text-[9px] font-black uppercase text-slate-400">{label}</div>
+                <div className="mt-1 text-xs font-black text-slate-700">{value}</div>
+              </div>
+            ))}
+          </div>
+        </section>
         {isFieldVisible('defects') && (
-          <section className="bg-white p-6 rounded-[2.5rem] border border-slate-50 shadow-xl space-y-4">
+          <section data-field-id="defects" tabIndex={-1} className="bg-white p-6 rounded-[2.5rem] border border-slate-50 shadow-xl space-y-4 outline-none">
             <SectionTitle icon={Paperclip} title="Relato de Defeitos" color="text-rose-500" />
             <textarea 
               value={newDefectText} 
@@ -572,13 +695,28 @@ const ApartmentDetailView: React.FC<ApartmentDetailViewProps> = ({ apartment, th
             </div>
           </section>
         )}
+        </>
+        )}
       </div>
 
-      <div className="fixed bottom-8 left-0 right-0 px-6 z-[120]">
-        <button onClick={handleSaveAndExit} disabled={isSaving} className="w-full bg-slate-900 text-white py-5 rounded-[2.2rem] font-black text-sm shadow-2xl flex items-center justify-center space-x-3 active:scale-95 transition-all hover:bg-slate-800">
-          {isSaving ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Save size={20} className="text-emerald-400" />}
-          <span>SALVAR VISTORIA</span>
-        </button>
+      <div className="fixed bottom-0 left-0 right-0 z-[120] border-t border-slate-200 bg-white/95 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 shadow-[0_-8px_30px_rgba(15,23,42,0.10)] backdrop-blur">
+        <div className={`mx-auto grid max-w-5xl gap-3 ${currentStep > 0 ? 'grid-cols-2' : 'grid-cols-1'}`}>
+          {currentStep > 0 && (
+            <button type="button" onClick={goToPreviousStep} className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 text-sm font-black text-slate-700">
+              <ChevronLeft size={18} /> Voltar
+            </button>
+          )}
+          {currentStep < FORM_STEPS.length - 1 ? (
+            <button type="button" onClick={goToNextStep} className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg bg-slate-900 px-4 text-sm font-black text-white">
+              Continuar <ChevronRight size={18} />
+            </button>
+          ) : (
+            <button type="button" onClick={handleFinalSave} disabled={isSaving} className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg bg-slate-900 px-4 text-sm font-black text-white disabled:opacity-60">
+              {isSaving ? <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/30 border-t-white" /> : <Save size={18} className="text-emerald-400" />}
+              Salvar vistoria
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );

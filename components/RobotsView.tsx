@@ -100,6 +100,7 @@ interface HousekeepingMetrics {
 interface HousekeepingCorridor {
   corridor: string;
   rooms: number;
+  selected: HousekeepingMetrics;
   today: HousekeepingMetrics;
   tomorrow: HousekeepingMetrics;
   workload: number;
@@ -110,20 +111,28 @@ interface HousekeepingDashboard {
   dates: {
     today: string;
     tomorrow: string;
+    selected: string;
+    selectedLabel: string;
     todayLabel: string;
     tomorrowLabel: string;
   };
+  availableDates: { date: string; label: string }[];
+  requestedDateAvailable: boolean;
+  hasData: boolean;
   totals: {
     rooms: number;
     occupied: number;
     vacant: number;
     interdicted: number;
+    checkins: number;
+    checkouts: number;
     checkinsToday: number;
     checkoutsToday: number;
     checkinsTomorrow: number;
     checkoutsTomorrow: number;
   };
   unassignedCheckins: {
+    selected: number;
     today: number;
     tomorrow: number;
   };
@@ -253,6 +262,12 @@ const isoToBrDate = (value: string) => {
   return `${match[3]}/${match[2]}/${match[1]}`;
 };
 
+const formatOperationalDate = (value: string) => {
+  const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return 'Selecionar data';
+  return `${match[3]}/${match[2]}/${match[1]}`;
+};
+
 const normalizeSearch = (value: string) => String(value || '')
   .normalize('NFD')
   .replace(/[\u0300-\u036f]/g, '')
@@ -316,6 +331,9 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
   const [housekeepingDashboard, setHousekeepingDashboard] = useState<HousekeepingDashboard | null>(null);
   const [loadingHousekeeping, setLoadingHousekeeping] = useState(false);
   const [housekeepingError, setHousekeepingError] = useState('');
+  const [housekeepingMessage, setHousekeepingMessage] = useState('');
+  const [selectedHousekeepingDate, setSelectedHousekeepingDate] = useState('');
+  const [isHousekeepingCalendarOpen, setIsHousekeepingCalendarOpen] = useState(false);
   const [laundrySearch, setLaundrySearch] = useState('');
   const [laundryCart, setLaundryCart] = useState<{ id: string; name: string; price: number; quantity: number }[]>([]);
   const [laundryUrgent, setLaundryUrgent] = useState(false);
@@ -357,16 +375,20 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
     loadStatus();
   }, [loadStatus]);
 
-  const loadHousekeepingDashboard = useCallback(async () => {
+  const loadHousekeepingDashboard = useCallback(async (date?: string, showSuccess = false) => {
     setLoadingHousekeeping(true);
     setHousekeepingError('');
+    setHousekeepingMessage('');
     try {
-      const response = await fetch('/api/robots/governanca-painel');
+      const query = date ? `?date=${encodeURIComponent(date)}` : '';
+      const response = await fetch(`/api/robots/governanca-painel${query}`);
       const data = await response.json();
       if (!response.ok || data.status !== 'success') {
         throw new Error(data.message || 'Falha ao carregar painel da Governanca.');
       }
       setHousekeepingDashboard(data);
+      setSelectedHousekeepingDate(data.dates?.selected || date || '');
+      if (showSuccess) setHousekeepingMessage('Dados atualizados para a data selecionada.');
     } catch (err: any) {
       setHousekeepingError(err.message || 'Falha ao carregar painel da Governanca.');
     } finally {
@@ -488,7 +510,7 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
           setMessage('Robo concluido com sucesso.');
           if (trackingRotina === 'mr') {
             addRobotLog('Atualizando indicadores da Governanca...', 'info');
-            void loadHousekeepingDashboard();
+            void loadHousekeepingDashboard(selectedHousekeepingDate, true);
           }
         } else {
           addRobotLog(`Execucao finalizada com status: ${latestRun.conclusion || 'falha'}.`, 'error');
@@ -499,7 +521,7 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
     }, 5000);
 
     return () => window.clearInterval(interval);
-  }, [addRobotLog, isWatchingRun, loadHousekeepingDashboard, loadStatus, trackedRunId, trackingRotina, trackingStartedAt]);
+  }, [addRobotLog, isWatchingRun, loadHousekeepingDashboard, loadStatus, selectedHousekeepingDate, trackedRunId, trackingRotina, trackingStartedAt]);
 
   const runRobot = async (rotina: Rotina) => {
     setRunning(rotina);
@@ -859,15 +881,55 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
               <h2 className="text-base font-black text-slate-900">Painel dos corredores</h2>
             </div>
             <p className="mt-1 text-xs font-bold text-slate-500">
-              Ocupacao de hoje e demanda de limpeza para amanha.
+              Projecao operacional dos apartamentos e demanda dos andares.
               {housekeepingUpdatedAt && ` Atualizado em ${housekeepingUpdatedAt}.`}
             </p>
           </div>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setIsHousekeepingCalendarOpen((current) => !current)}
+                disabled={!housekeepingDashboard?.availableDates?.length}
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 disabled:opacity-50"
+                aria-expanded={isHousekeepingCalendarOpen}
+                title="Selecionar data operacional"
+              >
+                <CalendarDays size={16} style={{ color: theme.primary }} />
+                <span>{formatOperationalDate(selectedHousekeepingDate)}</span>
+              </button>
+              {isHousekeepingCalendarOpen && housekeepingDashboard?.availableDates?.length > 0 && (
+                <div className="absolute right-0 top-full z-40 mt-2 w-64 rounded-lg border border-slate-200 bg-white p-2 shadow-xl">
+                  <div className="px-2 pb-2 pt-1 text-[10px] font-black uppercase text-slate-400">Datas disponiveis</div>
+                  <div className="grid grid-cols-1 gap-1">
+                    {housekeepingDashboard.availableDates.map((item) => {
+                      const active = item.date === selectedHousekeepingDate;
+                      return (
+                        <button
+                          type="button"
+                          key={item.date}
+                          onClick={() => {
+                            setSelectedHousekeepingDate(item.date);
+                            setIsHousekeepingCalendarOpen(false);
+                            void loadHousekeepingDashboard(item.date);
+                          }}
+                          className={`flex min-h-11 items-center justify-between rounded-lg px-3 text-left text-xs font-black ${active ? 'text-white' : 'text-slate-700 hover:bg-slate-50'}`}
+                          style={active ? { backgroundColor: theme.primary } : undefined}
+                        >
+                          <span>{formatOperationalDate(item.date)}</span>
+                          <span className={`text-[10px] ${active ? 'text-white/80' : 'text-slate-400'}`}>{item.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
             <button
+              type="button"
               onClick={() => runRobot('mr')}
               disabled={!!running}
-              className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg px-3 text-xs font-black text-white disabled:opacity-60"
+              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg px-3 text-xs font-black text-white disabled:opacity-60"
               style={{ backgroundColor: theme.primary }}
               title="Executar apenas o robo MR"
             >
@@ -875,17 +937,19 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
               <span className="hidden sm:inline">Atualizar mapa</span>
             </button>
             <button
-              onClick={loadHousekeepingDashboard}
+              type="button"
+              onClick={() => loadHousekeepingDashboard(selectedHousekeepingDate, true)}
               disabled={loadingHousekeeping}
-              className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 disabled:opacity-60"
-              title="Recarregar painel"
+              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 disabled:opacity-60"
+              title="Atualizar a data selecionada"
             >
               <RefreshCw size={15} className={loadingHousekeeping ? 'animate-spin' : ''} />
-              <span className="hidden sm:inline">Recarregar</span>
+              <span className="hidden sm:inline">Atualizar</span>
             </button>
             <button
+              type="button"
               onClick={printMapinha}
-              className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-xs font-black text-slate-700"
+              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-xs font-black text-slate-700"
               title="Abrir PDF do mapinha"
             >
               <Printer size={15} />
@@ -900,23 +964,43 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
           </div>
         )}
 
+        {housekeepingMessage && (
+          <div className="rounded-lg border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700">
+            {housekeepingMessage}
+          </div>
+        )}
+
         {loadingHousekeeping && !housekeepingDashboard && (
           <div className="flex min-h-48 items-center justify-center border-y border-slate-200 bg-slate-50 text-sm font-black text-slate-500">
             <Loader2 size={18} className="mr-2 animate-spin" /> Carregando operacao dos andares...
           </div>
         )}
 
-        {housekeepingDashboard && (
+        {housekeepingDashboard && !housekeepingDashboard.requestedDateAvailable && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-800">
+            A data solicitada nao existe na projecao atual. Exibindo a primeira data disponivel.
+          </div>
+        )}
+
+        {housekeepingDashboard && !housekeepingDashboard.hasData && (
+          <div className="border-y border-amber-200 bg-amber-50 px-4 py-8 text-center">
+            <CalendarDays size={22} className="mx-auto text-amber-600" />
+            <div className="mt-2 text-sm font-black text-amber-900">
+              {housekeepingDashboard.availableDates.length === 0 ? 'Base operacional ainda nao atualizada' : 'Nenhum apartamento encontrado'}
+            </div>
+            <div className="mt-1 text-xs font-bold text-amber-700">Atualize o mapa e tente novamente.</div>
+          </div>
+        )}
+
+        {housekeepingDashboard?.hasData && (
         <>
-          <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-2">
+          <div className={`space-y-4 transition-opacity ${loadingHousekeeping ? 'opacity-60' : 'opacity-100'}`}>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
             {[
-              { label: 'Ocupados hoje', value: housekeepingDashboard.totals.occupied, icon: BedDouble, tone: 'text-sky-700 bg-sky-50 border-sky-100' },
-              { label: 'Vagos hoje', value: housekeepingDashboard.totals.vacant, icon: DoorOpen, tone: 'text-emerald-700 bg-emerald-50 border-emerald-100' },
-              { label: 'Entradas hoje', value: housekeepingDashboard.totals.checkinsToday, icon: ArrowDownToLine, tone: 'text-indigo-700 bg-indigo-50 border-indigo-100' },
-              { label: 'Saidas hoje', value: housekeepingDashboard.totals.checkoutsToday, icon: ArrowUpFromLine, tone: 'text-amber-700 bg-amber-50 border-amber-100' },
-              { label: 'Saidas amanha', value: housekeepingDashboard.totals.checkoutsTomorrow, icon: ArrowUpFromLine, tone: 'text-amber-700 bg-amber-50 border-amber-100' },
-              { label: 'Entradas amanha', value: housekeepingDashboard.totals.checkinsTomorrow, icon: ArrowDownToLine, tone: 'text-indigo-700 bg-indigo-50 border-indigo-100' },
-              { label: 'Interditados', value: housekeepingDashboard.totals.interdicted, icon: AlertTriangle, tone: 'text-rose-700 bg-rose-50 border-rose-100' },
+              { label: 'Ocupados', value: housekeepingDashboard.totals.occupied, icon: BedDouble, tone: 'text-sky-700 bg-sky-50 border-sky-100' },
+              { label: 'Entradas', value: housekeepingDashboard.totals.checkins, icon: ArrowDownToLine, tone: 'text-indigo-700 bg-indigo-50 border-indigo-100' },
+              { label: 'Saidas', value: housekeepingDashboard.totals.checkouts, icon: ArrowUpFromLine, tone: 'text-amber-700 bg-amber-50 border-amber-100' },
+              { label: 'Vagos disponiveis', value: housekeepingDashboard.totals.vacant, icon: DoorOpen, tone: 'text-emerald-700 bg-emerald-50 border-emerald-100' },
             ].map((item) => {
               const MetricIcon = item.icon;
               return (
@@ -929,17 +1013,27 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
             })}
           </div>
 
-          {priorityCorridor && (
+          {(housekeepingDashboard.totals.interdicted > 0 || housekeepingDashboard.unassignedCheckins.selected > 0) && (
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-y border-slate-200 bg-slate-50 px-4 py-3 text-xs font-bold text-slate-600">
+              {housekeepingDashboard.totals.interdicted > 0 && (
+                <span className="inline-flex items-center gap-2 text-rose-700"><AlertTriangle size={15} /> {housekeepingDashboard.totals.interdicted} interditados fora das vagas disponiveis</span>
+              )}
+              {housekeepingDashboard.unassignedCheckins.selected > 0 && (
+                <span className="inline-flex items-center gap-2 text-indigo-700"><ArrowDownToLine size={15} /> {housekeepingDashboard.unassignedCheckins.selected} entradas ainda sem andar definido</span>
+              )}
+            </div>
+          )}
+
+          {priorityCorridor && priorityCorridor.workload > 0 && (
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-y border-amber-200 bg-amber-50 px-4 py-3">
               <div className="flex items-start gap-3">
                 <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-amber-700">
                   <BellRing size={17} />
                 </div>
                 <div>
-                  <div className="text-sm font-black text-amber-950">Prioridade de amanha: corredor {priorityCorridor.corridor}</div>
+                  <div className="text-sm font-black text-amber-950">Maior demanda em {formatOperationalDate(selectedHousekeepingDate)}: andar {priorityCorridor.corridor}</div>
                   <div className="text-xs font-bold text-amber-800">
-                    {priorityCorridor.tomorrow.checkouts} saidas, {priorityCorridor.tomorrow.checkins} entradas e {priorityCorridor.tomorrow.vacant} apartamentos vagos.
-                    {housekeepingDashboard.unassignedCheckins.tomorrow > 0 && ` ${housekeepingDashboard.unassignedCheckins.tomorrow} entradas ainda aguardam apartamento.`}
+                    {priorityCorridor.selected.checkouts} saidas, {priorityCorridor.selected.checkins} entradas e {priorityCorridor.selected.vacant} apartamentos vagos.
                   </div>
                 </div>
               </div>
@@ -952,7 +1046,7 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
               const isPriority = priorityCorridor?.corridor === corridor.corridor && corridor.workload > 0;
               return (
                 <div key={corridor.corridor} className={`rounded-lg border bg-white p-3 md:p-4 ${isPriority ? 'border-amber-300' : 'border-slate-200'}`}>
-                  <div className="grid grid-cols-1 xl:grid-cols-[150px_1.3fr_1fr_160px] gap-4 xl:items-center">
+                  <div className="grid grid-cols-1 xl:grid-cols-[150px_1fr_160px] gap-4 xl:items-center">
                     <div className="flex items-center justify-between xl:block">
                       <div className="flex items-center gap-2">
                         <Building2 size={18} style={{ color: theme.primary }} />
@@ -962,38 +1056,20 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
                     </div>
 
                     <div>
-                      <div className="mb-2 text-[10px] font-black uppercase text-slate-400">Hoje</div>
+                      <div className="mb-2 text-[10px] font-black uppercase text-slate-400">{formatOperationalDate(selectedHousekeepingDate)}</div>
                       <div className="grid grid-cols-3 sm:grid-cols-5 xl:grid-cols-3 2xl:grid-cols-5 gap-1.5">
                         {[
-                          ['Ocup.', corridor.today.occupied || 0, 'text-sky-700'],
-                          ['Vagos', corridor.today.vacant, 'text-emerald-700'],
-                          ['Interd.', corridor.today.interdicted || 0, 'text-rose-700'],
-                          ['Entram', corridor.today.checkins, 'text-indigo-700'],
-                          ['Saem', corridor.today.checkouts, 'text-amber-700'],
+                          ['Ocup.', corridor.selected.occupied || 0, 'text-sky-700'],
+                          ['Entram', corridor.selected.checkins, 'text-indigo-700'],
+                          ['Saem', corridor.selected.checkouts, 'text-amber-700'],
+                          ['Vagos', corridor.selected.vacant, 'text-emerald-700'],
+                          ['Interd.', corridor.selected.interdicted || 0, 'text-rose-700'],
                         ].map(([label, value, tone]) => (
                           <div key={String(label)} className="min-w-0 rounded-lg bg-slate-50 px-2 py-2 text-center">
                             <div className={`text-base font-black ${tone}`}>{value}</div>
                             <div className="truncate text-[9px] font-black uppercase text-slate-400">{label}</div>
                           </div>
                         ))}
-                      </div>
-                    </div>
-
-                    <div>
-                      <div className="mb-2 text-[10px] font-black uppercase text-slate-400">Amanha</div>
-                      <div className="grid grid-cols-3 gap-1.5">
-                        <div className="rounded-lg bg-amber-50 px-2 py-2 text-center text-amber-800">
-                          <div className="text-lg font-black">{corridor.tomorrow.checkouts}</div>
-                          <div className="text-[9px] font-black uppercase">Saidas</div>
-                        </div>
-                        <div className="rounded-lg bg-indigo-50 px-2 py-2 text-center text-indigo-800">
-                          <div className="text-lg font-black">{corridor.tomorrow.checkins}</div>
-                          <div className="text-[9px] font-black uppercase">Entradas</div>
-                        </div>
-                        <div className="rounded-lg bg-emerald-50 px-2 py-2 text-center text-emerald-800">
-                          <div className="text-lg font-black">{corridor.tomorrow.vacant}</div>
-                          <div className="text-[9px] font-black uppercase">Vagos</div>
-                        </div>
                       </div>
                     </div>
 
@@ -1016,6 +1092,7 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
                 </div>
               );
             })}
+          </div>
           </div>
         </>
         )}
