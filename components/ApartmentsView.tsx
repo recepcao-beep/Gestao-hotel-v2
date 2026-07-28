@@ -1,7 +1,8 @@
 import React, { useMemo, useState } from 'react';
-import { Hotel, FileBarChart, LayoutGrid } from 'lucide-react';
+import { AlertTriangle, CircleHelp, FileBarChart, Hotel, LayoutGrid, Snowflake, Trees } from 'lucide-react';
 import { HotelTheme, Apartment } from '../types';
 import ReportsView from './ReportsView';
+import { apartmentNeedsAttention, resolveApartmentFloor, resolveApartmentFloorType } from '../utils/apartmentPresentation';
 
 interface ApartmentsViewProps {
   onSelectFloor: (floor: number) => void;
@@ -35,18 +36,25 @@ const ApartmentsView: React.FC<ApartmentsViewProps> = ({
   const [activeTab, setActiveTab] = useState<'FLOORS' | 'REPORTS'>('FLOORS');
 
   const floorCards = useMemo(() => {
-    const map = new Map<number, number>();
+    const map = new Map<number, { total: number; cold: number; wood: number; uninformed: number; attention: number }>();
 
-    DEFAULT_FLOORS.forEach((floor) => map.set(floor, 0));
+    DEFAULT_FLOORS.forEach((floor) => map.set(floor, { total: 0, cold: 0, wood: 0, uninformed: 0, attention: 0 }));
 
     Object.values(apartments || {} as Record<string, Apartment>).forEach((apt: Apartment) => {
-      const floor = resolveFloor(apt);
+      const floor = resolveApartmentFloor(apt);
       if (!floor) return;
-      map.set(floor, (map.get(floor) || 0) + 1);
+      const stats = map.get(floor) || { total: 0, cold: 0, wood: 0, uninformed: 0, attention: 0 };
+      const floorType = resolveApartmentFloorType(apt);
+      stats.total += 1;
+      if (floorType === 'COLD') stats.cold += 1;
+      else if (floorType === 'WOOD') stats.wood += 1;
+      else stats.uninformed += 1;
+      if (apartmentNeedsAttention(apt)) stats.attention += 1;
+      map.set(floor, stats);
     });
 
     return Array.from(map.entries())
-      .map(([floor, count]) => ({ floor, count }))
+      .map(([floor, stats]) => ({ floor, ...stats }))
       .sort((a, b) => a.floor - b.floor);
   }, [apartments]);
 
@@ -103,32 +111,37 @@ const ApartmentsView: React.FC<ApartmentsViewProps> = ({
 
       {activeTab === 'FLOORS' ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-8 pb-12">
-          {floorCards.map(({ floor, count }) => (
+          {floorCards.map(({ floor, total, cold, wood, uninformed, attention }) => (
             <button
               key={floor}
               onClick={() => onSelectFloor(floor)}
-              className="group relative bg-white h-48 md:h-72 rounded-[2.5rem] shadow-sm hover:shadow-2xl transition-all duration-500 flex flex-col items-center justify-center border border-slate-50 overflow-hidden transform active:scale-95 md:hover:-translate-y-2"
+              className="group relative min-h-56 rounded-lg border border-slate-200 bg-white p-5 text-left shadow-sm transition-all hover:border-slate-300 hover:shadow-md active:scale-[0.99]"
             >
               <div
                 className="absolute top-0 left-0 w-full h-1.5 transition-all duration-500"
                 style={{ backgroundColor: theme.primary }}
               />
 
-              <div
-                className="p-5 md:p-8 rounded-2xl md:rounded-3xl mb-3 md:mb-6 group-hover:scale-110 transition-transform duration-500"
-                style={{ backgroundColor: theme.primary + '10', color: theme.primary }}
-              >
-                <Hotel size={32} strokeWidth={1.5} className="md:w-14 md:h-14" />
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-[10px] font-black uppercase text-slate-400">{hotelName}</div>
+                  <h3 className="mt-1 text-2xl font-black text-slate-800">Andar {floor}</h3>
+                </div>
+                <div className="flex h-11 w-11 items-center justify-center rounded-lg" style={{ backgroundColor: theme.primary + '12', color: theme.primary }}>
+                  <Hotel size={22} />
+                </div>
               </div>
 
-              <div className="text-center">
-                <h3 className="text-xl md:text-3xl font-black text-slate-800">Andar {floor}</h3>
-                <p className="text-slate-400 mt-1 font-black uppercase tracking-[0.2em] text-[8px] md:text-[10px]">
-                  {hotelName}
-                </p>
-                <p className="text-slate-400 mt-2 font-black uppercase tracking-[0.2em] text-[8px] md:text-[10px]">
-                  {count} apartamentos carregados
-                </p>
+              <div className="mt-5 grid grid-cols-2 gap-2">
+                <div className="rounded-lg bg-slate-50 px-3 py-2"><div className="text-lg font-black text-slate-800">{total}</div><div className="text-[9px] font-black uppercase text-slate-400">Apartamentos</div></div>
+                <div className="rounded-lg bg-rose-50 px-3 py-2"><div className="text-lg font-black text-rose-700">{attention}</div><div className="text-[9px] font-black uppercase text-rose-500">Com atencao</div></div>
+              </div>
+
+              <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2 border-t border-slate-100 pt-3 text-[10px] font-black text-slate-500">
+                <span className="inline-flex items-center gap-1.5"><Snowflake size={13} className="text-sky-600" /> {cold} piso frio</span>
+                <span className="inline-flex items-center gap-1.5"><Trees size={13} className="text-emerald-700" /> {wood} madeira</span>
+                <span className="inline-flex items-center gap-1.5"><CircleHelp size={13} /> {uninformed} nao informados</span>
+                {attention > 0 && <span className="inline-flex items-center gap-1.5 text-rose-600"><AlertTriangle size={13} /> vistoria</span>}
               </div>
             </button>
           ))}

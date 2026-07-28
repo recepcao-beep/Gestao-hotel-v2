@@ -614,39 +614,94 @@ function createRoomDaySets(): RoomDaySets {
   };
 }
 
-function buildHousekeepingDashboard(mapValues: any[][], rawValues: any[][]) {
+function inferProjectionDate(header: any, fallbackIso: string) {
+  const dayMatch = String(header || '').match(/(?:^|,\s*)(\d{1,2})(?:\s|$)/);
+  if (!dayMatch) return fallbackIso;
+
+  const targetDay = Number(dayMatch[1]);
+  const [year, month] = fallbackIso.split('-').map(Number);
+  const fallbackTime = Date.parse(`${fallbackIso}T00:00:00Z`);
+  const candidates = [-1, 0, 1].map((monthOffset) => {
+    const candidate = new Date(Date.UTC(year, month - 1 + monthOffset, targetDay));
+    return {
+      iso: candidate.toISOString().slice(0, 10),
+      distance: Math.abs(candidate.getTime() - fallbackTime),
+    };
+  });
+  return candidates.sort((a, b) => a.distance - b.distance)[0].iso;
+}
+
+function formatOperationalDateLabel(isoDate: string) {
+  const [year, month, day] = isoDate.split('-').map(Number);
+  return new Intl.DateTimeFormat('pt-BR', {
+    timeZone: 'UTC',
+    weekday: 'short',
+    day: '2-digit',
+    month: '2-digit',
+  }).format(new Date(Date.UTC(year, month - 1, day)));
+}
+
+function buildHousekeepingDashboard(mapValues: any[][], rawValues: any[][], requestedDate?: string) {
   const corridors = ['200', '300', '400', '500', '600', '700'];
   const todayIso = getSaoPauloIsoDate();
   const tomorrowIso = addDaysToIsoDate(todayIso, 1);
+  const mapHeaders = mapValues[0] || [];
+  const seenDates = new Set<string>();
+  const mapDates = mapHeaders.slice(3).map((header, index) => {
+    const fallbackDate = addDaysToIsoDate(todayIso, index);
+    const date = inferProjectionDate(header, fallbackDate);
+    return {
+      date,
+      columnIndex: index + 3,
+      label: String(header || '').trim() || formatOperationalDateLabel(date),
+    };
+  }).filter((item) => {
+    if (item.date < todayIso || seenDates.has(item.date)) return false;
+    seenDates.add(item.date);
+    return true;
+  });
+  const availableDates = mapDates.map(({ date, label }) => ({ date, label }));
+  const normalizedRequestedDate = sheetDateToIso(requestedDate || '');
+  const requestedDateAvailable = !normalizedRequestedDate || availableDates.some((item) => item.date === normalizedRequestedDate);
+  const selectedDate = requestedDateAvailable && normalizedRequestedDate
+    ? normalizedRequestedDate
+    : (availableDates[0]?.date || todayIso);
+
   const roomSets = Object.fromEntries(corridors.map((corridor) => [
     corridor,
-    { today: createRoomDaySets(), tomorrow: createRoomDaySets(), rooms: new Set<string>() },
-  ])) as Record<string, { today: RoomDaySets; tomorrow: RoomDaySets; rooms: Set<string> }>;
-  const mappedRooms: { apartment: string; corridor: string; today: string; tomorrow: string }[] = [];
-  const reservationFlows = {
-    today: { checkins: 0, checkouts: 0 },
-    tomorrow: { checkins: 0, checkouts: 0 },
-  };
-  const assignedCheckinRows = {
-    today: new Set<string>(),
-    tomorrow: new Set<string>(),
-  };
+    {
+      rooms: new Set<string>(),
+      days: Object.fromEntries(availableDates.map(({ date }) => [date, createRoomDaySets()])),
+    },
+  ])) as Record<string, { rooms: Set<string>; days: Record<string, RoomDaySets> }>;
+  const mappedRooms: { apartment: string; corridor: string; days: Record<string, string> }[] = [];
+  const reservationFlows = Object.fromEntries(availableDates.map(({ date }) => [
+    date,
+    { checkins: 0, checkouts: 0, occupied: 0 },
+  ])) as Record<string, { checkins: number; checkouts: number; occupied: number }>;
+  const assignedCheckinRows = Object.fromEntries(availableDates.map(({ date }) => [
+    date,
+    new Set<string>(),
+  ])) as Record<string, Set<string>>;
 
-  const mapHeaders = mapValues[0] || [];
   mapValues.slice(1).forEach((row) => {
     const apartment = String(row?.[0] || '').trim();
     const corridor = corridorFromApartment(apartment);
     if (!corridor || !roomSets[corridor]) return;
     roomSets[corridor].rooms.add(apartment);
+    const roomDays = Object.fromEntries(mapDates.map(({ date, columnIndex }) => [
+      date,
+      normalizeSheetText(row?.[columnIndex]),
+    ]));
     mappedRooms.push({
       apartment,
       corridor,
-      today: normalizeSheetText(row?.[3]),
-      tomorrow: normalizeSheetText(row?.[4]),
+      days: roomDays,
     });
 
-    ([['today', row?.[3]], ['tomorrow', row?.[4]]] as const).forEach(([dayKey, rawStatus]) => {
-      const sets = roomSets[corridor][dayKey];
+    mapDates.forEach(({ date, columnIndex }) => {
+      const sets = roomSets[corridor].days[date];
+      const rawStatus = row?.[columnIndex];
       const normalized = normalizeSheetText(rawStatus);
       if (!normalized) {
         sets.vacant.add(apartment);
@@ -654,7 +709,6 @@ function buildHousekeepingDashboard(mapValues: any[][], rawValues: any[][]) {
       }
       if (['interdit', 'bloq', 'manut', 'out of order'].some((term) => normalized.includes(term))) sets.interdicted.add(apartment);
       else sets.occupied.add(apartment);
-      if (['saida', 'checkout', 'check out'].some((term) => normalized.includes(term))) sets.checkouts.add(apartment);
     });
   });
 
@@ -682,114 +736,151 @@ function buildHousekeepingDashboard(mapValues: any[][], rawValues: any[][]) {
     const directRoom = corridor && roomSets[corridor]
       ? [{ apartment, corridor }]
       : [];
-    const roomsForDay = (dayKey: 'today' | 'tomorrow') => {
+    const roomsForDate = (date: string) => {
       if (directRoom.length > 0) return directRoom;
       if (guestKey.length < 5 || isInterdicted) return [];
+      const guestTokens = guestKey.split(/\s+/).filter((token) => token.length >= 4);
       return mappedRooms
-        .filter((room) => room[dayKey].includes(guestKey))
+        .filter((room) => {
+          const cell = room.days[date] || '';
+          if (cell.includes(guestKey)) return true;
+          if (guestTokens.length === 0) return false;
+          const matches = guestTokens.filter((token) => cell.includes(token)).length;
+          return matches >= Math.min(2, guestTokens.length);
+        })
         .map(({ apartment: mappedApartment, corridor: mappedCorridor }) => ({
           apartment: mappedApartment,
           corridor: mappedCorridor,
         }));
     };
 
-    const addCheckinRow = (dayKey: 'today' | 'tomorrow', date: string) => {
-      if (checkin !== date || !voucher || isInterdicted) return;
-      reservationFlows[dayKey].checkins += 1;
-      const assignedRoom = roomsForDay(dayKey)[0];
+    const addCheckinRow = (date: string) => {
+      if (!reservationFlows[date]) return;
+      if (checkin !== date || !voucher) return;
+      reservationFlows[date].checkins += 1;
+      const assignedRoom = roomsForDate(date)[0];
       if (assignedRoom) {
-        roomSets[assignedRoom.corridor][dayKey].checkins.add(reservationRowKey);
-        assignedCheckinRows[dayKey].add(reservationRowKey);
+        roomSets[assignedRoom.corridor].days[date].checkins.add(reservationRowKey);
+        assignedCheckinRows[date].add(reservationRowKey);
       }
     };
-    const addCheckoutRow = (dayKey: 'today' | 'tomorrow', date: string) => {
-      if (checkout !== date || !voucher || isInterdicted) return;
-      reservationFlows[dayKey].checkouts += 1;
+    const addCheckoutRow = (date: string) => {
+      if (!reservationFlows[date]) return;
+      if (checkout !== date || !voucher) return;
+      reservationFlows[date].checkouts += 1;
+      const assignedRoom = roomsForDate(date)[0] || roomsForDate(addDaysToIsoDate(date, -1))[0];
+      if (assignedRoom) {
+        roomSets[assignedRoom.corridor].days[date].checkouts.add(reservationRowKey);
+      }
     };
-    addCheckinRow('today', todayIso);
-    addCheckinRow('tomorrow', tomorrowIso);
-    addCheckoutRow('today', todayIso);
-    addCheckoutRow('tomorrow', tomorrowIso);
+    availableDates.forEach(({ date }) => {
+      addCheckinRow(date);
+      addCheckoutRow(date);
+      if (voucher && !isInterdicted && checkin && checkin <= date && (!checkout || checkout > date)) {
+        reservationFlows[date].occupied += 1;
+        directRoom.forEach((room) => roomSets[room.corridor].days[date].occupied.add(room.apartment));
+      }
+    });
 
     if (!isInterdicted || !corridor || !roomSets[corridor]) return;
-    ([['today', todayIso], ['tomorrow', tomorrowIso]] as const).forEach(([dayKey, date]) => {
+    availableDates.forEach(({ date }) => {
       const activeFrom = !checkin || checkin <= date;
       const activeThrough = !checkout || checkout >= date;
-      if (activeFrom && activeThrough) roomSets[corridor][dayKey].interdicted.add(apartment);
+      if (activeFrom && activeThrough) roomSets[corridor].days[date].interdicted.add(apartment);
     });
   });
 
+  const summarize = (sets?: RoomDaySets) => {
+    if (!sets) {
+      return { occupied: 0, vacant: 0, interdicted: 0, checkins: 0, checkouts: 0 };
+    }
+    sets.interdicted.forEach((room) => {
+      sets.occupied.delete(room);
+      sets.vacant.delete(room);
+    });
+    sets.occupied.forEach((room) => sets.vacant.delete(room));
+    return {
+      occupied: sets.occupied.size,
+      vacant: sets.vacant.size,
+      interdicted: sets.interdicted.size,
+      checkins: sets.checkins.size,
+      checkouts: sets.checkouts.size,
+    };
+  };
+
   const corridorPayload = corridors.map((corridor) => {
     const source = roomSets[corridor];
-    const summarize = (sets: RoomDaySets) => {
-      sets.interdicted.forEach((room) => {
-        sets.occupied.delete(room);
-        sets.vacant.delete(room);
-      });
-      return {
-        occupied: sets.occupied.size,
-        vacant: sets.vacant.size,
-        interdicted: sets.interdicted.size,
-        checkins: sets.checkins.size,
-        checkouts: sets.checkouts.size,
-      };
-    };
-    const today = summarize(source.today);
-    const tomorrow = summarize(source.tomorrow);
+    const dayMetrics = Object.fromEntries(availableDates.map(({ date }) => {
+      const metrics = summarize(source.days[date]);
+      return [date, metrics];
+    })) as Record<string, ReturnType<typeof summarize>>;
+    const selected = dayMetrics[selectedDate] || summarize();
     return {
       corridor,
       rooms: source.rooms.size,
-      today,
-      tomorrow: {
-        checkins: tomorrow.checkins,
-        checkouts: tomorrow.checkouts,
-        vacant: tomorrow.vacant,
-        interdicted: tomorrow.interdicted,
-      },
-      workload: tomorrow.checkouts + tomorrow.checkins,
+      selected,
+      today: dayMetrics[todayIso] || summarize(),
+      tomorrow: dayMetrics[tomorrowIso] || summarize(),
+      workload: selected.checkouts + selected.checkins,
     };
   });
 
+  const selectedFlow = reservationFlows[selectedDate] || { checkins: 0, checkouts: 0, occupied: 0 };
   const totals = corridorPayload.reduce((result, corridor) => ({
     rooms: result.rooms + corridor.rooms,
-    occupied: result.occupied + corridor.today.occupied,
-    vacant: result.vacant + corridor.today.vacant,
-    interdicted: result.interdicted + corridor.today.interdicted,
-    checkinsToday: result.checkinsToday + corridor.today.checkins,
-    checkoutsToday: result.checkoutsToday + corridor.today.checkouts,
-    checkinsTomorrow: result.checkinsTomorrow + corridor.tomorrow.checkins,
-    checkoutsTomorrow: result.checkoutsTomorrow + corridor.tomorrow.checkouts,
+    occupied: result.occupied + corridor.selected.occupied,
+    vacant: result.vacant + corridor.selected.vacant,
+    interdicted: result.interdicted + corridor.selected.interdicted,
+    checkins: result.checkins,
+    checkouts: result.checkouts,
   }), {
     rooms: 0,
     occupied: 0,
     vacant: 0,
     interdicted: 0,
-    checkinsToday: 0,
-    checkoutsToday: 0,
-    checkinsTomorrow: 0,
-    checkoutsTomorrow: 0,
+    checkins: selectedFlow.checkins,
+    checkouts: selectedFlow.checkouts,
   });
-  totals.checkinsToday = reservationFlows.today.checkins;
-  totals.checkoutsToday = reservationFlows.today.checkouts;
-  totals.checkinsTomorrow = reservationFlows.tomorrow.checkins;
-  totals.checkoutsTomorrow = reservationFlows.tomorrow.checkouts;
+  const availableRoomCapacity = Math.max(0, totals.rooms - totals.interdicted);
+  totals.occupied = Math.min(availableRoomCapacity, selectedFlow.occupied);
+  totals.vacant = Math.max(0, availableRoomCapacity - totals.occupied);
+  const todayFlow = reservationFlows[todayIso] || { checkins: 0, checkouts: 0, occupied: 0 };
+  const tomorrowFlow = reservationFlows[tomorrowIso] || { checkins: 0, checkouts: 0, occupied: 0 };
+  const legacyTotals = {
+    ...totals,
+    checkinsToday: todayFlow.checkins,
+    checkoutsToday: todayFlow.checkouts,
+    checkinsTomorrow: tomorrowFlow.checkins,
+    checkoutsTomorrow: tomorrowFlow.checkouts,
+  };
   const unassignedCheckins = {
-    today: Math.max(0, reservationFlows.today.checkins - assignedCheckinRows.today.size),
-    tomorrow: Math.max(0, reservationFlows.tomorrow.checkins - assignedCheckinRows.tomorrow.size),
+    selected: Math.max(0, selectedFlow.checkins - (assignedCheckinRows[selectedDate]?.size || 0)),
+    today: Math.max(0, todayFlow.checkins - (assignedCheckinRows[todayIso]?.size || 0)),
+    tomorrow: Math.max(0, tomorrowFlow.checkins - (assignedCheckinRows[tomorrowIso]?.size || 0)),
   };
 
   return {
     dates: {
       today: todayIso,
       tomorrow: tomorrowIso,
-      todayLabel: String(mapHeaders?.[3] || 'Hoje'),
-      tomorrowLabel: String(mapHeaders?.[4] || 'Amanha'),
+      selected: selectedDate,
+      selectedLabel: availableDates.find((item) => item.date === selectedDate)?.label || formatOperationalDateLabel(selectedDate),
+      todayLabel: availableDates.find((item) => item.date === todayIso)?.label || 'Hoje',
+      tomorrowLabel: availableDates.find((item) => item.date === tomorrowIso)?.label || 'Amanha',
     },
-    totals,
+    availableDates,
+    requestedDateAvailable,
+    hasData: availableDates.length > 0 && corridorPayload.some((corridor) => corridor.rooms > 0),
+    totals: legacyTotals,
     unassignedCheckins,
     corridors: corridorPayload,
   };
 }
+
+/*
+  Dashboard calculations stay centralized above so the UI only selects a date
+  and renders the metrics returned by the Sheets-backed endpoint.
+*/
 
 function getHeaderValue(row: any[], headers: any[], aliases: string[]) {
   const index = findHeaderIndex(headers, aliases);
@@ -936,6 +1027,7 @@ app.get('/api/robots/governanca-painel', async (req, res) => {
     const dashboard = buildHousekeepingDashboard(
       mapRange?.values || [],
       rawRange?.values || [],
+      String(req.query.date || ''),
     );
     res.json({
       status: 'success',
@@ -2354,6 +2446,7 @@ app.post('/api/sheets/action', async (req, res) => {
 if (!process.env.VERCEL) {
   const { createServer: createViteServer } = await import('vite');
   const vite = await createViteServer({
+    configLoader: 'native',
     server: { middlewareMode: true },
     appType: 'spa',
   });

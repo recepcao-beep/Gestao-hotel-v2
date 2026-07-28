@@ -1,6 +1,5 @@
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { motion } from 'motion/react';
 import { InventoryItem, InventoryOperation, HotelTheme, UserRole, Supplier, Employee, Sector, ExtraLabor } from '../types';
 import { 
   Package, 
@@ -1048,11 +1047,7 @@ const InventoryView: React.FC<InventoryViewProps> = ({
               {/* Modal de Histórico do Colaborador (Drill-down) */}
               {selectedReportEmployee && (
                 <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-                  <motion.div 
-                    initial={{ opacity: 0, scale: 0.95 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    className="bg-white w-full max-w-2xl rounded-[3rem] shadow-2xl overflow-hidden flex flex-col max-h-[80vh]"
-                  >
+                  <div className="bg-white w-full max-w-2xl rounded-[3rem] shadow-2xl overflow-hidden flex flex-col max-h-[80vh] animate-in fade-in zoom-in-95 duration-200">
                     <div className="p-8 border-b border-slate-50 flex justify-between items-center bg-slate-50/50">
                       <div>
                         <h3 className="text-2xl font-black text-slate-800 tracking-tight">Histórico de Retiradas</h3>
@@ -1110,7 +1105,7 @@ const InventoryView: React.FC<InventoryViewProps> = ({
                         Fechar Visualização
                       </button>
                     </div>
-                  </motion.div>
+                  </div>
                 </div>
               )}
 

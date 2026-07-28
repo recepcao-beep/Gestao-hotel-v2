@@ -392,6 +392,7 @@ export interface FormFieldConfig {
   color: string;
   type: FieldType;
   options?: string[];
+  required?: boolean;
 }
 
 export interface ParkingLocation {
