@@ -12,6 +12,33 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, StaleElementReferenceException
 
 
+def executar_ciclos_limpeza(
+    preparar_e_abrir_mapa,
+    varrer_mapa_reservas,
+    fechar_mapa_reservas,
+    registrar_limpos=None,
+):
+    ciclo = 1
+    total_limpo = 0
+
+    while True:
+        preparar_e_abrir_mapa()
+        limpos_no_ciclo = varrer_mapa_reservas(ciclo)
+        total_limpo += limpos_no_ciclo
+        if registrar_limpos:
+            registrar_limpos(limpos_no_ciclo)
+
+        if not fechar_mapa_reservas():
+            raise RuntimeError("Mapa de Reservas nao foi fechado apos a varredura.")
+
+        if limpos_no_ciclo == 0:
+            print("Ciclo de conferencia sem apartamentos para desvincular. Encerrando limpeza.")
+            return total_limpo
+
+        print("Foram feitas desvinculacoes. Reiniciando o mapa para conferir novamente por seguranca.")
+        ciclo += 1
+
+
 def executar_limpeza(headless=None, pausa_rolagem=1.0, pausa_acao=1.0):
     print("VARREDURA OTIMIZADA: LIMPEZA DO MAPA DE RESERVAS")
 
@@ -58,6 +85,60 @@ def executar_limpeza(headless=None, pausa_rolagem=1.0, pausa_acao=1.0):
         print(f"Nao consegui clicar em {descricao}. Ultimo erro: {ultimo_erro}")
         return False
 
+    def localizar_clicavel(by, valor, timeout=2):
+        try:
+            return WebDriverWait(driver, timeout).until(EC.element_to_be_clickable((by, valor)))
+        except Exception:
+            return None
+
+    def navegar_ate_mapa(tentativas=3):
+        ultimo_erro = None
+
+        for tentativa in range(1, tentativas + 1):
+            try:
+                print(f"Navegando ate o Mapa de Reservas (tentativa {tentativa}/{tentativas})...")
+                driver.switch_to.default_content()
+                aguardar_overlay_sumir(timeout=20)
+
+                localizador_new_chart = (By.XPATH, '//*[@id="menunewChart"]/a')
+                new_chart = localizar_clicavel(*localizador_new_chart, timeout=2)
+
+                if new_chart is None:
+                    front_desk = localizar_clicavel(By.ID, "menufrontdesk", timeout=2)
+                    if front_desk is None:
+                        if not clicar_primeiro_disponivel(
+                            [(By.XPATH, '//*[@id="menuPrimary"]/a')],
+                            timeout=10,
+                            descricao="menu principal",
+                        ):
+                            raise TimeoutException("Menu principal nao localizado/clicavel.")
+                        aguardar_overlay_sumir(timeout=10)
+                        front_desk = localizar_clicavel(By.ID, "menufrontdesk", timeout=5)
+
+                    new_chart = localizar_clicavel(*localizador_new_chart, timeout=2)
+                    if new_chart is None:
+                        if front_desk is None:
+                            raise TimeoutException("Front Desk nao localizado/clicavel.")
+                        js_click(front_desk)
+                        new_chart = WebDriverWait(driver, 10).until(
+                            EC.element_to_be_clickable(localizador_new_chart)
+                        )
+
+                js_click(new_chart)
+                wait.until(EC.presence_of_element_located((By.TAG_NAME, "new-chart-timeline")))
+                aguardar_overlay_sumir(timeout=20)
+                print("Modulo do Mapa de Reservas carregado.")
+                return
+            except Exception as erro:
+                ultimo_erro = erro
+                print(f"Falha ao navegar para o mapa na tentativa {tentativa}: {erro}")
+                if tentativa < tentativas:
+                    time.sleep(max(1.0, pausa_acao))
+
+        raise TimeoutException(
+            f"Nao foi possivel navegar ate o Mapa de Reservas. Ultimo erro: {ultimo_erro}"
+        )
+
     def abrir_mapa_reservas():
         print("Aguardando botao do Mapa de Reservas...")
         driver.switch_to.default_content()
@@ -94,6 +175,24 @@ def executar_limpeza(headless=None, pausa_rolagem=1.0, pausa_acao=1.0):
         except Exception as erro:
             print(f"Nao consegui fechar o mapa: {erro}")
             return False
+
+    def preparar_e_abrir_mapa(tentativas=2):
+        ultimo_erro = None
+
+        for tentativa in range(1, tentativas + 1):
+            try:
+                navegar_ate_mapa()
+                abrir_mapa_reservas()
+                return
+            except Exception as erro:
+                ultimo_erro = erro
+                print(f"Falha ao preparar e abrir o mapa na tentativa {tentativa}: {erro}")
+                if tentativa < tentativas:
+                    time.sleep(max(1.0, pausa_acao))
+
+        raise TimeoutException(
+            f"Mapa de Reservas nao abriu apos {tentativas} tentativas. Ultimo erro: {ultimo_erro}"
+        )
 
     def rolar_mapa_inteligente(pixels):
         try:
@@ -237,27 +336,20 @@ def executar_limpeza(headless=None, pausa_rolagem=1.0, pausa_acao=1.0):
         driver.find_element(By.XPATH, "//button[@type='submit']").click()
         aguardar_overlay_sumir(timeout=25)
 
-        print("Navegando ate o Mapa...")
-        clicar_primeiro_disponivel([(By.XPATH, '//*[@id="menuPrimary"]/a')], timeout=10, descricao="menu principal")
-        clicar_primeiro_disponivel([(By.ID, "menufrontdesk")], timeout=10, descricao="front desk")
-        clicar_primeiro_disponivel([(By.XPATH, '//*[@id="menunewChart"]/a')], timeout=10, descricao="new chart")
-
-        ciclo = 1
-        while True:
-            abrir_mapa_reservas()
-            limpos_no_ciclo = varrer_mapa_reservas(ciclo)
+        def registrar_limpos(limpos_no_ciclo):
+            nonlocal contador_limpeza
             contador_limpeza += limpos_no_ciclo
-            fechar_mapa_reservas()
 
-            if limpos_no_ciclo == 0:
-                print("Ciclo de conferencia sem apartamentos para desvincular. Encerrando limpeza.")
-                break
-
-            print("Foram feitas desvinculacoes. Reiniciando o mapa para conferir novamente por seguranca.")
-            ciclo += 1
+        executar_ciclos_limpeza(
+            preparar_e_abrir_mapa,
+            varrer_mapa_reservas,
+            fechar_mapa_reservas,
+            registrar_limpos,
+        )
 
     except Exception as e:
         print(f"Erro Geral: {e}")
+        raise
     finally:
         print("\n" + "=" * 40)
         print(f"FIM DA VARREDURA! TOTAL LIMPO: {contador_limpeza}")

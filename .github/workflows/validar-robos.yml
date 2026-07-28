@@ -1,0 +1,45 @@
+name: Validar robos
+
+on:
+  pull_request:
+    paths:
+      - "robots/vinculacao/**"
+      - "tests/test_limpeza.py"
+      - ".github/workflows/validar-robos.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "robots/vinculacao/**"
+      - "tests/test_limpeza.py"
+      - ".github/workflows/validar-robos.yml"
+
+jobs:
+  validar:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r robots/vinculacao/requirements.txt
+
+      - name: Validar sintaxe
+        run: |
+          python -m py_compile \
+            robots/vinculacao/limpeza.py \
+            robots/vinculacao/mr.py \
+            robots/vinculacao/obs.py \
+            robots/vinculacao/vinc3.py \
+            robots/vinculacao/run.py
+
+      - name: Testar ciclo de limpeza
+        run: python -m unittest discover -s tests -p "test_limpeza.py" -v

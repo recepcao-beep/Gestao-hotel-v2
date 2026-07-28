@@ -58,6 +58,9 @@ jobs:
             robots/vinculacao/vinc3.py \
             robots/vinculacao/run.py
 
+      - name: Testar ciclo de limpeza
+        run: python -m unittest discover -s tests -p "test_limpeza.py" -v
+
       - name: Verificar Chrome
         run: |
           google-chrome --version || chromium-browser --version || chromium --version
