@@ -5,6 +5,8 @@ on:
     paths:
       - "robots/vinculacao/**"
       - "tests/test_limpeza.py"
+      - "tests/test_webhook_mr.py"
+      - "tests/test_webhook_obs.py"
       - ".github/workflows/validar-robos.yml"
   push:
     branches:
@@ -12,6 +14,8 @@ on:
     paths:
       - "robots/vinculacao/**"
       - "tests/test_limpeza.py"
+      - "tests/test_webhook_mr.py"
+      - "tests/test_webhook_obs.py"
       - ".github/workflows/validar-robos.yml"
 
 jobs:
@@ -43,3 +47,9 @@ jobs:
 
       - name: Testar ciclo de limpeza
         run: python -m unittest discover -s tests -p "test_limpeza.py" -v
+
+      - name: Testar webhook do MR
+        run: python -m unittest discover -s tests -p "test_webhook_mr.py" -v
+
+      - name: Testar webhook do OBS
+        run: python -m unittest discover -s tests -p "test_webhook_obs.py" -v
