@@ -54,7 +54,7 @@ const FILTER_SECTIONS = [
     icon: Droplets,
     color: 'text-blue-600',
     filters: [
-      { key: 'pisoType', label: 'Tipo', options: ['Granito', 'Madeira', 'Cerâmica'] },
+      { key: 'pisoType', label: 'Tipo', options: ['Granito', 'Madeira'] },
       { key: 'pisoStatus', label: 'Estado', options: ['Bom estado', 'Tolerável', 'Reparo urgente'] }
     ]
   },
@@ -101,7 +101,9 @@ const FILTER_SECTIONS = [
       { key: 'temPortaControle', label: 'Porta Controle?', options: ['Sim', 'Não'] },
       { key: 'temEspelhoCorpo', label: 'Espelho Corpo?', options: ['Sim', 'Não'] },
       { key: 'espelhoCorpoStatus', label: 'Estado Espelho', options: ['Bom estado', 'Manchado', 'Danificado'] },
-      { key: 'temCabide', label: 'Tem Cabides?', options: ['Sim', 'Não'] }
+      { key: 'temCabide', label: 'Tem Cabides?', options: ['Sim', 'Não'] },
+      { key: 'frigobarStatus', label: 'Estado Frigobar', options: ['Bom estado', 'Com problema'] },
+      { key: 'torneiraMonocomando', label: 'Torneira Monocomando?', options: ['Sim', 'Não'] }
     ]
   },
   {
@@ -112,7 +114,8 @@ const FILTER_SECTIONS = [
     filters: [
       { key: 'temSuporteShampoo', label: 'Sup. Shampoo?', options: ['Sim', 'Não'] },
       { key: 'suporteShampooStatus', label: 'Est. Shampoo', options: ['Bom estado', 'Enferrujado'] },
-      { key: 'temSuportePapel', label: 'Sup. Papel?', options: ['Sim', 'Não'] }
+      { key: 'temSuportePapel', label: 'Sup. Papel?', options: ['Sim', 'Não'] },
+      { key: 'forroBanheiroStatus', label: 'Estado do Forro', options: ['Bom estado', 'Tolerável', 'Reparo urgente'] }
     ]
   },
   {
@@ -824,7 +827,7 @@ const ReportsView: React.FC<ReportsViewProps> = ({ apartments, theme, onSelectAp
                   </div>
                 )}
                 
-                {(apt.pisoStatus === 'Reparo urgente' || apt.banheiroStatus === 'Reparo urgente') && (
+                {(apt.pisoStatus === 'Reparo urgente' || apt.banheiroStatus === 'Reparo urgente' || apt.forroBanheiroStatus === 'Reparo urgente') && (
                     <span className="block mt-1 px-2 py-1 bg-red-50 text-red-600 text-[10px] font-black rounded-lg uppercase text-center">
                       • REPARO URGENTE
                     </span>
