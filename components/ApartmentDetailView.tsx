@@ -43,6 +43,8 @@ const FORM_STEPS = [
 ];
 
 const FIELD_STEPS: Record<string, number> = {
+  frigobarStatus: 0,
+  torneiraMonocomando: 0,
   luminariaType: 0,
   temCabide: 0,
   temEspelhoCorpo: 0,
@@ -55,6 +57,7 @@ const FIELD_STEPS: Record<string, number> = {
   temPortaControle: 1,
   beds: 1,
   banheiroType: 2,
+  forroBanheiroStatus: 2,
   temSuportePapel: 2,
   temSuporteShampoo: 2,
   defects: 3,
@@ -150,6 +153,16 @@ const ApartmentDetailView: React.FC<ApartmentDetailViewProps> = ({ apartment, th
   const getFieldStep = (id: string) => FIELD_STEPS[id] ?? 2;
 
   const validateStep = (step: number) => {
+    if (step === 0 && data.frigobarStatus === 'Com problema' && !data.frigobarDetalhes?.trim()) {
+      setFormError('Descreva o que não está em bom estado no frigobar.');
+      window.requestAnimationFrame(() => {
+        const target = document.querySelector('[data-field-id="frigobarStatus"]') as HTMLElement | null;
+        target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        target?.focus?.();
+      });
+      return false;
+    }
+
     const configList = checklistConfig && checklistConfig.length > 0 ? checklistConfig : DEFAULT_CHECKLIST;
     const missingField = configList.find((field) => {
       if (!field.required || getFieldStep(field.id) !== step) return false;
@@ -271,6 +284,46 @@ const ApartmentDetailView: React.FC<ApartmentDetailViewProps> = ({ apartment, th
             <div className="h-px flex-1 bg-slate-200"></div>
           </div>
 
+          <div data-field-id="frigobarStatus" tabIndex={-1} className="bg-white p-6 rounded-[2.5rem] border border-slate-50 shadow-sm space-y-4 outline-none">
+            <SectionTitle icon={Box} title="Frigobar" color="text-cyan-600" />
+            <p className="text-[10px] font-black text-slate-500 uppercase">Está em bom estado?</p>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => {
+                  updateField('frigobarStatus', 'Bom estado');
+                  updateField('frigobarDetalhes', '');
+                }}
+                className={getStatusBtnClass(data.frigobarStatus, 'Bom estado', 'bg-emerald-500')}
+              >
+                SIM
+              </button>
+              <button onClick={() => updateField('frigobarStatus', 'Com problema')} className={getStatusBtnClass(data.frigobarStatus, 'Com problema', 'bg-rose-500')}>
+                NÃO
+              </button>
+            </div>
+            {data.frigobarStatus === 'Com problema' && (
+              <textarea
+                value={data.frigobarDetalhes || ''}
+                onChange={(event) => updateField('frigobarDetalhes', event.target.value)}
+                placeholder="Descreva o que não está em bom estado..."
+                className="min-h-[96px] w-full rounded-xl border-2 border-rose-100 bg-rose-50 p-4 text-xs font-bold text-slate-700 outline-none focus:border-rose-300 focus:bg-white"
+              />
+            )}
+          </div>
+
+          <div data-field-id="torneiraMonocomando" tabIndex={-1} className="bg-white p-6 rounded-[2.5rem] border border-slate-50 shadow-sm space-y-4 outline-none">
+            <SectionTitle icon={Droplets} title="Torneira da Pia" color="text-blue-600" />
+            <p className="text-[10px] font-black text-slate-500 uppercase">É monocomando?</p>
+            <div className="grid grid-cols-2 gap-2">
+              <button onClick={() => updateField('torneiraMonocomando', true)} className={getStatusBtnClass(data.torneiraMonocomando, true, 'bg-blue-600')}>
+                SIM
+              </button>
+              <button onClick={() => updateField('torneiraMonocomando', false)} className={getStatusBtnClass(data.torneiraMonocomando, false, 'bg-slate-700')}>
+                NÃO
+              </button>
+            </div>
+          </div>
+
           {/* Luminária da pia */}
           {isFieldVisible('luminariaType') && (
             <div className="bg-white p-6 rounded-[2.5rem] border border-slate-50 shadow-sm space-y-4">
@@ -347,16 +400,27 @@ const ApartmentDetailView: React.FC<ApartmentDetailViewProps> = ({ apartment, th
           {isFieldVisible('pisoType') && (
             <div className="bg-white p-6 rounded-[2.5rem] border border-slate-50 shadow-sm space-y-4">
               <SectionTitle icon={Droplets} title="Piso" color="text-blue-600" />
-              <div className="grid grid-cols-3 gap-2">
-                {['Granito', 'Madeira', 'Cerâmica'].map(t => (
-                  <button key={t} onClick={() => updateField('pisoType', t as any)} className={getStatusBtnClass(data.pisoType, t, 'bg-blue-600')}>{t}</button>
+              <div className="grid grid-cols-2 gap-2">
+                {['Granito', 'Madeira'].map(t => (
+                  <button
+                    key={t}
+                    onClick={() => {
+                      updateField('pisoType', t as any);
+                      if (t === 'Granito') updateField('pisoStatus', undefined);
+                    }}
+                    className={getStatusBtnClass(data.pisoType, t, 'bg-blue-600')}
+                  >
+                    {t}
+                  </button>
                 ))}
               </div>
-              <div className="grid grid-cols-3 gap-2">
-                <button onClick={() => updateField('pisoStatus', 'Bom estado')} className={getStatusBtnClass(data.pisoStatus, 'Bom estado', 'bg-emerald-500')}>BOM</button>
-                <button onClick={() => updateField('pisoStatus', 'Tolerável')} className={getStatusBtnClass(data.pisoStatus, 'Tolerável', 'bg-amber-400 !text-slate-900')}>TOLERÁVEL</button>
-                <button onClick={() => updateField('pisoStatus', 'Reparo urgente')} className={getStatusBtnClass(data.pisoStatus, 'Reparo urgente', 'bg-rose-500')}>URGENTE</button>
-              </div>
+              {data.pisoType === 'Madeira' && (
+                <div className="grid grid-cols-3 gap-2">
+                  <button onClick={() => updateField('pisoStatus', 'Bom estado')} className={getStatusBtnClass(data.pisoStatus, 'Bom estado', 'bg-emerald-500')}>BOM</button>
+                  <button onClick={() => updateField('pisoStatus', 'Tolerável')} className={getStatusBtnClass(data.pisoStatus, 'Tolerável', 'bg-amber-400 !text-slate-900')}>TOLERÁVEL</button>
+                  <button onClick={() => updateField('pisoStatus', 'Reparo urgente')} className={getStatusBtnClass(data.pisoStatus, 'Reparo urgente', 'bg-rose-500')}>URGENTE</button>
+                </div>
+              )}
             </div>
           )}
 
@@ -484,18 +548,20 @@ const ApartmentDetailView: React.FC<ApartmentDetailViewProps> = ({ apartment, th
                     <h4 className="text-[11px] font-black text-slate-800 uppercase tracking-tighter">Cama {idx + 1}</h4>
                     <div className="bg-emerald-50 text-emerald-500 px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest">{bed.type}</div>
                   </div>
-                  <div className="space-y-3">
-                    <label className="text-[9px] font-black text-slate-300 uppercase ml-1 tracking-widest">Base da Cama:</label>
-                    <div className="grid grid-cols-2 gap-2">
-                      <button onClick={() => updateBed(idx, { baseStatus: 'Nova' })} className={getStatusBtnClass(bed.baseStatus, 'Nova', 'bg-emerald-500')}>NOVA</button>
-                      <button onClick={() => updateBed(idx, { baseStatus: 'Antiga' })} className={getStatusBtnClass(bed.baseStatus, 'Antiga', 'bg-amber-400 !text-slate-900')}>ANTIGA</button>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="min-w-0 space-y-3">
+                      <label className="ml-1 block text-[9px] font-black uppercase tracking-widest text-slate-300">Colchão:</label>
+                      <div className="grid grid-cols-2 gap-1.5">
+                        <button onClick={() => updateBed(idx, { mattressStatus: 'Novo' })} className={getStatusBtnClass(bed.mattressStatus, 'Novo', 'bg-emerald-500')}>NOVO</button>
+                        <button onClick={() => updateBed(idx, { mattressStatus: 'Antigo' })} className={getStatusBtnClass(bed.mattressStatus, 'Antigo', 'bg-amber-400 !text-slate-900')}>ANTIGO</button>
+                      </div>
                     </div>
-                  </div>
-                  <div className="space-y-3">
-                    <label className="text-[9px] font-black text-slate-300 uppercase ml-1 tracking-widest">Colchão:</label>
-                    <div className="grid grid-cols-2 gap-2">
-                      <button onClick={() => updateBed(idx, { mattressStatus: 'Novo' })} className={getStatusBtnClass(bed.mattressStatus, 'Novo', 'bg-emerald-500')}>NOVO</button>
-                      <button onClick={() => updateBed(idx, { mattressStatus: 'Antigo' })} className={getStatusBtnClass(bed.mattressStatus, 'Antigo', 'bg-amber-400 !text-slate-900')}>ANTIGO</button>
+                    <div className="min-w-0 space-y-3">
+                      <label className="ml-1 block text-[9px] font-black uppercase tracking-widest text-slate-300">Base:</label>
+                      <div className="grid grid-cols-2 gap-1.5">
+                        <button onClick={() => updateBed(idx, { baseStatus: 'Nova' })} className={getStatusBtnClass(bed.baseStatus, 'Nova', 'bg-emerald-500')}>NOVA</button>
+                        <button onClick={() => updateBed(idx, { baseStatus: 'Antiga' })} className={getStatusBtnClass(bed.baseStatus, 'Antiga', 'bg-amber-400 !text-slate-900')}>ANTIGA</button>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -512,6 +578,15 @@ const ApartmentDetailView: React.FC<ApartmentDetailViewProps> = ({ apartment, th
             <div className="h-px flex-1 bg-slate-200"></div>
             <h2 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em]">Banheiro</h2>
             <div className="h-px flex-1 bg-slate-200"></div>
+          </div>
+
+          <div data-field-id="forroBanheiroStatus" tabIndex={-1} className="bg-white p-6 rounded-[2.5rem] border border-slate-50 shadow-sm space-y-4 outline-none">
+            <SectionTitle icon={Layers} title="Estado do Forro" color="text-indigo-600" />
+            <div className="grid grid-cols-3 gap-2">
+              <button onClick={() => updateField('forroBanheiroStatus', 'Bom estado')} className={getStatusBtnClass(data.forroBanheiroStatus, 'Bom estado', 'bg-emerald-500')}>BOM</button>
+              <button onClick={() => updateField('forroBanheiroStatus', 'Tolerável')} className={getStatusBtnClass(data.forroBanheiroStatus, 'Tolerável', 'bg-amber-400 !text-slate-900')}>TOLERÁVEL</button>
+              <button onClick={() => updateField('forroBanheiroStatus', 'Reparo urgente')} className={getStatusBtnClass(data.forroBanheiroStatus, 'Reparo urgente', 'bg-rose-500')}>URGENTE</button>
+            </div>
           </div>
 
           {/* Reformado ou Antigo */}
@@ -628,8 +703,11 @@ const ApartmentDetailView: React.FC<ApartmentDetailViewProps> = ({ apartment, th
             {[
               ['Apartamento', data.roomNumber || '-'],
               ['Piso', data.pisoType || 'Nao informado'],
-              ['Estado do piso', data.pisoStatus || 'Nao informado'],
+              ['Estado do piso', data.pisoType === 'Madeira' ? (data.pisoStatus || 'Nao informado') : 'Nao se aplica'],
+              ['Frigobar', data.frigobarStatus || 'Nao informado'],
+              ['Torneira monocomando', data.torneiraMonocomando === undefined ? 'Nao informado' : (data.torneiraMonocomando ? 'Sim' : 'Nao')],
               ['Banheiro', data.banheiroType || 'Nao informado'],
+              ['Forro do banheiro', data.forroBanheiroStatus || 'Nao informado'],
               ['TV', data.tvBrand || 'Nao informado'],
               ['Avarias', (data.defects || []).length],
             ].map(([label, value]) => (

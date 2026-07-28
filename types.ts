@@ -358,8 +358,12 @@ export interface Apartment {
   defects: Defect[];
   pisoType?: 'Granito' | 'Madeira' | 'Cerâmica';
   pisoStatus?: 'Bom estado' | 'Tolerável' | 'Reparo urgente';
+  frigobarStatus?: 'Bom estado' | 'Com problema';
+  frigobarDetalhes?: string;
+  torneiraMonocomando?: boolean;
   banheiroType?: 'Reformado' | 'Antigo';
   banheiroStatus?: 'Tolerável' | 'Reparo urgente';
+  forroBanheiroStatus?: 'Bom estado' | 'Tolerável' | 'Reparo urgente';
   temCofre?: boolean;
   temCortina?: boolean;
   cortinaStatus?: 'Nova' | 'Antiga';
