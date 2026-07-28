@@ -596,19 +596,10 @@ function corridorFromApartment(value: any) {
   return `${apartment[0]}00`;
 }
 
-function isMaintenanceDescription(value: any) {
-  const normalized = normalizeSheetText(value);
-  return [
-    'manut', 'reparo', 'obra', 'pintura', 'eletric', 'hidraul', 'encanamento',
-    'ar condicionado', 'infiltr', 'vazamento', 'quebrado', 'troca', 'reforma',
-  ].some((term) => normalized.includes(term));
-}
-
 type RoomDaySets = {
   occupied: Set<string>;
   vacant: Set<string>;
-  blocked: Set<string>;
-  maintenance: Set<string>;
+  interdicted: Set<string>;
   checkins: Set<string>;
   checkouts: Set<string>;
 };
@@ -617,8 +608,7 @@ function createRoomDaySets(): RoomDaySets {
   return {
     occupied: new Set(),
     vacant: new Set(),
-    blocked: new Set(),
-    maintenance: new Set(),
+    interdicted: new Set(),
     checkins: new Set(),
     checkouts: new Set(),
   };
@@ -633,6 +623,14 @@ function buildHousekeepingDashboard(mapValues: any[][], rawValues: any[][]) {
     { today: createRoomDaySets(), tomorrow: createRoomDaySets(), rooms: new Set<string>() },
   ])) as Record<string, { today: RoomDaySets; tomorrow: RoomDaySets; rooms: Set<string> }>;
   const mappedRooms: { apartment: string; corridor: string; today: string; tomorrow: string }[] = [];
+  const checkinVouchers = {
+    today: new Set<string>(),
+    tomorrow: new Set<string>(),
+  };
+  const assignedCheckinVouchers = {
+    today: new Set<string>(),
+    tomorrow: new Set<string>(),
+  };
 
   const mapHeaders = mapValues[0] || [];
   mapValues.slice(1).forEach((row) => {
@@ -654,35 +652,38 @@ function buildHousekeepingDashboard(mapValues: any[][], rawValues: any[][]) {
         sets.vacant.add(apartment);
         return;
       }
-      if (normalized.includes('manut')) sets.maintenance.add(apartment);
-      else if (['interdit', 'bloq', 'out of order'].some((term) => normalized.includes(term))) sets.blocked.add(apartment);
+      if (['interdit', 'bloq', 'manut', 'out of order'].some((term) => normalized.includes(term))) sets.interdicted.add(apartment);
       else sets.occupied.add(apartment);
-      if (['entrada', 'checkin', 'check in'].some((term) => normalized.includes(term))) sets.checkins.add(apartment);
       if (['saida', 'checkout', 'check out'].some((term) => normalized.includes(term))) sets.checkouts.add(apartment);
     });
   });
 
   const rawHeaders = rawValues[0] || [];
   const apartmentIndex = findHeaderIndex(rawHeaders, ['apartamento', 'apto', 'quarto', 'uh', 'ap']);
+  const voucherIndex = findHeaderIndex(rawHeaders, ['voucher', 'reserva']);
   const checkinIndex = findHeaderIndex(rawHeaders, ['check-in', 'checkin', 'entrada']);
   const checkoutIndex = findHeaderIndex(rawHeaders, ['check-out', 'checkout', 'saida']);
   const statusIndex = findHeaderIndex(rawHeaders, ['status', 'situacao']);
+  const paxIndex = findHeaderIndex(rawHeaders, ['pax']);
   const descriptionIndex = findHeaderIndex(rawHeaders, ['hospede', 'motivo', 'descricao', 'observacao']);
 
   rawValues.slice(1).forEach((row) => {
     const apartment = getCell(row, apartmentIndex >= 0 ? apartmentIndex : 0);
+    const voucher = String(getCell(row, voucherIndex >= 0 ? voucherIndex : 1) || '').trim();
     const corridor = corridorFromApartment(apartment);
     const checkin = sheetDateToIso(getCell(row, checkinIndex >= 0 ? checkinIndex : 2));
     const checkout = sheetDateToIso(getCell(row, checkoutIndex >= 0 ? checkoutIndex : 3));
     const status = normalizeSheetText(getCell(row, statusIndex >= 0 ? statusIndex : 4));
+    const paxStatus = normalizeSheetText(getCell(row, paxIndex >= 0 ? paxIndex : 5));
     const description = getCell(row, descriptionIndex >= 0 ? descriptionIndex : 6);
     const guestKey = normalizeSheetText(description);
+    const isInterdicted = paxStatus.includes('interdit') || status.includes('interdit');
     const directRoom = corridor && roomSets[corridor]
       ? [{ apartment, corridor }]
       : [];
     const roomsForDay = (dayKey: 'today' | 'tomorrow') => {
       if (directRoom.length > 0) return directRoom;
-      if (guestKey.length < 5 || status.includes('interdit')) return [];
+      if (guestKey.length < 5 || isInterdicted) return [];
       return mappedRooms
         .filter((room) => room[dayKey].includes(guestKey))
         .map(({ apartment: mappedApartment, corridor: mappedCorridor }) => ({
@@ -691,12 +692,18 @@ function buildHousekeepingDashboard(mapValues: any[][], rawValues: any[][]) {
         }));
     };
 
-    if (checkin === todayIso) {
-      roomsForDay('today').forEach((room) => roomSets[room.corridor].today.checkins.add(room.apartment));
-    }
-    if (checkin === tomorrowIso) {
-      roomsForDay('tomorrow').forEach((room) => roomSets[room.corridor].tomorrow.checkins.add(room.apartment));
-    }
+    const addCheckinVoucher = (dayKey: 'today' | 'tomorrow', date: string) => {
+      if (checkin !== date || !voucher || isInterdicted) return;
+      checkinVouchers[dayKey].add(voucher);
+      if (assignedCheckinVouchers[dayKey].has(voucher)) return;
+      const assignedRoom = roomsForDay(dayKey)[0];
+      if (assignedRoom) {
+        roomSets[assignedRoom.corridor][dayKey].checkins.add(voucher);
+        assignedCheckinVouchers[dayKey].add(voucher);
+      }
+    };
+    addCheckinVoucher('today', todayIso);
+    addCheckinVoucher('tomorrow', tomorrowIso);
     if (checkout === todayIso) {
       roomsForDay('today').forEach((room) => roomSets[room.corridor].today.checkouts.add(room.apartment));
     }
@@ -704,55 +711,42 @@ function buildHousekeepingDashboard(mapValues: any[][], rawValues: any[][]) {
       roomsForDay('tomorrow').forEach((room) => roomSets[room.corridor].tomorrow.checkouts.add(room.apartment));
     }
 
-    if (!status.includes('interdit') || !corridor || !roomSets[corridor]) return;
-    const targetSet = isMaintenanceDescription(description) ? 'maintenance' : 'blocked';
+    if (!isInterdicted || !corridor || !roomSets[corridor]) return;
     ([['today', todayIso], ['tomorrow', tomorrowIso]] as const).forEach(([dayKey, date]) => {
       const activeFrom = !checkin || checkin <= date;
       const activeThrough = !checkout || checkout >= date;
-      if (activeFrom && activeThrough) roomSets[corridor][dayKey][targetSet].add(apartment);
+      if (activeFrom && activeThrough) roomSets[corridor][dayKey].interdicted.add(apartment);
     });
   });
 
   const corridorPayload = corridors.map((corridor) => {
     const source = roomSets[corridor];
     const summarize = (sets: RoomDaySets) => {
-      sets.maintenance.forEach((room) => {
-        sets.occupied.delete(room);
-        sets.vacant.delete(room);
-        sets.blocked.delete(room);
-      });
-      sets.blocked.forEach((room) => {
+      sets.interdicted.forEach((room) => {
         sets.occupied.delete(room);
         sets.vacant.delete(room);
       });
       return {
         occupied: sets.occupied.size,
         vacant: sets.vacant.size,
-        blocked: sets.blocked.size,
-        maintenance: sets.maintenance.size,
+        interdicted: sets.interdicted.size,
         checkins: sets.checkins.size,
         checkouts: sets.checkouts.size,
       };
     };
     const today = summarize(source.today);
     const tomorrow = summarize(source.tomorrow);
-    const tomorrowCheckins = Math.max(
-      tomorrow.checkins,
-      tomorrow.occupied - today.occupied + today.checkouts,
-      0,
-    );
     return {
       corridor,
       rooms: source.rooms.size,
       today,
       tomorrow: {
-        checkins: tomorrowCheckins,
+        checkins: tomorrow.checkins,
         checkouts: tomorrow.checkouts,
         vacant: tomorrow.vacant,
-        blocked: tomorrow.blocked,
-        maintenance: tomorrow.maintenance,
+        interdicted: tomorrow.interdicted,
       },
-      workload: tomorrow.checkouts + tomorrowCheckins,
+      workload: tomorrow.checkouts + tomorrow.checkins,
     };
   });
 
@@ -760,8 +754,7 @@ function buildHousekeepingDashboard(mapValues: any[][], rawValues: any[][]) {
     rooms: result.rooms + corridor.rooms,
     occupied: result.occupied + corridor.today.occupied,
     vacant: result.vacant + corridor.today.vacant,
-    blocked: result.blocked + corridor.today.blocked,
-    maintenance: result.maintenance + corridor.today.maintenance,
+    interdicted: result.interdicted + corridor.today.interdicted,
     checkinsToday: result.checkinsToday + corridor.today.checkins,
     checkoutsToday: result.checkoutsToday + corridor.today.checkouts,
     checkinsTomorrow: result.checkinsTomorrow + corridor.tomorrow.checkins,
@@ -770,13 +763,18 @@ function buildHousekeepingDashboard(mapValues: any[][], rawValues: any[][]) {
     rooms: 0,
     occupied: 0,
     vacant: 0,
-    blocked: 0,
-    maintenance: 0,
+    interdicted: 0,
     checkinsToday: 0,
     checkoutsToday: 0,
     checkinsTomorrow: 0,
     checkoutsTomorrow: 0,
   });
+  totals.checkinsToday = checkinVouchers.today.size;
+  totals.checkinsTomorrow = checkinVouchers.tomorrow.size;
+  const unassignedCheckins = {
+    today: Math.max(0, checkinVouchers.today.size - assignedCheckinVouchers.today.size),
+    tomorrow: Math.max(0, checkinVouchers.tomorrow.size - assignedCheckinVouchers.tomorrow.size),
+  };
 
   return {
     dates: {
@@ -786,6 +784,7 @@ function buildHousekeepingDashboard(mapValues: any[][], rawValues: any[][]) {
       tomorrowLabel: String(mapHeaders?.[4] || 'Amanha'),
     },
     totals,
+    unassignedCheckins,
     corridors: corridorPayload,
   };
 }

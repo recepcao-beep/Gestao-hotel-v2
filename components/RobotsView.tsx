@@ -34,7 +34,6 @@ import {
   Terminal,
   Trash2,
   Utensils,
-  Wrench,
   X,
 } from 'lucide-react';
 import { HotelTheme } from '../types';
@@ -93,8 +92,7 @@ interface ExceptionFloor {
 interface HousekeepingMetrics {
   occupied?: number;
   vacant: number;
-  blocked?: number;
-  maintenance?: number;
+  interdicted?: number;
   checkins: number;
   checkouts: number;
 }
@@ -119,12 +117,15 @@ interface HousekeepingDashboard {
     rooms: number;
     occupied: number;
     vacant: number;
-    blocked: number;
-    maintenance: number;
+    interdicted: number;
     checkinsToday: number;
     checkoutsToday: number;
     checkinsTomorrow: number;
     checkoutsTomorrow: number;
+  };
+  unassignedCheckins: {
+    today: number;
+    tomorrow: number;
   };
   corridors: HousekeepingCorridor[];
 }
@@ -907,14 +908,15 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
 
         {housekeepingDashboard && (
         <>
-          <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-2">
+          <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-2">
             {[
               { label: 'Ocupados hoje', value: housekeepingDashboard.totals.occupied, icon: BedDouble, tone: 'text-sky-700 bg-sky-50 border-sky-100' },
               { label: 'Vagos hoje', value: housekeepingDashboard.totals.vacant, icon: DoorOpen, tone: 'text-emerald-700 bg-emerald-50 border-emerald-100' },
+              { label: 'Entradas hoje', value: housekeepingDashboard.totals.checkinsToday, icon: ArrowDownToLine, tone: 'text-indigo-700 bg-indigo-50 border-indigo-100' },
+              { label: 'Saidas hoje', value: housekeepingDashboard.totals.checkoutsToday, icon: ArrowUpFromLine, tone: 'text-amber-700 bg-amber-50 border-amber-100' },
               { label: 'Saidas amanha', value: housekeepingDashboard.totals.checkoutsTomorrow, icon: ArrowUpFromLine, tone: 'text-amber-700 bg-amber-50 border-amber-100' },
               { label: 'Entradas amanha', value: housekeepingDashboard.totals.checkinsTomorrow, icon: ArrowDownToLine, tone: 'text-indigo-700 bg-indigo-50 border-indigo-100' },
-              { label: 'Bloqueados', value: housekeepingDashboard.totals.blocked, icon: AlertTriangle, tone: 'text-rose-700 bg-rose-50 border-rose-100' },
-              { label: 'Manutencao', value: housekeepingDashboard.totals.maintenance, icon: Wrench, tone: 'text-slate-700 bg-slate-100 border-slate-200' },
+              { label: 'Interditados', value: housekeepingDashboard.totals.interdicted, icon: AlertTriangle, tone: 'text-rose-700 bg-rose-50 border-rose-100' },
             ].map((item) => {
               const MetricIcon = item.icon;
               return (
@@ -937,6 +939,7 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
                   <div className="text-sm font-black text-amber-950">Prioridade de amanha: corredor {priorityCorridor.corridor}</div>
                   <div className="text-xs font-bold text-amber-800">
                     {priorityCorridor.tomorrow.checkouts} saidas, {priorityCorridor.tomorrow.checkins} entradas e {priorityCorridor.tomorrow.vacant} apartamentos vagos.
+                    {housekeepingDashboard.unassignedCheckins.tomorrow > 0 && ` ${housekeepingDashboard.unassignedCheckins.tomorrow} entradas ainda aguardam apartamento.`}
                   </div>
                 </div>
               </div>
@@ -960,12 +963,11 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
 
                     <div>
                       <div className="mb-2 text-[10px] font-black uppercase text-slate-400">Hoje</div>
-                      <div className="grid grid-cols-3 sm:grid-cols-6 xl:grid-cols-3 2xl:grid-cols-6 gap-1.5">
+                      <div className="grid grid-cols-3 sm:grid-cols-5 xl:grid-cols-3 2xl:grid-cols-5 gap-1.5">
                         {[
                           ['Ocup.', corridor.today.occupied || 0, 'text-sky-700'],
                           ['Vagos', corridor.today.vacant, 'text-emerald-700'],
-                          ['Bloq.', corridor.today.blocked || 0, 'text-rose-700'],
-                          ['Manut.', corridor.today.maintenance || 0, 'text-slate-700'],
+                          ['Interd.', corridor.today.interdicted || 0, 'text-rose-700'],
                           ['Entram', corridor.today.checkins, 'text-indigo-700'],
                           ['Saem', corridor.today.checkouts, 'text-amber-700'],
                         ].map(([label, value, tone]) => (
