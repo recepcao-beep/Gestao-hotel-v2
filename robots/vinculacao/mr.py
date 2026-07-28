@@ -7,7 +7,6 @@ from pathlib import Path
 import time
 import datetime
 import gspread
-import requests
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -20,6 +19,12 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.action_chains import ActionChains
+
+try:
+    from .webhook_google import acionar_webhook_mapa
+except ImportError:
+    from webhook_google import acionar_webhook_mapa
+
 
 def executar_mapeamento_total(headless=None, fator_pausa=0.5):
     # --- CONFIGURAÇÕES ---
@@ -300,21 +305,21 @@ def executar_mapeamento_total(headless=None, fator_pausa=0.5):
         # ==========================================
         # SALVAMENTO FINAL E WEBHOOK
         # ==========================================
-        if dados_mestre:
-            aba_bruta.batch_clear(["A2:H5000"])
-            aba_bruta.update(values=dados_mestre, range_name='A2')
-            print(f"✅ SUCESSO! {len(dados_mestre)} registros consolidados na planilha.")
+        if not dados_mestre:
+            raise RuntimeError("Nenhum registro foi extraído do HITS.")
 
-            # --- GATILHO WEBHOOK ---
-            print("🚀 Acionando o Google Sheets para reorganizar os andares...")
-            try:
-                url_webhook = "https://script.google.com/macros/s/AKfycbwcfhQySj2OoJVSzaWnjMCHZzfHPCQHc5fZHKt5sLmhJ7wTtD24SvR-kk-at7lFo_31EA/exec"
-                resposta = requests.get(url_webhook, timeout=60)
-                print(f"🤖 Resposta do Google Sheets: {resposta.text}")
-            except Exception as e_web:
-                print(f"⚠️ Erro ao acionar o Webhook: {e_web}")
+        aba_bruta.batch_clear(["A2:H5000"])
+        aba_bruta.update(values=dados_mestre, range_name='A2')
+        print(f"✅ SUCESSO! {len(dados_mestre)} registros consolidados na planilha.")
 
-    except Exception as e: print(f"❌ Erro Crítico: {e}")
+        # --- GATILHO WEBHOOK ---
+        print("🚀 Acionando o Google Sheets para reorganizar os andares...")
+        resposta_webhook = acionar_webhook_mapa()
+        print(f"🤖 Resposta do Google Sheets: {resposta_webhook}")
+
+    except Exception as e:
+        print(f"❌ Erro Crítico: {e}", flush=True)
+        raise
     finally: driver.quit()
 
 if __name__ == "__main__":
