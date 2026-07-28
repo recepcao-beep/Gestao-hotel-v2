@@ -7,7 +7,6 @@ import os
 import random
 import datetime
 import gspread
-import requests
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -20,6 +19,12 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.keys import Keys
+
+try:
+    from .webhook_google import acionar_webhook_mapa
+except ImportError:
+    from webhook_google import acionar_webhook_mapa
+
 
 class RoboHITS:
     def __init__(self, headless=None, fator_pausa=0.7):
@@ -593,15 +598,12 @@ class RoboHITS:
             print("✅ SUCESSO ABSOLUTO! Planilha limpa e atualizada com os novos 7 dias.")
 
             print("🚀 Acionando o Google Sheets para processar as solicitações especiais e atualizar o mapa...")
-            try:
-                url_webhook = "https://script.google.com/macros/s/AKfycbwcfhQySj2OoJVSzaWnjMCHZzfHPCQHc5fZHKt5sLmhJ7wTtD24SvR-kk-at7lFo_31EA/exec"
-                resposta = requests.get(url_webhook, timeout=60)
-                print(f"🤖 Resposta do Google Sheets: {resposta.text}")
-            except Exception as e_web:
-                print(f"⚠️ Erro ao acionar o Webhook: {e_web}")
+            resposta_webhook = acionar_webhook_mapa()
+            print(f"🤖 Resposta do Google Sheets: {resposta_webhook}")
 
         except Exception as e:
-            print(f"❌ Erro na etapa do Google Sheets: {e}")
+            print(f"❌ Erro na etapa do Google Sheets: {e}", flush=True)
+            raise
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Robô OBS - solicitações HITS")
