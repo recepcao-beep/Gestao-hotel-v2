@@ -256,6 +256,8 @@ const MAPINHA_ESCALA_RANGE = process.env.MAPINHA_ESCALA_RANGE || 'ESCALA!A1:H12'
 const OBSERVACOES_RANGE = process.env.OBSERVACOES_RANGE || 'SOLICITAÇÕES!A1:F2000';
 const DADOS_BRUTOS_HITS_RANGE = process.env.DADOS_BRUTOS_HITS_RANGE || 'DADOS_BRUTOS_HITS!A1:P5000';
 const MAPA_7_DIAS_RANGE = process.env.MAPA_7_DIAS_RANGE || 'MAPA_7_DIAS!A1:J1000';
+const CORRIDOR_ARRIVALS_RANGE = process.env.CORRIDOR_ARRIVALS_RANGE || 'PLANEJAMENTO_CORREDORES!A1:H7';
+const CORRIDOR_ARRIVALS_HEADERS = ['Corredor', 'Domingo', 'Segunda', 'Terca', 'Quarta', 'Quinta', 'Sexta', 'Sabado'];
 const CHECKIN_WHATSAPP_RANGE = process.env.CHECKIN_WHATSAPP_RANGE || 'CHECKIN_WHATSAPP!A1:H500';
 const CHECKIN_WHATSAPP_CONFIG_RANGE = process.env.CHECKIN_WHATSAPP_CONFIG_RANGE || 'CHECKIN_WHATSAPP_CONFIG!A1:B20';
 const CHECKIN_WHATSAPP_HEADERS = [
@@ -602,6 +604,8 @@ type RoomDaySets = {
   interdicted: Set<string>;
   checkins: Set<string>;
   checkouts: Set<string>;
+  mapCheckins: Set<string>;
+  mapCheckouts: Set<string>;
 };
 
 function createRoomDaySets(): RoomDaySets {
@@ -611,6 +615,8 @@ function createRoomDaySets(): RoomDaySets {
     interdicted: new Set(),
     checkins: new Set(),
     checkouts: new Set(),
+    mapCheckins: new Set(),
+    mapCheckouts: new Set(),
   };
 }
 
@@ -683,6 +689,10 @@ function buildHousekeepingDashboard(mapValues: any[][], rawValues: any[][], requ
     date,
     new Set<string>(),
   ])) as Record<string, Set<string>>;
+  const assignedCheckoutRows = Object.fromEntries(availableDates.map(({ date }) => [
+    date,
+    new Set<string>(),
+  ])) as Record<string, Set<string>>;
 
   mapValues.slice(1).forEach((row) => {
     const apartment = String(row?.[0] || '').trim();
@@ -709,6 +719,27 @@ function buildHousekeepingDashboard(mapValues: any[][], rawValues: any[][], requ
       }
       if (['interdit', 'bloq', 'manut', 'out of order'].some((term) => normalized.includes(term))) sets.interdicted.add(apartment);
       else sets.occupied.add(apartment);
+    });
+  });
+
+  const mapCellIsOccupied = (value: string) => Boolean(value)
+    && !['interdit', 'bloq', 'manut', 'out of order'].some((term) => value.includes(term));
+  mappedRooms.forEach((room) => {
+    mapDates.forEach(({ date }, dateIndex) => {
+      if (dateIndex === 0) return;
+      const previousDate = mapDates[dateIndex - 1].date;
+      const currentValue = room.days[date] || '';
+      const previousValue = room.days[previousDate] || '';
+      const currentOccupied = mapCellIsOccupied(currentValue);
+      const previousOccupied = mapCellIsOccupied(previousValue);
+      const sets = roomSets[room.corridor].days[date];
+
+      if (currentOccupied && !previousOccupied) sets.mapCheckins.add(room.apartment);
+      if (!currentOccupied && previousOccupied) sets.mapCheckouts.add(room.apartment);
+      if (currentOccupied && previousOccupied && currentValue !== previousValue) {
+        sets.mapCheckins.add(room.apartment);
+        sets.mapCheckouts.add(room.apartment);
+      }
     });
   });
 
@@ -771,6 +802,7 @@ function buildHousekeepingDashboard(mapValues: any[][], rawValues: any[][], requ
       const assignedRoom = roomsForDate(date)[0] || roomsForDate(addDaysToIsoDate(date, -1))[0];
       if (assignedRoom) {
         roomSets[assignedRoom.corridor].days[date].checkouts.add(reservationRowKey);
+        assignedCheckoutRows[date].add(reservationRowKey);
       }
     };
     availableDates.forEach(({ date }) => {
@@ -792,7 +824,7 @@ function buildHousekeepingDashboard(mapValues: any[][], rawValues: any[][], requ
 
   const summarize = (sets?: RoomDaySets) => {
     if (!sets) {
-      return { occupied: 0, vacant: 0, interdicted: 0, checkins: 0, checkouts: 0 };
+      return { occupied: 0, vacant: 0, interdicted: 0, checkins: 0, checkouts: 0, mapCheckins: 0, mapCheckouts: 0 };
     }
     sets.interdicted.forEach((room) => {
       sets.occupied.delete(room);
@@ -805,6 +837,8 @@ function buildHousekeepingDashboard(mapValues: any[][], rawValues: any[][], requ
       interdicted: sets.interdicted.size,
       checkins: sets.checkins.size,
       checkouts: sets.checkouts.size,
+      mapCheckins: sets.mapCheckins.size,
+      mapCheckouts: sets.mapCheckouts.size,
     };
   };
 
@@ -812,7 +846,14 @@ function buildHousekeepingDashboard(mapValues: any[][], rawValues: any[][], requ
     const source = roomSets[corridor];
     const dayMetrics = Object.fromEntries(availableDates.map(({ date }) => {
       const metrics = summarize(source.days[date]);
-      return [date, metrics];
+      const canUseMapMovements = availableDates.findIndex((item) => item.date === date) > 0;
+      return [date, {
+        ...metrics,
+        hitsCheckins: metrics.checkins,
+        hitsCheckouts: metrics.checkouts,
+        checkins: canUseMapMovements ? metrics.mapCheckins : metrics.checkins,
+        checkouts: canUseMapMovements ? metrics.mapCheckouts : metrics.checkouts,
+      }];
     })) as Record<string, ReturnType<typeof summarize>>;
     const selected = dayMetrics[selectedDate] || summarize();
     return {
@@ -858,6 +899,11 @@ function buildHousekeepingDashboard(mapValues: any[][], rawValues: any[][], requ
     today: Math.max(0, todayFlow.checkins - (assignedCheckinRows[todayIso]?.size || 0)),
     tomorrow: Math.max(0, tomorrowFlow.checkins - (assignedCheckinRows[tomorrowIso]?.size || 0)),
   };
+  const unassignedCheckouts = {
+    selected: Math.max(0, selectedFlow.checkouts - (assignedCheckoutRows[selectedDate]?.size || 0)),
+    today: Math.max(0, todayFlow.checkouts - (assignedCheckoutRows[todayIso]?.size || 0)),
+    tomorrow: Math.max(0, tomorrowFlow.checkouts - (assignedCheckoutRows[tomorrowIso]?.size || 0)),
+  };
 
   return {
     dates: {
@@ -870,9 +916,11 @@ function buildHousekeepingDashboard(mapValues: any[][], rawValues: any[][], requ
     },
     availableDates,
     requestedDateAvailable,
+    mapComparisonAvailable: availableDates.findIndex((item) => item.date === selectedDate) > 0,
     hasData: availableDates.length > 0 && corridorPayload.some((corridor) => corridor.rooms > 0),
     totals: legacyTotals,
     unassignedCheckins,
+    unassignedCheckouts,
     corridors: corridorPayload,
   };
 }
@@ -917,6 +965,63 @@ async function ensureSheetWithHeaders(title: string, headers: string[]) {
     requestBody: { values: [headers] },
   });
 }
+
+const OPERATIONAL_CORRIDORS = ['200', '300', '400', '500', '600', '700'];
+
+function normalizeCorridorArrivalsPlan(value: any) {
+  return Object.fromEntries(OPERATIONAL_CORRIDORS.map((corridor) => {
+    const source = Array.isArray(value?.[corridor]) ? value[corridor] : [];
+    return [corridor, Array.from({ length: 7 }, (_, index) => {
+      const parsed = Math.floor(Number(source[index]) || 0);
+      return Math.max(0, Math.min(999, parsed));
+    })];
+  })) as Record<string, number[]>;
+}
+
+app.get('/api/robots/planejamento-corredores', async (_req, res) => {
+  try {
+    const title = getSheetTitleFromRange(CORRIDOR_ARRIVALS_RANGE);
+    await ensureSheetWithHeaders(title, CORRIDOR_ARRIVALS_HEADERS);
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: MAPINHA_SHEET_ID,
+      range: CORRIDOR_ARRIVALS_RANGE,
+      valueRenderOption: 'UNFORMATTED_VALUE',
+    });
+    const values = response.data.values || [];
+    const rawPlan = Object.fromEntries(values.slice(1).map((row) => [String(row?.[0] || '').trim(), row.slice(1, 8)]));
+    res.json({ status: 'success', plan: normalizeCorridorArrivalsPlan(rawPlan) });
+  } catch (error: any) {
+    console.error('[Planejamento Corredores Error]', error);
+    res.status(500).json({ status: 'error', message: error.message || 'Erro ao carregar planejamento dos corredores.' });
+  }
+});
+
+app.post('/api/robots/planejamento-corredores', async (req, res) => {
+  try {
+    const title = getSheetTitleFromRange(CORRIDOR_ARRIVALS_RANGE);
+    const plan = normalizeCorridorArrivalsPlan(req.body?.plan);
+    await ensureSheetWithHeaders(title, CORRIDOR_ARRIVALS_HEADERS);
+    await sheets.spreadsheets.values.clear({
+      spreadsheetId: MAPINHA_SHEET_ID,
+      range: CORRIDOR_ARRIVALS_RANGE,
+    });
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: MAPINHA_SHEET_ID,
+      range: `${title}!A1`,
+      valueInputOption: 'USER_ENTERED',
+      requestBody: {
+        values: [
+          CORRIDOR_ARRIVALS_HEADERS,
+          ...OPERATIONAL_CORRIDORS.map((corridor) => [corridor, ...plan[corridor]]),
+        ],
+      },
+    });
+    res.json({ status: 'success', plan, updatedAt: new Date().toISOString() });
+  } catch (error: any) {
+    console.error('[Planejamento Corredores Save Error]', error);
+    res.status(500).json({ status: 'error', message: error.message || 'Erro ao salvar planejamento dos corredores.' });
+  }
+});
 
 app.get('/api/robots/checkin-whatsapp', async (req, res) => {
   try {
@@ -2453,8 +2558,9 @@ if (!process.env.VERCEL) {
   app.use(vite.middlewares);
   
   const PORT = 3000;
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+  const HOST = process.env.HOST || '127.0.0.1';
+  app.listen(PORT, HOST, () => {
+    console.log(`Server running on http://${HOST}:${PORT}`);
   });
 }
 

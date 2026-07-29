@@ -155,6 +155,7 @@ export interface Employee {
   vacationDays?: number;
   vacationAccrualStart?: string;
   vacationDeadline?: string;
+  bankHoursDaysOff?: string[];
   uniforms: UniformItem[];
   history?: EmployeeHistoryEntry[];
   tagText?: string;

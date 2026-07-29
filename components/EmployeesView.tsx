@@ -369,6 +369,8 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
   const [vacationDays, setVacationDays] = useState(30);
   const [vacationAccrualStart, setVacationAccrualStart] = useState('');
   const [vacationDeadline, setVacationDeadline] = useState('');
+  const [bankHoursDaysOff, setBankHoursDaysOff] = useState<string[]>([]);
+  const [newBankHoursDay, setNewBankHoursDay] = useState('');
   const [tagText, setTagText] = useState('');
   const [tagColor, setTagColor] = useState<string>(EMPLOYEE_TAG_COLORS[0].value);
   
@@ -525,6 +527,29 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
     return returnDate ? `VOLTA ${formatShortDate(returnDate)}` : '';
   };
 
+  const isEmployeeOnVacationToday = (emp: Employee) => {
+    if (emp.status !== 'Ativo' || !isVacationRegistered(emp)) return false;
+    const start = parseLocalDate(emp.vacationStart);
+    const end = parseLocalDate(emp.vacationEnd, true);
+    if (!start || !end) return false;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return today >= start && today <= end;
+  };
+
+  const getBankHoursDates = (emp: Employee) => Array.from(new Set(emp.bankHoursDaysOff || []))
+    .filter((value) => Boolean(parseLocalDate(value)))
+    .sort();
+
+  const getBankHoursDaysInMonth = (emp: Employee, year: number, month: number) => {
+    const datedDays = getBankHoursDates(emp).filter((value) => {
+      const date = parseLocalDate(value);
+      return date?.getFullYear() === year && date.getMonth() === month;
+    }).length;
+    if (datedDays > 0 || getBankHoursDates(emp).length > 0) return datedDays;
+    return getBankHoursDays(emp);
+  };
+
   const employeeAppearsInMonthlyScale = (emp: Employee) => emp.scheduleType === '6x1' || emp.scheduleType === 'Horista';
 
   const getScheduleSummary = (emp: Employee) => {
@@ -598,6 +623,7 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
       ['sundayOffs', 'Domingos'],
       ['hourlyWorkDays', 'Dias horista'],
       ['hourlyDaysOff', 'Folgas horista'],
+      ['bankHoursDaysOff', 'Folgas - banco de horas'],
       ['vacationStatus', 'Status de férias'],
       ['vacationStart', 'Início das férias'],
       ['vacationEnd', 'Fim das férias'],
@@ -665,6 +691,7 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
     setWorkingHours('08:00 - 16:20'); setFixedDayOff('Segunda-feira');
     setSundayOffs([]); setHourlyWorkDays([]); setHourlyDaysOff([]); setVacationStatus('Pendente');
     setVacationStart(''); setVacationDays(30); setVacationAccrualStart(''); setVacationDeadline('');
+    setBankHoursDaysOff([]); setNewBankHoursDay('');
     setTagText(''); setTagColor(EMPLOYEE_TAG_COLORS[0].value);
     setPhotoPreview(null); setNewPhotoFile(null); setIsPhotoRemoved(false);
     setIsAddingEmployee(false); setEditingEmployee(null); setActiveFormTab('DADOS');
@@ -724,6 +751,8 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
     setVacationDays(emp.vacationDays || getVacationDayCount(emp.vacationStart, emp.vacationEnd) || 30);
     setVacationAccrualStart(emp.vacationAccrualStart || '');
     setVacationDeadline(emp.vacationDeadline || '');
+    setBankHoursDaysOff(getBankHoursDates(emp));
+    setNewBankHoursDay('');
     setTagText(emp.tagText || '');
     setTagColor(emp.tagColor || EMPLOYEE_TAG_COLORS[0].value);
     setPhotoPreview(emp.photo || null);
@@ -930,6 +959,7 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
       vacationDays: shouldSaveVacationPeriod ? normalizedVacationDays : 0,
       vacationAccrualStart: scheduleType === 'Intermitente' ? undefined : vacationAccrualStart || undefined,
       vacationDeadline: scheduleType === 'Intermitente' ? undefined : vacationDeadline || undefined,
+      bankHoursDaysOff: scheduleType === 'Intermitente' ? [] : Array.from(new Set<string>(bankHoursDaysOff)).sort(),
       uniforms,
       history: editingEmployee?.history || [],
       tagText: normalizedTagText,
@@ -1053,6 +1083,8 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
   const formatFixedDay = (value?: string) => normalizeWeekday(value || '-') || '-';
 
   const getShiftStatus = (emp: Employee, dayInfo: typeof scaleData[0]) => {
+    const scaleDay = formatDateInputValue(new Date(scaleDate.getFullYear(), scaleDate.getMonth(), dayInfo.date));
+    if (getBankHoursDates(emp).includes(scaleDay)) return 'BC';
     if (isVacationRegistered(emp) && emp.vacationStart && emp.vacationEnd) {
         const date = new Date(scaleDate.getFullYear(), scaleDate.getMonth(), dayInfo.date);
         const vacationStartDate = parseLocalDate(emp.vacationStart);
@@ -1392,7 +1424,7 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
         .map(emp => ({
           id: emp.id,
           name: emp.name,
-          days: getBankHoursDays(emp)
+          days: getBankHoursDaysInMonth(emp, year, monthIndex)
         }))
         .filter(item => item.days > 0);
 
@@ -1409,6 +1441,18 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
       return { ...month, monthIndex, vacationItems, bankHourItems, vacationDueItems };
     });
   }, [filteredEmployees, monthOptions, scaleDate]);
+
+  const sectorVacationEmployees = useMemo(() => employees
+    .filter(emp => emp.sectorId === selectedSectorId && isEmployeeOnVacationToday(emp))
+    .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')),
+  [employees, selectedSectorId]);
+
+  const sectorBankHoursToday = useMemo(() => {
+    const today = formatDateInputValue(new Date());
+    return employees
+      .filter(emp => emp.sectorId === selectedSectorId && emp.status === 'Ativo' && getBankHoursDates(emp).includes(today))
+      .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+  }, [employees, selectedSectorId]);
 
   // Calculation for ORDERS view (Card Display)
   const ordersBySector = useMemo(() => {
@@ -1925,6 +1969,11 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
                           {getVacationDueInfo(emp)?.label}
                         </span>
                       )}
+                      {getBankHoursDates(emp).length > 0 && (
+                        <span className="inline-flex px-3 py-1 rounded-lg bg-violet-50 text-violet-700 text-[9px] font-black uppercase tracking-widest">
+                          Banco de horas: {getBankHoursDates(emp).length} folga(s)
+                        </span>
+                      )}
                     </div>
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
                        <span>{emp.role}</span>
@@ -1951,6 +2000,31 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
                 </div>
               </div>
             ))}
+          </div>
+          <div className="border-y border-slate-200 bg-white px-4 py-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <div className="text-[10px] font-black uppercase text-slate-400">Resumo do setor</div>
+                <div className="mt-1 text-sm font-black text-slate-900">
+                  {sectorVacationEmployees.length} funcionario(s) de ferias hoje
+                </div>
+                {sectorVacationEmployees.length > 0 && (
+                  <div className="mt-1 text-xs font-bold text-slate-500">
+                    {sectorVacationEmployees.map(emp => emp.name).join(', ')}
+                  </div>
+                )}
+              </div>
+              <div className="sm:text-right">
+                <div className="text-sm font-black text-violet-700">
+                  {sectorBankHoursToday.length} de folga por banco de horas
+                </div>
+                {sectorBankHoursToday.length > 0 && (
+                  <div className="mt-1 text-xs font-bold text-slate-500">
+                    {sectorBankHoursToday.map(emp => emp.name).join(', ')}
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -2669,6 +2743,54 @@ const EmployeesView: React.FC<EmployeesViewProps> = ({
                         {scheduleType === 'Intermitente' && (
                           <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-5 text-sm font-bold text-slate-500">
                             Intermitente fica sem salario base, sem horario fixo e sem controle de ferias neste cadastro.
+                          </div>
+                        )}
+
+                        {scheduleType !== 'Intermitente' && (
+                          <div className="space-y-3 border-y border-slate-200 py-5">
+                            <div>
+                              <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Folga - banco de horas</label>
+                              <div className="grid grid-cols-[minmax(0,1fr)_44px] gap-2">
+                                <input
+                                  type="date"
+                                  value={newBankHoursDay}
+                                  onChange={event => setNewBankHoursDay(event.target.value)}
+                                  className="min-w-0 w-full px-4 py-3 rounded-xl border-2 border-slate-200 font-bold text-slate-800"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (!newBankHoursDay) return;
+                                    setBankHoursDaysOff(current => Array.from(new Set([...current, newBankHoursDay])).sort());
+                                    setNewBankHoursDay('');
+                                  }}
+                                  disabled={!newBankHoursDay}
+                                  className="inline-flex h-12 w-11 items-center justify-center rounded-xl bg-violet-600 text-white disabled:opacity-40"
+                                  title="Adicionar folga de banco de horas"
+                                >
+                                  <Plus size={17} />
+                                </button>
+                              </div>
+                            </div>
+                            {bankHoursDaysOff.length > 0 ? (
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                {bankHoursDaysOff.map(day => (
+                                  <div key={day} className="flex min-h-11 items-center justify-between gap-2 rounded-xl border border-violet-100 bg-violet-50 px-3">
+                                    <span className="text-xs font-black text-violet-800">{parseLocalDate(day)?.toLocaleDateString('pt-BR')}</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => setBankHoursDaysOff(current => current.filter(item => item !== day))}
+                                      className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-violet-500 hover:bg-white hover:text-rose-600"
+                                      title="Remover folga"
+                                    >
+                                      <Trash2 size={14} />
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <div className="text-xs font-bold text-slate-400">Nenhuma folga de banco de horas registrada.</div>
+                            )}
                           </div>
                         )}
 
