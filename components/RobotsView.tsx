@@ -95,6 +95,10 @@ interface HousekeepingMetrics {
   interdicted?: number;
   checkins: number;
   checkouts: number;
+  mapCheckins?: number;
+  mapCheckouts?: number;
+  hitsCheckins?: number;
+  hitsCheckouts?: number;
 }
 
 interface HousekeepingCorridor {
@@ -118,6 +122,7 @@ interface HousekeepingDashboard {
   };
   availableDates: { date: string; label: string }[];
   requestedDateAvailable: boolean;
+  mapComparisonAvailable: boolean;
   hasData: boolean;
   totals: {
     rooms: number;
@@ -132,6 +137,11 @@ interface HousekeepingDashboard {
     checkoutsTomorrow: number;
   };
   unassignedCheckins: {
+    selected: number;
+    today: number;
+    tomorrow: number;
+  };
+  unassignedCheckouts: {
     selected: number;
     today: number;
     tomorrow: number;
@@ -191,6 +201,10 @@ const operationalSections: { id: OperationalSection; label: string; description:
   { id: 'recepcao', label: 'Recepcao', description: 'Automacoes e ferramentas do atendimento', icon: ConciergeBell },
   { id: 'governanca', label: 'Governanca', description: 'Mapa, bloqueios e planejamento dos andares', icon: BedDouble },
 ];
+
+const corridorPlanningWeekdays = ['Domingo', 'Segunda', 'Terca', 'Quarta', 'Quinta', 'Sexta', 'Sabado'];
+const operationalCorridors = ['200', '300', '400', '500', '600', '700'];
+const emptyCorridorPlan = () => Object.fromEntries(operationalCorridors.map(corridor => [corridor, Array(7).fill(0)])) as Record<string, number[]>;
 
 const laundryPriceList = [
   { name: 'MAIO/BIQUINI / SUNGA', price: 15 },
@@ -334,6 +348,12 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
   const [housekeepingMessage, setHousekeepingMessage] = useState('');
   const [selectedHousekeepingDate, setSelectedHousekeepingDate] = useState('');
   const [isHousekeepingCalendarOpen, setIsHousekeepingCalendarOpen] = useState(false);
+  const [corridorArrivalsPlan, setCorridorArrivalsPlan] = useState<Record<string, number[]>>(emptyCorridorPlan);
+  const [selectedPlanningWeekday, setSelectedPlanningWeekday] = useState(new Date().getDay());
+  const [loadingCorridorPlan, setLoadingCorridorPlan] = useState(false);
+  const [savingCorridorPlan, setSavingCorridorPlan] = useState(false);
+  const [corridorPlanMessage, setCorridorPlanMessage] = useState('');
+  const [corridorPlanError, setCorridorPlanError] = useState('');
   const [laundrySearch, setLaundrySearch] = useState('');
   const [laundryCart, setLaundryCart] = useState<{ id: string; name: string; price: number; quantity: number }[]>([]);
   const [laundryUrgent, setLaundryUrgent] = useState(false);
@@ -396,11 +416,61 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
     }
   }, []);
 
+  const loadCorridorPlan = useCallback(async () => {
+    setLoadingCorridorPlan(true);
+    setCorridorPlanError('');
+    try {
+      const response = await fetch('/api/robots/planejamento-corredores');
+      const data = await response.json();
+      if (!response.ok || data.status !== 'success') {
+        throw new Error(data.message || 'Falha ao carregar planejamento dos corredores.');
+      }
+      setCorridorArrivalsPlan({ ...emptyCorridorPlan(), ...(data.plan || {}) });
+    } catch (err: any) {
+      setCorridorPlanError(err.message || 'Falha ao carregar planejamento dos corredores.');
+    } finally {
+      setLoadingCorridorPlan(false);
+    }
+  }, []);
+
+  const saveCorridorPlan = async () => {
+    setSavingCorridorPlan(true);
+    setCorridorPlanError('');
+    setCorridorPlanMessage('');
+    try {
+      const response = await fetch('/api/robots/planejamento-corredores', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plan: corridorArrivalsPlan }),
+      });
+      const data = await response.json();
+      if (!response.ok || data.status !== 'success') {
+        throw new Error(data.message || 'Falha ao salvar planejamento dos corredores.');
+      }
+      setCorridorArrivalsPlan({ ...emptyCorridorPlan(), ...(data.plan || {}) });
+      setCorridorPlanMessage('Planejamento semanal salvo na planilha.');
+    } catch (err: any) {
+      setCorridorPlanError(err.message || 'Falha ao salvar planejamento dos corredores.');
+    } finally {
+      setSavingCorridorPlan(false);
+    }
+  };
+
   useEffect(() => {
     if (activeOperationalSection === 'governanca' && !housekeepingDashboard) {
       loadHousekeepingDashboard();
     }
   }, [activeOperationalSection, housekeepingDashboard, loadHousekeepingDashboard]);
+
+  useEffect(() => {
+    if (activeOperationalSection === 'governanca') void loadCorridorPlan();
+  }, [activeOperationalSection, loadCorridorPlan]);
+
+  useEffect(() => {
+    if (!selectedHousekeepingDate) return;
+    const selectedDate = new Date(`${selectedHousekeepingDate}T12:00:00`);
+    if (!Number.isNaN(selectedDate.getTime())) setSelectedPlanningWeekday(selectedDate.getDay());
+  }, [selectedHousekeepingDate]);
 
   const loadObservacoes = useCallback(async () => {
     setLoadingObservacoes(true);
@@ -769,6 +839,13 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
   const housekeepingUpdatedAt = housekeepingDashboard?.updatedAt
     ? new Date(housekeepingDashboard.updatedAt).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })
     : '';
+  const selectedDateWeekday = selectedHousekeepingDate
+    ? new Date(`${selectedHousekeepingDate}T12:00:00`).getDay()
+    : new Date().getDay();
+  const selectedPlanningTotal = operationalCorridors.reduce(
+    (total, corridor) => total + Number(corridorArrivalsPlan[corridor]?.[selectedPlanningWeekday] || 0),
+    0,
+  );
 
   return (
     <div className="max-w-7xl mx-auto p-4 md:p-8 space-y-5">
@@ -1013,13 +1090,16 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
             })}
           </div>
 
-          {(housekeepingDashboard.totals.interdicted > 0 || housekeepingDashboard.unassignedCheckins.selected > 0) && (
+          {(housekeepingDashboard.totals.interdicted > 0 || housekeepingDashboard.unassignedCheckins.selected > 0 || housekeepingDashboard.unassignedCheckouts.selected > 0) && (
             <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-y border-slate-200 bg-slate-50 px-4 py-3 text-xs font-bold text-slate-600">
               {housekeepingDashboard.totals.interdicted > 0 && (
                 <span className="inline-flex items-center gap-2 text-rose-700"><AlertTriangle size={15} /> {housekeepingDashboard.totals.interdicted} interditados fora das vagas disponiveis</span>
               )}
               {housekeepingDashboard.unassignedCheckins.selected > 0 && (
                 <span className="inline-flex items-center gap-2 text-indigo-700"><ArrowDownToLine size={15} /> {housekeepingDashboard.unassignedCheckins.selected} entradas ainda sem andar definido</span>
+              )}
+              {housekeepingDashboard.unassignedCheckouts.selected > 0 && (
+                <span className="inline-flex items-center gap-2 text-amber-700"><ArrowUpFromLine size={15} /> {housekeepingDashboard.unassignedCheckouts.selected} saidas ainda sem andar definido</span>
               )}
             </div>
           )}
@@ -1070,6 +1150,16 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
                             <div className="truncate text-[9px] font-black uppercase text-slate-400">{label}</div>
                           </div>
                         ))}
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[10px] font-black uppercase">
+                        <span className="text-violet-700">
+                          Planejado: {corridorArrivalsPlan[corridor.corridor]?.[selectedDateWeekday] || 0} chegadas
+                        </span>
+                        {housekeepingDashboard.mapComparisonAvailable && (
+                          <span className={(corridor.selected.hitsCheckins !== corridor.selected.checkins || corridor.selected.hitsCheckouts !== corridor.selected.checkouts) ? 'text-rose-700' : 'text-emerald-700'}>
+                            HITS vinculado: {corridor.selected.hitsCheckins || 0} entram / {corridor.selected.hitsCheckouts || 0} saem
+                          </span>
+                        )}
                       </div>
                     </div>
 
@@ -1153,6 +1243,81 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
                 style={{ backgroundColor: theme.primary }}
               >
                 <Save size={14} /> Salvar
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
+          <div className="flex flex-col gap-2 border-b border-slate-100 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-2">
+              <CalendarCheck2 size={17} style={{ color: theme.primary }} />
+              <div>
+                <div className="text-sm font-black text-slate-900">Chegadas planejadas por corredor</div>
+                <div className="text-[10px] font-bold text-slate-400">Distribuicao padrao para cada dia da semana</div>
+              </div>
+            </div>
+            <div className="text-xs font-black text-violet-700">{selectedPlanningTotal} chegadas planejadas</div>
+          </div>
+
+          <div className="p-4 space-y-4">
+            <div className="grid grid-cols-4 gap-1 sm:grid-cols-7">
+              {corridorPlanningWeekdays.map((weekday, index) => (
+                <button
+                  key={weekday}
+                  type="button"
+                  onClick={() => setSelectedPlanningWeekday(index)}
+                  className={`min-h-10 rounded-lg px-2 text-[10px] font-black uppercase transition-colors ${selectedPlanningWeekday === index ? 'text-white' : 'bg-slate-50 text-slate-500 hover:bg-slate-100'}`}
+                  style={selectedPlanningWeekday === index ? { backgroundColor: theme.primary } : undefined}
+                >
+                  {weekday.slice(0, 3)}
+                </button>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
+              {operationalCorridors.map((corridor) => (
+                <label key={corridor} className="grid min-h-12 grid-cols-[1fr_88px] items-center gap-3 rounded-lg border border-slate-100 bg-slate-50 px-3">
+                  <span className="text-xs font-black text-slate-700">Corredor {corridor}</span>
+                  <input
+                    type="number"
+                    min="0"
+                    max="999"
+                    value={corridorArrivalsPlan[corridor]?.[selectedPlanningWeekday] || 0}
+                    onChange={(event) => {
+                      const value = Math.max(0, Math.min(999, Math.floor(Number(event.target.value) || 0)));
+                      setCorridorArrivalsPlan(current => ({
+                        ...current,
+                        [corridor]: (current[corridor] || Array(7).fill(0)).map((item, index) => index === selectedPlanningWeekday ? value : item),
+                      }));
+                    }}
+                    className="h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-center text-sm font-black text-slate-800 outline-none focus:border-violet-400"
+                  />
+                </label>
+              ))}
+            </div>
+
+            {corridorPlanError && <div className="text-xs font-bold text-rose-700">{corridorPlanError}</div>}
+            {corridorPlanMessage && <div className="text-xs font-bold text-emerald-700">{corridorPlanMessage}</div>}
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={saveCorridorPlan}
+                disabled={savingCorridorPlan || loadingCorridorPlan}
+                className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg px-4 text-xs font-black text-white disabled:opacity-50"
+                style={{ backgroundColor: theme.primary }}
+              >
+                {savingCorridorPlan ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                Salvar planejamento
+              </button>
+              <button
+                type="button"
+                onClick={loadCorridorPlan}
+                disabled={loadingCorridorPlan}
+                className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 disabled:opacity-50"
+                title="Recarregar planejamento"
+              >
+                <RefreshCw size={14} className={loadingCorridorPlan ? 'animate-spin' : ''} />
               </button>
             </div>
           </div>
