@@ -8,20 +8,30 @@ from pathlib import Path
 
 ROTINAS = {
     "vinculacao_diaria": [
-        ["limpeza.py", "--pausa-rolagem", "1.0", "--pausa-acao", "1.0"],
-        ["mr.py", "--fator-pausa", "0.5"],
-        ["obs.py", "--fator-pausa", "0.7"],
-        ["vinc3.py", "--fator-pausa", "0.8"],
+        ("limpeza", ["limpeza.py", "--pausa-rolagem", "1.0", "--pausa-acao", "1.0"]),
+        ("mr", ["mr.py", "--fator-pausa", "0.5"]),
+        ("obs", ["obs.py", "--fator-pausa", "0.7"]),
+        ("vinc3", ["vinc3.py", "--fator-pausa", "0.8"]),
     ],
     "mr": [
-        ["mr.py", "--fator-pausa", "0.5"],
+        ("mr", ["mr.py", "--fator-pausa", "0.5"]),
+    ],
+    "obs": [
+        ("obs", ["obs.py", "--fator-pausa", "0.7"]),
     ],
     "vinc3": [
-        ["vinc3.py", "--fator-pausa", "0.8"],
+        ("vinc3", ["vinc3.py", "--fator-pausa", "0.8"]),
     ],
     "limpeza": [
-        ["limpeza.py", "--pausa-rolagem", "1.0", "--pausa-acao", "1.0"],
+        ("limpeza", ["limpeza.py", "--pausa-rolagem", "1.0", "--pausa-acao", "1.0"]),
     ],
+}
+
+ETAPAS_LABELS = {
+    "limpeza": "Limpeza",
+    "mr": "MR",
+    "obs": "OBS",
+    "vinc3": "Vinc3",
 }
 
 
@@ -52,6 +62,21 @@ def validar_ambiente(base_dir: Path) -> None:
 
     if faltando:
         raise SystemExit(f"Secrets obrigatorios ausentes: {', '.join(faltando)}")
+
+
+def normalizar_etapas(valor: str) -> set[str]:
+    texto = (valor or "").strip().lower()
+    if not texto:
+        return set()
+
+    etapas = {item.strip() for item in texto.replace(";", ",").split(",") if item.strip()}
+    invalidas = sorted(etapa for etapa in etapas if etapa not in ETAPAS_LABELS)
+    if invalidas:
+        raise SystemExit(
+            "Etapas invalidas: "
+            f"{', '.join(invalidas)}. Use: {', '.join(ETAPAS_LABELS)}"
+        )
+    return etapas
 
 
 def executar(
@@ -88,6 +113,11 @@ def main() -> None:
     grupo_modo = parser.add_mutually_exclusive_group()
     grupo_modo.add_argument("--headless", action="store_true")
     grupo_modo.add_argument("--visual", action="store_true")
+    parser.add_argument(
+        "--etapas",
+        default=os.getenv("ROBOT_ETAPAS", ""),
+        help="Etapas da vinculacao separadas por virgula: limpeza,mr,obs,vinc3. Vazio roda todas.",
+    )
     args = parser.parse_args()
 
     base_dir = Path(__file__).resolve().parent
@@ -99,13 +129,26 @@ def main() -> None:
     modo = "--headless" if headless else "--visual"
     tentativas = inteiro_positivo("ROBOT_RETRIES", 3)
     pausa_retry = inteiro_positivo("ROBOT_RETRY_SLEEP", 20)
+    etapas_escolhidas = normalizar_etapas(args.etapas)
+    comandos = [
+        (etapa, comando)
+        for etapa, comando in ROTINAS[args.rotina]
+        if not etapas_escolhidas or etapa in etapas_escolhidas
+    ]
+    if not comandos:
+        raise SystemExit("Nenhuma etapa selecionada para executar.")
 
     print(
         f"Rotina: {args.rotina} | Modo: {modo[2:]} | "
         f"Tentativas por robo: {tentativas}",
         flush=True,
     )
-    for comando in ROTINAS[args.rotina]:
+    print(
+        "Etapas: "
+        + ", ".join(ETAPAS_LABELS[etapa] for etapa, _comando in comandos),
+        flush=True,
+    )
+    for _etapa, comando in comandos:
         executar(comando, base_dir, modo, tentativas, pausa_retry)
 
     print("\nRotina finalizada com sucesso.", flush=True)

@@ -30,6 +30,7 @@ import {
   Save,
   Search,
   Send,
+  Settings2,
   Shirt,
   Terminal,
   Trash2,
@@ -38,7 +39,8 @@ import {
 } from 'lucide-react';
 import { HotelTheme } from '../types';
 
-type Rotina = 'vinculacao_diaria' | 'mr' | 'vinc3' | 'limpeza' | 'checkin_email' | 'checkin_whatsapp';
+type Rotina = 'vinculacao_diaria' | 'mr' | 'obs' | 'vinc3' | 'limpeza' | 'checkin_email' | 'checkin_whatsapp';
+type VinculacaoEtapa = 'limpeza' | 'mr' | 'obs' | 'vinc3';
 type ObservacaoSetor = 'restaurante' | 'governanca' | 'recepcao';
 type ReceptionTab = 'robos' | 'mensagens' | 'observacoes' | 'lavanderia';
 type OperationalSection = 'recepcao' | 'governanca';
@@ -163,6 +165,7 @@ interface CheckinWhatsappContact {
 const rotinaLabels: Record<Rotina, string> = {
   vinculacao_diaria: 'Vinculacao diaria',
   mr: 'Atualizar mapinha',
+  obs: 'Atualizar observacoes',
   vinc3: 'Vinculacao',
   limpeza: 'Limpar mapa',
   checkin_email: 'Check-in por email',
@@ -172,6 +175,7 @@ const rotinaLabels: Record<Rotina, string> = {
 const rotinaDescriptions: Record<Rotina, string> = {
   vinculacao_diaria: 'Limpeza + MR + OBS + VINC3',
   mr: 'Roda apenas o MR e atualiza a projecao do mapinha.',
+  obs: 'Roda apenas o OBS e atualiza as observacoes.',
   vinc3: 'Roda apenas o VINC3 para vincular apartamentos de hoje.',
   limpeza: 'Roda apenas a limpeza do mapa de reservas.',
   checkin_email: 'Anexos + cadastro + etiquetas',
@@ -181,14 +185,21 @@ const rotinaDescriptions: Record<Rotina, string> = {
 const rotinaIcons: Record<Rotina, React.ElementType> = {
   vinculacao_diaria: CalendarCheck2,
   mr: CalendarDays,
+  obs: FileText,
   vinc3: Bot,
   limpeza: Trash2,
   checkin_email: MailCheck,
   checkin_whatsapp: MessageCircle,
 };
 
-const vinculacaoRotinas: Rotina[] = ['vinculacao_diaria', 'mr', 'vinc3', 'limpeza'];
+const vinculacaoRotinas: Rotina[] = ['vinculacao_diaria', 'mr', 'obs', 'vinc3', 'limpeza'];
 const outrosRobos: Rotina[] = ['checkin_email'];
+const vinculacaoEtapas: { id: VinculacaoEtapa; label: string }[] = [
+  { id: 'limpeza', label: 'Limpeza' },
+  { id: 'mr', label: 'MR' },
+  { id: 'obs', label: 'OBS' },
+  { id: 'vinc3', label: 'Vinc3' },
+];
 
 const receptionTabs: { id: ReceptionTab; label: string; description: string; icon: React.ElementType }[] = [
   { id: 'robos', label: 'Robos', description: 'Mapinha e automacoes', icon: Bot },
@@ -354,6 +365,10 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
   const [savingCorridorPlan, setSavingCorridorPlan] = useState(false);
   const [corridorPlanMessage, setCorridorPlanMessage] = useState('');
   const [corridorPlanError, setCorridorPlanError] = useState('');
+  const [showVinculacaoConfig, setShowVinculacaoConfig] = useState(false);
+  const [vinculacaoEtapasSelecionadas, setVinculacaoEtapasSelecionadas] = useState<VinculacaoEtapa[]>(
+    vinculacaoEtapas.map((etapa) => etapa.id)
+  );
   const [laundrySearch, setLaundrySearch] = useState('');
   const [laundryCart, setLaundryCart] = useState<{ id: string; name: string; price: number; quantity: number }[]>([]);
   const [laundryUrgent, setLaundryUrgent] = useState(false);
@@ -593,7 +608,14 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
     return () => window.clearInterval(interval);
   }, [addRobotLog, isWatchingRun, loadHousekeepingDashboard, loadStatus, selectedHousekeepingDate, trackedRunId, trackingRotina, trackingStartedAt]);
 
-  const runRobot = async (rotina: Rotina) => {
+  const runRobot = async (rotina: Rotina, etapas?: VinculacaoEtapa[]) => {
+    const etapasPayload = rotina === 'vinculacao_diaria' && etapas ? etapas : undefined;
+    const etapasLabel = etapasPayload?.length
+      ? vinculacaoEtapas
+        .filter((etapa) => etapasPayload.includes(etapa.id))
+        .map((etapa) => etapa.label)
+        .join(' + ')
+      : '';
     setRunning(rotina);
     setTrackingRotina(rotina);
     setIsWatchingRun(false);
@@ -603,12 +625,16 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
     setRobotLogs([]);
     setMessage('');
     setError('');
-    addRobotLog(`${rotinaLabels[rotina]} solicitada pelo app.`);
+    addRobotLog(
+      etapasLabel
+        ? `${rotinaLabels[rotina]} solicitada pelo app: ${etapasLabel}.`
+        : `${rotinaLabels[rotina]} solicitada pelo app.`
+    );
     try {
       const response = await fetch('/api/robots/vinculacao/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rotina }),
+        body: JSON.stringify({ rotina, etapas: etapasPayload }),
       });
       const data = await response.json();
       if (!response.ok || data.status !== 'success') {
@@ -772,14 +798,24 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
     warning: 'text-amber-700',
   };
 
+  const toggleVinculacaoEtapa = (etapa: VinculacaoEtapa) => {
+    setVinculacaoEtapasSelecionadas((current) => (
+      current.includes(etapa)
+        ? current.filter((item) => item !== etapa)
+        : [...current, etapa]
+    ));
+  };
+
   const renderRobotCard = (rotina: Rotina) => {
     const RotinaIcon = rotinaIcons[rotina];
+    const isVinculacao = rotina === 'vinculacao_diaria';
+    const etapasSelecionadasOrdenadas = vinculacaoEtapas
+      .map((etapa) => etapa.id)
+      .filter((etapa) => vinculacaoEtapasSelecionadas.includes(etapa));
     return (
-      <button
+      <div
         key={rotina}
-        onClick={() => runRobot(rotina)}
-        disabled={!!running}
-        className="group min-h-28 rounded-lg border border-slate-200 bg-white p-4 text-left hover:border-slate-300 hover:shadow-sm disabled:opacity-60 transition-all"
+        className="group min-h-28 rounded-lg border border-slate-200 bg-white p-4 text-left hover:border-slate-300 hover:shadow-sm transition-all"
       >
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-start gap-3">
@@ -791,14 +827,71 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
               <div className="mt-1 text-xs font-bold text-slate-500">{rotinaDescriptions[rotina]}</div>
             </div>
           </div>
-          <div className="w-8 h-8 rounded-lg flex items-center justify-center border border-slate-100">
-            <Play size={15} style={{ color: theme.primary }} />
+          <div className="flex items-center gap-2">
+            {isVinculacao && (
+              <button
+                type="button"
+                onClick={() => setShowVinculacaoConfig((current) => !current)}
+                className="w-8 h-8 rounded-lg flex items-center justify-center border border-slate-200 bg-white hover:bg-slate-50"
+                title="Configurar etapas"
+              >
+                <Settings2 size={15} className="text-slate-600" />
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => runRobot(rotina)}
+              disabled={!!running}
+              className="w-8 h-8 rounded-lg flex items-center justify-center border border-slate-100 hover:bg-slate-50 disabled:opacity-60"
+              title="Executar"
+            >
+              <Play size={15} style={{ color: theme.primary }} />
+            </button>
           </div>
         </div>
+        {isVinculacao && showVinculacaoConfig && (
+          <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
+            <div className="grid grid-cols-2 gap-2">
+              {vinculacaoEtapas.map((etapa) => (
+                <label
+                  key={etapa.id}
+                  className="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700"
+                >
+                  <input
+                    type="checkbox"
+                    checked={vinculacaoEtapasSelecionadas.includes(etapa.id)}
+                    onChange={() => toggleVinculacaoEtapa(etapa.id)}
+                    className="h-4 w-4"
+                  />
+                  {etapa.label}
+                </label>
+              ))}
+            </div>
+            <div className="mt-3 flex items-center justify-between gap-3">
+              <button
+                type="button"
+                onClick={() => setVinculacaoEtapasSelecionadas(vinculacaoEtapas.map((etapa) => etapa.id))}
+                className="text-xs font-black text-slate-500 hover:text-slate-800"
+              >
+                Marcar todos
+              </button>
+              <button
+                type="button"
+                onClick={() => runRobot(rotina, etapasSelecionadasOrdenadas)}
+                disabled={!!running || etapasSelecionadasOrdenadas.length === 0}
+                className="inline-flex h-9 items-center gap-2 rounded-lg px-3 text-xs font-black text-white disabled:opacity-60"
+                style={{ backgroundColor: theme.primary }}
+              >
+                <Play size={14} />
+                Executar marcado
+              </button>
+            </div>
+          </div>
+        )}
         <div className="mt-4 h-1.5 rounded-full bg-slate-100 overflow-hidden">
           <div className="h-full rounded-full transition-all" style={{ width: running === rotina ? '70%' : '28%', backgroundColor: theme.primary }} />
         </div>
-      </button>
+      </div>
     );
   };
 

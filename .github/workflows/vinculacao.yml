@@ -12,8 +12,13 @@ on:
         options:
           - vinculacao_diaria
           - mr
+          - obs
           - vinc3
           - limpeza
+      etapas:
+        description: Etapas opcionais: limpeza,mr,obs,vinc3. Vazio roda tudo.
+        required: false
+        default: ""
 
 concurrency:
   group: robos-hits-operacionais
@@ -29,6 +34,8 @@ jobs:
       ROBOT_HEADLESS: "1"
       ROBOT_RETRIES: "3"
       ROBOT_RETRY_SLEEP: "20"
+      ROBOT_ETAPAS: ${{ inputs.etapas }}
+      PERMITIR_CLIQUE_OVERBOOKING: "1"
       HITS_EMAIL: ${{ secrets.HITS_EMAIL }}
       HITS_PASSWORD: ${{ secrets.HITS_PASSWORD }}
       GOOGLE_TOKEN_JSON: ${{ secrets.GOOGLE_TOKEN_JSON }}
@@ -68,4 +75,4 @@ jobs:
           google-chrome --version || chromium-browser --version || chromium --version
 
       - name: Executar rotina selecionada
-        run: python robots/vinculacao/run.py "${{ inputs.rotina }}" --headless
+        run: python robots/vinculacao/run.py "${{ inputs.rotina }}" --headless --etapas "${{ inputs.etapas }}"

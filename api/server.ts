@@ -97,17 +97,20 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-type VinculacaoRotina = 'vinculacao_diaria' | 'mr' | 'vinc3' | 'limpeza' | 'mapa' | 'checkin_email' | 'checkin_whatsapp';
+type VinculacaoRotina = 'vinculacao_diaria' | 'mr' | 'obs' | 'vinc3' | 'limpeza' | 'mapa' | 'checkin_email' | 'checkin_whatsapp';
+type VinculacaoEtapa = 'limpeza' | 'mr' | 'obs' | 'vinc3';
 
 const VINCULACAO_ROTINAS = new Set<VinculacaoRotina>([
   'vinculacao_diaria',
   'mr',
+  'obs',
   'vinc3',
   'limpeza',
   'mapa',
   'checkin_email',
   'checkin_whatsapp',
 ]);
+const VINCULACAO_ETAPAS = new Set<VinculacaoEtapa>(['limpeza', 'mr', 'obs', 'vinc3']);
 
 function getGitHubWorkflowConfig(rotina: VinculacaoRotina = 'vinculacao_diaria') {
   const isCheckinEmail = rotina === 'checkin_email';
@@ -134,11 +137,25 @@ function getGitHubWorkflowConfig(rotina: VinculacaoRotina = 'vinculacao_diaria')
   return { owner, repo, token, ref, workflowFile };
 }
 
-function workflowInputsForRotina(rotina: VinculacaoRotina) {
+function normalizarEtapas(input: unknown) {
+  const rawItems = Array.isArray(input)
+    ? input
+    : String(input || '').split(',');
+  const etapas = rawItems
+    .map((item) => String(item).trim().toLowerCase())
+    .filter(Boolean);
+  const invalidas = etapas.filter((etapa) => !VINCULACAO_ETAPAS.has(etapa as VinculacaoEtapa));
+  if (invalidas.length > 0) {
+    throw new Error(`Etapas invalidas: ${invalidas.join(', ')}.`);
+  }
+  return Array.from(new Set(etapas)).join(',');
+}
+
+function workflowInputsForRotina(rotina: VinculacaoRotina, etapas = '') {
   if (rotina === 'checkin_email') {
     return { max_emails: '30' };
   }
-  return { rotina };
+  return rotina === 'vinculacao_diaria' ? { rotina, etapas } : { rotina };
 }
 
 function githubHeaders(token: string) {
@@ -155,6 +172,7 @@ app.post('/api/robots/vinculacao/run', async (req, res) => {
     if (!VINCULACAO_ROTINAS.has(rotina)) {
       return res.status(400).json({ status: 'error', message: 'Rotina invalida.' });
     }
+    const etapas = rotina === 'vinculacao_diaria' ? normalizarEtapas(req.body?.etapas) : '';
 
     const { owner, repo, token, ref, workflowFile } = getGitHubWorkflowConfig(rotina);
     const response = await fetch(
@@ -162,7 +180,7 @@ app.post('/api/robots/vinculacao/run', async (req, res) => {
       {
         method: 'POST',
         headers: githubHeaders(token),
-        body: JSON.stringify({ ref, inputs: workflowInputsForRotina(rotina) }),
+        body: JSON.stringify({ ref, inputs: workflowInputsForRotina(rotina, etapas) }),
       }
     );
 
