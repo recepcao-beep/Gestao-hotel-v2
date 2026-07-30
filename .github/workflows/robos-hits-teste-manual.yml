@@ -14,7 +14,7 @@ on:
           - obs
           - vinc3
       etapas:
-        description: Etapas opcionais para vinculacao_diaria: limpeza,mr,obs,vinc3. Vazio roda tudo.
+        description: "Etapas opcionais para vinculacao_diaria: limpeza,mr,obs,vinc3. Vazio roda tudo."
         required: false
         default: ""
       confirmacao:

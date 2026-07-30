@@ -16,7 +16,7 @@ on:
           - vinc3
           - limpeza
       etapas:
-        description: Etapas opcionais: limpeza,mr,obs,vinc3. Vazio roda tudo.
+        description: "Etapas opcionais: limpeza,mr,obs,vinc3. Vazio roda tudo."
         required: false
         default: ""
 
