@@ -427,6 +427,22 @@ function uniqueObservationParts(text: string) {
 function summarizeMimoObservation(text: string) {
   const normalized = normalizeSheetText(text);
   if (!normalized.includes('mimo')) return '';
+  const items: string[] = [];
+  const add = (label: string) => {
+    if (!items.includes(label)) items.push(label);
+  };
+
+  if (
+    normalized.includes('boas vindas') ||
+    normalized.includes('boasvindas') ||
+    normalized.includes('bem vindo') ||
+    normalized.includes('bemvindo') ||
+    normalized.includes('welcome')
+  ) {
+    add('MIMO DE BOAS VINDAS');
+  }
+
+  if (normalized.includes('lambrusco')) add('MIMO LAMBRUSCO');
 
   if (
     normalized.includes('infantil') ||
@@ -435,7 +451,7 @@ function summarizeMimoObservation(text: string) {
     normalized.includes('chd') ||
     /\b\d{1,2}\s*anos?\b/.test(normalized)
   ) {
-    return 'MIMO INFANTIL';
+    add('MIMO INFANTIL');
   }
 
   if (
@@ -444,10 +460,10 @@ function summarizeMimoObservation(text: string) {
     normalized.includes('luademel') ||
     normalized.includes('recem casad')
   ) {
-    return 'MIMO LUA DE MEL';
+    add('MIMO LUA DE MEL');
   }
 
-  return 'MIMO';
+  return items.join(' | ') || 'MIMO';
 }
 
 function formatGovernancaObservation(text: string) {

@@ -332,6 +332,7 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
   const [trackedRunId, setTrackedRunId] = useState<number | null>(null);
   const [isWatchingRun, setIsWatchingRun] = useState(false);
   const [robotLogs, setRobotLogs] = useState<RobotLogEntry[]>([]);
+  const [refreshObservacoesAfterRun, setRefreshObservacoesAfterRun] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [configWarning, setConfigWarning] = useState('');
@@ -597,18 +598,27 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
             addRobotLog('Atualizando indicadores da Governanca...', 'info');
             void loadHousekeepingDashboard(selectedHousekeepingDate, true);
           }
+          if (refreshObservacoesAfterRun) {
+            addRobotLog('Recarregando observacoes atualizadas.', 'info');
+            void loadObservacoes();
+          }
         } else {
           addRobotLog(`Execucao finalizada com status: ${latestRun.conclusion || 'falha'}.`, 'error');
           setError(`Robo finalizado com status: ${latestRun.conclusion || 'falha'}.`);
         }
+        setRefreshObservacoesAfterRun(false);
         setIsWatchingRun(false);
       }
     }, 5000);
 
     return () => window.clearInterval(interval);
-  }, [addRobotLog, isWatchingRun, loadHousekeepingDashboard, loadStatus, selectedHousekeepingDate, trackedRunId, trackingRotina, trackingStartedAt]);
+  }, [addRobotLog, isWatchingRun, loadHousekeepingDashboard, loadObservacoes, loadStatus, refreshObservacoesAfterRun, selectedHousekeepingDate, trackedRunId, trackingRotina, trackingStartedAt]);
 
-  const runRobot = async (rotina: Rotina, etapas?: VinculacaoEtapa[]) => {
+  const runRobot = async (
+    rotina: Rotina,
+    etapas?: VinculacaoEtapa[],
+    options?: { refreshObservacoes?: boolean }
+  ) => {
     const etapasPayload = rotina === 'vinculacao_diaria' && etapas ? etapas : undefined;
     const etapasLabel = etapasPayload?.length
       ? vinculacaoEtapas
@@ -625,6 +635,7 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
     setRobotLogs([]);
     setMessage('');
     setError('');
+    setRefreshObservacoesAfterRun(!!options?.refreshObservacoes);
     addRobotLog(
       etapasLabel
         ? `${rotinaLabels[rotina]} solicitada pelo app: ${etapasLabel}.`
@@ -646,11 +657,16 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
       setIsWatchingRun(true);
       window.setTimeout(() => loadStatus(true, rotina), 2500);
     } catch (err: any) {
+      setRefreshObservacoesAfterRun(false);
       setError(err.message || 'Falha ao disparar robo.');
       addRobotLog(err.message || 'Falha ao disparar robo.', 'error');
     } finally {
       setRunning(null);
     }
+  };
+
+  const atualizarObservacoesPorRobo = () => {
+    runRobot('vinculacao_diaria', ['obs'], { refreshObservacoes: true });
   };
 
   const printMapinha = () => {
@@ -1808,11 +1824,11 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
                   {notificationsEnabled ? 'Alertas ativos' : 'Alertas'}
                 </button>
                 <button
-                  onClick={loadObservacoes}
-                  disabled={loadingObservacoes}
+                  onClick={atualizarObservacoesPorRobo}
+                  disabled={loadingObservacoes || !!running}
                   className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-slate-200 bg-white text-xs font-black text-slate-700 hover:bg-slate-50 disabled:opacity-60"
                 >
-                  <RefreshCw size={15} className={loadingObservacoes ? 'animate-spin' : ''} />
+                  <RefreshCw size={15} className={loadingObservacoes || refreshObservacoesAfterRun ? 'animate-spin' : ''} />
                   Atualizar
                 </button>
                 <button
