@@ -124,7 +124,7 @@ function getGitHubWorkflowConfig(rotina: VinculacaoRotina = 'vinculacao_diaria')
     : 'main';
   const workflowFile = isCheckinEmail
     ? (process.env.GITHUB_CHECKIN_WORKFLOW || 'checkin-email-robot.yml')
-    : 'vinculacao.yml';
+    : 'robos-hits-teste-manual.yml';
 
   if (!owner || !repo || !token) {
     throw new Error(
@@ -155,7 +155,11 @@ function workflowInputsForRotina(rotina: VinculacaoRotina, etapas = '') {
   if (rotina === 'checkin_email') {
     return { max_emails: '30' };
   }
-  return rotina === 'vinculacao_diaria' ? { rotina, etapas } : { rotina };
+  return {
+    robo: rotina,
+    etapas,
+    confirmacao: 'EXECUTAR_ROBO_HITS',
+  };
 }
 
 function githubHeaders(token: string) {
