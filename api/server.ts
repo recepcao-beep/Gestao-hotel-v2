@@ -121,10 +121,10 @@ function getGitHubWorkflowConfig(rotina: VinculacaoRotina = 'vinculacao_diaria')
     : (process.env.GITHUB_WORKFLOW_TOKEN || '');
   const ref = isCheckinEmail
     ? (process.env.GITHUB_CHECKIN_REF || process.env.GITHUB_REF || process.env.VERCEL_GIT_COMMIT_REF || 'main')
-    : (process.env.GITHUB_REF || process.env.VERCEL_GIT_COMMIT_REF || 'main');
+    : 'main';
   const workflowFile = isCheckinEmail
     ? (process.env.GITHUB_CHECKIN_WORKFLOW || 'checkin-email-robot.yml')
-    : (process.env.GITHUB_VINCULACAO_WORKFLOW || 'vinculacao.yml');
+    : 'vinculacao.yml';
 
   if (!owner || !repo || !token) {
     throw new Error(
@@ -186,10 +186,10 @@ app.post('/api/robots/vinculacao/run', async (req, res) => {
 
     if (!response.ok) {
       const detail = await response.text();
-      throw new Error(`Falha ao disparar GitHub Actions (${response.status}): ${detail}`);
+      throw new Error(`Falha ao disparar GitHub Actions (${response.status}) em ${workflowFile}@${ref}: ${detail}`);
     }
 
-    res.json({ status: 'success', rotina, message: 'Workflow disparado.' });
+    res.json({ status: 'success', rotina, workflowFile, ref, message: 'Workflow disparado.' });
   } catch (error: any) {
     console.error('[Robots Run Error]', error);
     res.status(500).json({ status: 'error', message: error.message || 'Erro ao disparar robo.' });
