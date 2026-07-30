@@ -415,6 +415,7 @@ function uniqueObservationParts(text: string) {
   return String(text || '')
     .split('|')
     .map(cleanObservationPart)
+    .map((part) => part.replace(/\bstandart\b/gi, '').replace(/\s+/g, ' ').trim())
     .filter(Boolean)
     .filter((part) => {
       const key = normalizeSheetText(part);
@@ -497,18 +498,46 @@ function formatGovernancaObservation(text: string) {
   return items.join(' | ');
 }
 
+function extractLinkedVoucherFromText(text: string, voucher = '') {
+  const normalized = normalizeSheetText(text);
+  const mentionsProximity = (
+    normalized.includes('proxim') ||
+    normalized.includes('perto') ||
+    normalized.includes('junto') ||
+    normalized.includes('lado a lado')
+  );
+  if (!mentionsProximity) return '';
+  const currentVoucher = String(voucher || '').trim();
+  const vouchers = String(text || '').match(/\b\d{5,10}\b/g) || [];
+  return vouchers.find((candidate) => candidate !== currentVoucher) || '';
+}
+
+function extractGroupName(text: string) {
+  const cleaned = cleanObservationPart(text);
+  const match = cleaned.match(/\bgrupo\s*:?\s+([A-Za-zÀ-ÿ0-9][A-Za-zÀ-ÿ0-9\s.'-]{0,50})/i);
+  if (!match) return '';
+  const rawName = match[1]
+    .split(/\b(?:manter|proxim[ao]?|perto|junto|aptos?|apartamentos?|voucher|reserva|obs)\b/i)[0]
+    .replace(/[|:;,.]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return rawName ? `GRUPO ${rawName.toUpperCase()}` : 'GRUPO';
+}
+
 function formatRecepcaoObservation(text: string, linkedVoucher = '') {
   const normalized = normalizeSheetText(text);
   const items: string[] = [];
   const add = (label: string) => {
     if (!items.includes(label)) items.push(label);
   };
+  const groupName = extractGroupName(text);
 
   if (linkedVoucher) add(`MANTER PROXIMO AO VOUCHER ${linkedVoucher}`);
   if (normalized.includes('recepcao')) add('MANTER ANDAR DA RECEPCAO');
   if (normalized.includes('copinha')) add('MANTER ANDAR DA COPINHA');
   if (normalized.includes('mesmo andar')) add('MANTER MESMO ANDAR');
-  if (normalized.includes('grupo')) add('GRUPO: MANTER APTOS PROXIMOS');
+  if (groupName) add(`${groupName}: MANTER APTOS PROXIMOS`);
+  else if (normalized.includes('grupo')) add('GRUPO: MANTER APTOS PROXIMOS');
   if (
     items.length === 0 &&
     (normalized.includes('proxim') || normalized.includes('perto') || normalized.includes('junto') || normalized.includes('lado a lado'))
@@ -517,7 +546,7 @@ function formatRecepcaoObservation(text: string, linkedVoucher = '') {
   return items.join(' | ');
 }
 
-function formatObservationRequest(text: string, sector: 'restaurante' | 'governanca' | 'recepcao', linkedVoucher = '') {
+function formatObservationRequest(text: string, sector: 'restaurante' | 'governanca' | 'recepcao', linkedVoucher = '', voucher = '') {
   if (sector === 'restaurante') {
     const mimo = summarizeMimoObservation(text);
     if (mimo) return mimo;
@@ -529,12 +558,13 @@ function formatObservationRequest(text: string, sector: 'restaurante' | 'governa
   }
 
   if (sector === 'recepcao') {
-    const recepcao = formatRecepcaoObservation(text, linkedVoucher);
+    const resolvedLinkedVoucher = linkedVoucher || extractLinkedVoucherFromText(text, voucher);
+    const recepcao = formatRecepcaoObservation(text, resolvedLinkedVoucher);
     if (recepcao) return recepcao;
   }
 
   const parts = uniqueObservationParts(text);
-  return parts.join(' | ') || String(text || '').trim();
+  return parts.join(' | ');
 }
 
 function buildApartmentByVoucher(rawValues: any[][]) {
@@ -1206,14 +1236,15 @@ app.get('/api/robots/observacoes', async (req, res) => {
       if (!voucher || !request) return;
 
       const sector = classifyObservation(request);
-      const formattedRequest = formatObservationRequest(request, sector, linkedVoucher);
+      const resolvedLinkedVoucher = linkedVoucher || extractLinkedVoucherFromText(request, voucher);
+      const formattedRequest = formatObservationRequest(request, sector, resolvedLinkedVoucher, voucher);
       if (!formattedRequest) return;
       const item = {
         date,
         voucher,
         apartment: apartmentByVoucher.get(voucher) || '',
         floor,
-        linkedVoucher,
+        linkedVoucher: resolvedLinkedVoucher,
         request: formattedRequest,
       };
       sections[sector].push(item);
