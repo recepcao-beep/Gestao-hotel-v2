@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
   AlertTriangle,
@@ -84,6 +84,12 @@ interface ObservacoesPayload {
   updatedAt: string;
   exceptions: { date: string; floor: string }[];
   sections: Record<ObservacaoSetor, ObservacaoSection>;
+  debug?: {
+    rowsRead?: number;
+    skippedWithoutVoucher?: number;
+    skippedWithoutRequest?: number;
+    totals?: Partial<Record<ObservacaoSetor, number>>;
+  };
 }
 
 interface ExceptionFloor {
@@ -500,6 +506,7 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
       const nextObservacoes = {
         updatedAt: data.updatedAt,
         exceptions: data.exceptions || [],
+        debug: data.debug,
         sections: data.sections || {
           restaurante: { items: [], text: '' },
           governanca: { items: [], text: '' },
@@ -765,11 +772,21 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
   };
 
   const currentSectionItems = observacoes?.sections?.[activeObservacao]?.items || [];
-  const allObservationItems = (Object.values(observacoes?.sections || {}) as ObservacaoSection[])
-    .flatMap((section) => section.items);
-  const availableDates = Array.from(new Set(
-    allObservationItems.map((item) => item.date).filter(Boolean)
-  ));
+  const allObservationItems = useMemo(
+    () => (Object.values(observacoes?.sections || {}) as ObservacaoSection[])
+      .flatMap((section) => section.items),
+    [observacoes]
+  );
+  const availableDates = useMemo(
+    () => Array.from(new Set(
+      allObservationItems.map((item) => item.date).filter(Boolean)
+    )).sort((a, b) => dateToIso(a).localeCompare(dateToIso(b))),
+    [allObservationItems]
+  );
+  const availableDateIsos = useMemo(
+    () => availableDates.map(dateToIso).filter(Boolean),
+    [availableDates]
+  );
   const filteredObservationItems = currentSectionItems.filter((item) => {
     if (!selectedDate) return true;
     return dateToIso(item.date) === selectedDate;
@@ -781,6 +798,13 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
     .filter((item) => !selectedDate || dateToIso(item.date) === selectedDate)
     .filter((item) => isSpecialHousekeeping(item.request));
   const romanticAlertKey = specialHousekeepingItems.map((item) => `${item.date}-${item.voucher}-${item.apartment}-${item.request}`).join('|');
+
+  useEffect(() => {
+    if (!observacoes || availableDateIsos.length === 0) return;
+    if (!selectedDate || availableDateIsos.includes(selectedDate)) return;
+    const today = formatTodayIso();
+    setSelectedDate(availableDateIsos.find((date) => date >= today) || availableDateIsos[0]);
+  }, [availableDateIsos, observacoes, selectedDate]);
 
   useEffect(() => {
     if (!notificationsEnabled || !('Notification' in window) || Notification.permission !== 'granted') return;
@@ -1798,6 +1822,11 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
                 <div className="mt-1 text-[11px] font-bold text-slate-400">
                   {filteredObservationItems.length} solicitacao(oes)
                 </div>
+                {observacoes?.debug && (
+                  <div className="mt-1 text-[10px] font-bold text-slate-400">
+                    lidas {observacoes.debug.rowsRead || 0} | rest {observacoes.debug.totals?.restaurante || 0} | gov {observacoes.debug.totals?.governanca || 0} | rec {observacoes.debug.totals?.recepcao || 0}
+                  </div>
+                )}
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <div className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2">

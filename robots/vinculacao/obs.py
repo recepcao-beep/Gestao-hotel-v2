@@ -293,7 +293,7 @@ class RoboHITS:
         ]
 
         lixos = [
-            "STANDARD", "SEM SACADA", "COM SACADA", "VALOR", "PAGAMENTO", "PIX",
+            "STANDARD", "STANDART", "SEM SACADA", "COM SACADA", "VALOR", "PAGAMENTO", "PIX",
             "EMAIL", "TARIFARIO", "TARIFÁRIO", "MOTOR DE RESERVA", "MOTOR DE RESERVAS",
             "COMENTÁRIOS DA RESERVA", "COMENTARIOS DA RESERVA", "RESP:", "RESPONSAVEL:",
             "BEE2PAY", "INTEGRAÇÃO", "CRIADOR:", "DUPLO", "CATEGORIA", "ALL INCLUSIVE",
@@ -305,7 +305,7 @@ class RoboHITS:
             linha_limpa = linha.strip()
             if len(linha_limpa) < 4: continue
 
-            linha_upper = linha_limpa.upper().replace("STANDARD", "STD")
+            linha_upper = linha_limpa.upper()
 
             if not any(r in linha_upper for r in relevantes):
                 continue

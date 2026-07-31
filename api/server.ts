@@ -379,11 +379,81 @@ function getCell(row: any[], index: number) {
   return index >= 0 ? String(row?.[index] || '').trim() : '';
 }
 
+async function getSheetValuesWithFallback(spreadsheetId: string, ranges: string[]) {
+  let lastError: any = null;
+  for (const range of ranges.filter(Boolean)) {
+    try {
+      const response = await sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range,
+        valueRenderOption: 'FORMATTED_VALUE',
+      });
+      return {
+        range,
+        values: response.data.values || [],
+      };
+    } catch (error: any) {
+      lastError = error;
+    }
+  }
+
+  throw lastError || new Error('Nenhuma faixa da planilha foi informada.');
+}
+
+function buildObservationColumnIndexes(values: any[][]) {
+  const fallback = {
+    headerRow: 0,
+    firstDataRow: 1,
+    date: 0,
+    voucher: 1,
+    floor: 2,
+    linkedVoucher: 3,
+    category: 4,
+    request: 5,
+  };
+
+  const headerRow = values.slice(0, 5).findIndex((row) => {
+    const hasDate = findHeaderIndex(row, ['data', 'dia']) >= 0;
+    const hasVoucher = findHeaderIndex(row, ['voucher', 'reserva', 'localizador']) >= 0;
+    const hasObservation = findHeaderIndex(row, ['observacao', 'observacoes', 'solicitacao', 'solicitacoes', 'obs']) >= 0;
+    return hasDate && hasVoucher && hasObservation;
+  });
+
+  if (headerRow < 0) return fallback;
+
+  const headers = values[headerRow] || [];
+  const indexOrFallback = (aliases: string[], fallbackIndex: number) => {
+    const index = findHeaderIndex(headers, aliases);
+    return index >= 0 ? index : fallbackIndex;
+  };
+
+  return {
+    headerRow,
+    firstDataRow: headerRow + 1,
+    date: indexOrFallback(['data', 'dia'], 0),
+    voucher: indexOrFallback(['voucher', 'reserva', 'localizador'], 1),
+    floor: indexOrFallback(['andar', 'piso'], 2),
+    linkedVoucher: indexOrFallback(['vinculo', 'vinculado', 'proximo', 'voucher vinculado'], 3),
+    category: indexOrFallback(['categoria', 'cat'], 4),
+    request: indexOrFallback(['observacao', 'observacoes', 'solicitacao', 'solicitacoes', 'obs'], 5),
+  };
+}
+
+function getObservationRequest(row: any[], requestIndex: number) {
+  const preferred = getCell(row, requestIndex);
+  if (preferred) return preferred;
+  return row
+    .map((cell) => String(cell || '').trim())
+    .reverse()
+    .find((cell) => cell && !/^\d{3}$/.test(cell) && !/^\d{5,10}$/.test(cell)) || '';
+}
+
 function classifyObservation(text: string): 'restaurante' | 'governanca' | 'recepcao' {
   const normalized = normalizeSheetText(text);
   const restaurante = [
     'alerg', 'gluten', 'lactose', 'intoler', 'vegetar', 'vegano', 'restricao alimentar',
-    'mimo', 'aniversario', 'bolo', 'champagne', 'restaurante',
+    'mimo', 'aniversario', 'bolo', 'champagne', 'restaurante', 'lambrusco',
+    'lembranca', 'vip', 'boas vindas', 'boasvindas', 'welcome',
   ];
   const governanca = [
     'colchao', 'berco', 'banheira', 'banheiro', 'arrumacao', 'arrumacao especial',
@@ -1211,29 +1281,41 @@ app.get('/api/robots/governanca-painel', async (req, res) => {
 
 app.get('/api/robots/observacoes', async (req, res) => {
   try {
-    const response = await sheets.spreadsheets.values.batchGet({
-      spreadsheetId: MAPINHA_SHEET_ID,
-      ranges: [OBSERVACOES_RANGE, DADOS_BRUTOS_HITS_RANGE],
-      valueRenderOption: 'FORMATTED_VALUE',
-    });
+    const [observacoesRange, dadosRange] = await Promise.all([
+      getSheetValuesWithFallback(MAPINHA_SHEET_ID, [
+        OBSERVACOES_RANGE,
+        'SOLICITAÇÕES!A1:F2000',
+        'SOLICITACOES!A1:F2000',
+      ]),
+      getSheetValuesWithFallback(MAPINHA_SHEET_ID, [DADOS_BRUTOS_HITS_RANGE]),
+    ]);
 
-    const [observacoesRange, dadosRange] = response.data.valueRanges || [];
-    const observacoesValues = observacoesRange?.values || [];
-    const dadosValues = dadosRange?.values || [];
+    const observacoesValues = observacoesRange.values || [];
+    const dadosValues = dadosRange.values || [];
+    const indexes = buildObservationColumnIndexes(observacoesValues);
     const apartmentByVoucher = buildApartmentByVoucher(dadosValues);
     const sections: Record<string, any[]> = {
       restaurante: [],
       governanca: [],
       recepcao: [],
     };
+    let skippedWithoutVoucher = 0;
+    let skippedWithoutRequest = 0;
 
-    observacoesValues.slice(1).forEach((row) => {
-      const date = String(row?.[0] || '').trim();
-      const voucher = String(row?.[1] || '').trim();
-      const floor = String(row?.[2] || '').trim();
-      const linkedVoucher = String(row?.[3] || '').trim();
-      const request = String(row?.[5] || '').trim();
-      if (!voucher || !request) return;
+    observacoesValues.slice(indexes.firstDataRow).forEach((row) => {
+      const date = getCell(row, indexes.date);
+      const voucher = getCell(row, indexes.voucher);
+      const floor = getCell(row, indexes.floor);
+      const linkedVoucher = getCell(row, indexes.linkedVoucher);
+      const request = getObservationRequest(row, indexes.request);
+      if (!voucher) {
+        if (request) skippedWithoutVoucher += 1;
+        return;
+      }
+      if (!request) {
+        skippedWithoutRequest += 1;
+        return;
+      }
 
       const sector = classifyObservation(request);
       const resolvedLinkedVoucher = linkedVoucher || extractLinkedVoucherFromText(request, voucher);
@@ -1258,6 +1340,14 @@ app.get('/api/robots/observacoes', async (req, res) => {
       status: 'success',
       updatedAt: new Date().toISOString(),
       exceptions: extractExceptionFloors(dadosValues),
+      debug: {
+        observacoesRange: observacoesRange.range,
+        dadosRange: dadosRange.range,
+        rowsRead: Math.max(0, observacoesValues.length - indexes.firstDataRow),
+        skippedWithoutVoucher,
+        skippedWithoutRequest,
+        totals: Object.fromEntries(Object.entries(sections).map(([key, items]) => [key, items.length])),
+      },
       sections: payload,
     });
   } catch (error: any) {
