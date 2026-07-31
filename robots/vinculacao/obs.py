@@ -27,6 +27,15 @@ URL_WEBHOOK_OBS = (
     "AKfycbwcfhQySj2OoJVSzaWnjMCHZzfHPCQHc5fZHKt5sLmhJ7wTtD24SvR-kk-at7lFo_31EA/exec"
 )
 MENSAGEM_SUCESSO_WEBHOOK_OBS = "script executado com sucesso"
+SAO_PAULO_TZ = datetime.timezone(datetime.timedelta(hours=-3), name="America/Sao_Paulo")
+
+
+def data_hoje_sao_paulo():
+    return datetime.datetime.now(SAO_PAULO_TZ).date()
+
+
+def formatar_data_hits(data):
+    return data.strftime("%d/%m/%y")
 
 
 def resumir_erro_webhook_obs(erro):
@@ -236,9 +245,8 @@ class RoboHITS:
         except Exception as e:
             print(f"❌ Erro crítico nos Filtros: {e}")
 
-    def mudar_data_para(self, dias_para_frente):
-        data_alvo = datetime.datetime.now() + datetime.timedelta(days=dias_para_frente)
-        data_f = data_alvo.strftime("%d/%m/%y")
+    def mudar_data_para(self, data_alvo):
+        data_f = formatar_data_hits(data_alvo)
         texto_data = f"{data_f} - {data_f}"
 
         print(f"➡️ Alterando data para: {texto_data}")
@@ -537,12 +545,15 @@ class RoboHITS:
     def processar_semana_e_salvar(self):
         try:
             dados_totais_semana = []
-            for dia in range(7):
-                if dia > 0:
-                    sucesso = self.mudar_data_para(dias_para_frente=dia)
-                    if not sucesso: continue
+            data_base = data_hoje_sao_paulo()
+            print(f"📌 Data base Sao Paulo: {formatar_data_hits(data_base)}")
 
-                data_atual_loop = (datetime.datetime.now() + datetime.timedelta(days=dia)).strftime("%d/%m/%y")
+            for dia in range(7):
+                data_alvo = data_base + datetime.timedelta(days=dia)
+                sucesso = self.mudar_data_para(data_alvo)
+                if not sucesso: continue
+
+                data_atual_loop = formatar_data_hits(data_alvo)
                 print(f"📅 Lendo dados e filtrando de: {data_atual_loop} ...")
 
                 pedidos_hoje = self.extrair_dados_pagina_atual(data_atual_loop)
