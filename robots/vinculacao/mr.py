@@ -4,6 +4,7 @@ import getpass
 import os
 import os.path
 from pathlib import Path
+from zoneinfo import ZoneInfo
 import time
 import datetime
 import gspread
@@ -127,6 +128,12 @@ def executar_mapeamento_total(headless=None, fator_pausa=0.5):
         )
 
     fator_pausa = max(0.25, float(fator_pausa))
+
+    # No runner do GitHub o HITS renderiza e recria componentes com mais
+    # lentidão que no Chrome visual. Manter as pausas originais evita que o
+    # robô avance enquanto o Angular ainda está atualizando o filtro.
+    if headless:
+        fator_pausa = max(1.0, fator_pausa)
 
     def pausar(segundos):
         time.sleep(max(0.15, segundos * fator_pausa))
@@ -410,11 +417,13 @@ def executar_mapeamento_total(headless=None, fator_pausa=0.5):
 
         pausar(10)
 
+        timezone_robo = ZoneInfo(
+            os.getenv("ROBOT_TIMEZONE", "America/Sao_Paulo")
+        )
+        data_base = datetime.datetime.now(timezone_robo).date()
+
         for i in range(DIAS_PROJECAO):
-            data_alvo = (
-                datetime.datetime.now()
-                + datetime.timedelta(days=i)
-            )
+            data_alvo = data_base + datetime.timedelta(days=i)
 
             data_str = data_alvo.strftime("%d/%m/%y")
             str_range = f"{data_str} - {data_str}"
@@ -444,25 +453,48 @@ def executar_mapeamento_total(headless=None, fator_pausa=0.5):
                     '//*[@id="one-search-modal-content"]/div/div/input',
                 )
 
-                def campo_data_visivel():
+                def localizar_campo_data_visivel(timeout=10):
                     xpath_input_data = localizador_input_data[1]
 
                     if not focar_quadro_do_elemento(xpath_input_data):
+                        raise TimeoutException(
+                            "Campo do intervalo de datas não encontrado."
+                        )
+
+                    def primeiro_campo_visivel(_driver):
+                        for campo in _driver.find_elements(
+                            *localizador_input_data
+                        ):
+                            try:
+                                if campo.is_displayed() and campo.is_enabled():
+                                    return campo
+                            except StaleElementReferenceException:
+                                continue
                         return False
 
-                    for campo in driver.find_elements(
-                        *localizador_input_data
-                    ):
-                        try:
-                            if campo.is_displayed():
-                                return True
-                        except StaleElementReferenceException:
-                            continue
+                    return WebDriverWait(
+                        driver,
+                        timeout,
+                        poll_frequency=0.2,
+                        ignored_exceptions=(
+                            StaleElementReferenceException,
+                            NoSuchElementException,
+                        ),
+                    ).until(primeiro_campo_visivel)
 
-                    return False
+                def campo_data_esta_visivel():
+                    try:
+                        localizar_campo_data_visivel(timeout=1.5)
+                        return True
+                    except (
+                        TimeoutException,
+                        NoSuchElementException,
+                        StaleElementReferenceException,
+                    ):
+                        return False
 
                 def garantir_modal_data_aberto():
-                    if campo_data_visivel():
+                    if campo_data_esta_visivel():
                         return
 
                     if not focar_quadro_do_elemento(xpath_filtro):
@@ -485,19 +517,11 @@ def executar_mapeamento_total(headless=None, fator_pausa=0.5):
                     )
 
                     js_click(filtro_data)
-                    pausar(2)
+                    pausar(3)
+                    localizar_campo_data_visivel(timeout=10)
 
-                    if not campo_data_visivel():
-                        raise TimeoutException(
-                            "Campo do intervalo de datas não abriu."
-                        )
-
-                def preencher_intervalo_data(
-                    valor,
-                    tentativas=5,
-                ):
+                def preencher_intervalo_data(valor, tentativas=4):
                     ultimo_erro = None
-                    xpath_input_data = localizador_input_data[1]
 
                     for tentativa in range(1, tentativas + 1):
                         try:
@@ -505,25 +529,13 @@ def executar_mapeamento_total(headless=None, fator_pausa=0.5):
                             remover_overlay_hitsa()
                             garantir_modal_data_aberto()
 
-                            input_data = WebDriverWait(
-                                driver,
-                                10,
-                                poll_frequency=0.2,
-                                ignored_exceptions=(
-                                    StaleElementReferenceException,
-                                    NoSuchElementException,
-                                ),
-                            ).until(
-                                EC.element_to_be_clickable(
-                                    localizador_input_data
-                                )
-                            )
+                            input_data = localizar_campo_data_visivel(timeout=10)
 
                             driver.execute_script(
                                 """
                                 arguments[0].scrollIntoView({
-                                    block: "center",
-                                    inline: "center"
+                                    block: 'center',
+                                    inline: 'center'
                                 });
                                 """,
                                 input_data,
@@ -533,56 +545,26 @@ def executar_mapeamento_total(headless=None, fator_pausa=0.5):
                                 input_data.click()
                             except ElementClickInterceptedException:
                                 remover_overlay_hitsa()
-                                garantir_modal_data_aberto()
-                                input_data = WebDriverWait(
-                                    driver,
-                                    5,
-                                    poll_frequency=0.2,
-                                    ignored_exceptions=(
-                                        StaleElementReferenceException,
-                                        NoSuchElementException,
-                                    ),
-                                ).until(
-                                    EC.presence_of_element_located(
-                                        localizador_input_data
-                                    )
-                                )
+                                input_data = localizar_campo_data_visivel(5)
                                 js_click(input_data)
 
-                            # Uma única chamada reduz a janela em que o Angular
-                            # pode recriar o input entre limpar e digitar.
-                            input_data.send_keys(
-                                Keys.CONTROL,
-                                "a",
-                                Keys.DELETE,
-                                valor,
-                            )
+                            # Mantém a mesma sequência do robô visual, mas as
+                            # teclas são enviadas ao foco ativo em uma única ação.
+                            # Assim o ENTER não reutiliza o WebElement que o
+                            # Angular do HITS substitui depois de receber a data.
+                            ActionChains(driver).key_down(
+                                Keys.CONTROL
+                            ).send_keys("a").key_up(
+                                Keys.CONTROL
+                            ).send_keys(
+                                Keys.DELETE
+                            ).send_keys(
+                                valor
+                            ).send_keys(
+                                Keys.ENTER
+                            ).perform()
 
-                            pausar(0.8)
-
-                            # O HITS normalmente recria o campo após receber a
-                            # data. Nunca reutilize a referência anterior para
-                            # confirmar: localize o input novamente.
-                            if not campo_data_visivel():
-                                raise StaleElementReferenceException(
-                                    "O HITS recriou o campo de data."
-                                )
-
-                            input_confirmacao = WebDriverWait(
-                                driver,
-                                8,
-                                poll_frequency=0.2,
-                                ignored_exceptions=(
-                                    StaleElementReferenceException,
-                                    NoSuchElementException,
-                                ),
-                            ).until(
-                                EC.element_to_be_clickable(
-                                    localizador_input_data
-                                )
-                            )
-
-                            input_confirmacao.send_keys(Keys.ENTER)
+                            pausar(2)
                             return
 
                         except (
@@ -593,16 +575,15 @@ def executar_mapeamento_total(headless=None, fator_pausa=0.5):
                             TimeoutException,
                         ) as erro_data:
                             ultimo_erro = erro_data
-
                             print(
-                                "⚠️ Campo de data foi atualizado pelo HITS. "
-                                f"Repetindo {tentativa}/{tentativas} para "
+                                "⚠️ Campo de data não respondeu. "
+                                f"Nova tentativa {tentativa}/{tentativas} para "
                                 f"{valor}: {erro_data.__class__.__name__}",
                                 flush=True,
                             )
 
                             if tentativa < tentativas:
-                                pausar(1.5)
+                                pausar(2)
 
                     raise RuntimeError(
                         f"Não foi possível aplicar o intervalo {valor} "
