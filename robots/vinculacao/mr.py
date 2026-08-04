@@ -20,7 +20,13 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.action_chains import ActionChains
-from selenium.common.exceptions import ElementClickInterceptedException
+from selenium.common.exceptions import (
+    ElementClickInterceptedException,
+    ElementNotInteractableException,
+    NoSuchElementException,
+    StaleElementReferenceException,
+    TimeoutException,
+)
 
 
 URL_WEBHOOK_MR = (
@@ -438,69 +444,172 @@ def executar_mapeamento_total(headless=None, fator_pausa=0.5):
                     '//*[@id="one-search-modal-content"]/div/div/input',
                 )
 
-                remover_overlay_hitsa()
+                def campo_data_visivel():
+                    xpath_input_data = localizador_input_data[1]
 
-                input_data = wait.until(
-                    EC.element_to_be_clickable(
-                        localizador_input_data
-                    )
-                )
+                    if not focar_quadro_do_elemento(xpath_input_data):
+                        return False
 
-                driver.execute_script(
-                    """
-                    arguments[0].scrollIntoView({
-                        block: "center",
-                        inline: "center"
-                    });
-                    """,
-                    input_data,
-                )
+                    for campo in driver.find_elements(
+                        *localizador_input_data
+                    ):
+                        try:
+                            if campo.is_displayed():
+                                return True
+                        except StaleElementReferenceException:
+                            continue
 
-                try:
-                    input_data.click()
+                    return False
 
-                except ElementClickInterceptedException:
-                    print(
-                        "⚠️ Clique no campo de data bloqueado. "
-                        "Aplicando correção automática...",
-                        flush=True,
-                    )
+                def garantir_modal_data_aberto():
+                    if campo_data_visivel():
+                        return
 
-                    remover_overlay_hitsa()
+                    if not focar_quadro_do_elemento(xpath_filtro):
+                        raise TimeoutException(
+                            "Filtro de data das reservas não encontrado."
+                        )
 
-                    input_data = wait.until(
-                        EC.presence_of_element_located(
-                            localizador_input_data
+                    filtro_data = WebDriverWait(
+                        driver,
+                        8,
+                        poll_frequency=0.2,
+                        ignored_exceptions=(
+                            StaleElementReferenceException,
+                            NoSuchElementException,
+                        ),
+                    ).until(
+                        EC.element_to_be_clickable(
+                            (By.XPATH, xpath_filtro)
                         )
                     )
 
-                    driver.execute_script(
-                        """
-                        arguments[0].scrollIntoView({
-                            block: "center",
-                            inline: "center"
-                        });
-                        """,
-                        input_data,
-                    )
+                    js_click(filtro_data)
+                    pausar(2)
 
-                    js_click(input_data)
+                    if not campo_data_visivel():
+                        raise TimeoutException(
+                            "Campo do intervalo de datas não abriu."
+                        )
 
-                input_data.send_keys(
-                    Keys.CONTROL + "a"
-                )
+                def preencher_intervalo_data(
+                    valor,
+                    tentativas=5,
+                ):
+                    ultimo_erro = None
+                    xpath_input_data = localizador_input_data[1]
 
-                input_data.send_keys(
-                    Keys.DELETE
-                )
+                    for tentativa in range(1, tentativas + 1):
+                        try:
+                            garantir_modal_data_aberto()
+                            remover_overlay_hitsa()
+                            garantir_modal_data_aberto()
 
-                input_data.send_keys(
-                    str_range
-                )
+                            input_data = WebDriverWait(
+                                driver,
+                                10,
+                                poll_frequency=0.2,
+                                ignored_exceptions=(
+                                    StaleElementReferenceException,
+                                    NoSuchElementException,
+                                ),
+                            ).until(
+                                EC.element_to_be_clickable(
+                                    localizador_input_data
+                                )
+                            )
 
-                input_data.send_keys(
-                    Keys.ENTER
-                )
+                            driver.execute_script(
+                                """
+                                arguments[0].scrollIntoView({
+                                    block: "center",
+                                    inline: "center"
+                                });
+                                """,
+                                input_data,
+                            )
+
+                            try:
+                                input_data.click()
+                            except ElementClickInterceptedException:
+                                remover_overlay_hitsa()
+                                garantir_modal_data_aberto()
+                                input_data = WebDriverWait(
+                                    driver,
+                                    5,
+                                    poll_frequency=0.2,
+                                    ignored_exceptions=(
+                                        StaleElementReferenceException,
+                                        NoSuchElementException,
+                                    ),
+                                ).until(
+                                    EC.presence_of_element_located(
+                                        localizador_input_data
+                                    )
+                                )
+                                js_click(input_data)
+
+                            # Uma única chamada reduz a janela em que o Angular
+                            # pode recriar o input entre limpar e digitar.
+                            input_data.send_keys(
+                                Keys.CONTROL,
+                                "a",
+                                Keys.DELETE,
+                                valor,
+                            )
+
+                            pausar(0.8)
+
+                            # O HITS normalmente recria o campo após receber a
+                            # data. Nunca reutilize a referência anterior para
+                            # confirmar: localize o input novamente.
+                            if not campo_data_visivel():
+                                raise StaleElementReferenceException(
+                                    "O HITS recriou o campo de data."
+                                )
+
+                            input_confirmacao = WebDriverWait(
+                                driver,
+                                8,
+                                poll_frequency=0.2,
+                                ignored_exceptions=(
+                                    StaleElementReferenceException,
+                                    NoSuchElementException,
+                                ),
+                            ).until(
+                                EC.element_to_be_clickable(
+                                    localizador_input_data
+                                )
+                            )
+
+                            input_confirmacao.send_keys(Keys.ENTER)
+                            return
+
+                        except (
+                            StaleElementReferenceException,
+                            ElementClickInterceptedException,
+                            ElementNotInteractableException,
+                            NoSuchElementException,
+                            TimeoutException,
+                        ) as erro_data:
+                            ultimo_erro = erro_data
+
+                            print(
+                                "⚠️ Campo de data foi atualizado pelo HITS. "
+                                f"Repetindo {tentativa}/{tentativas} para "
+                                f"{valor}: {erro_data.__class__.__name__}",
+                                flush=True,
+                            )
+
+                            if tentativa < tentativas:
+                                pausar(1.5)
+
+                    raise RuntimeError(
+                        f"Não foi possível aplicar o intervalo {valor} "
+                        f"após {tentativas} tentativas."
+                    ) from ultimo_erro
+
+                preencher_intervalo_data(str_range)
 
                 pausar(2)
 
