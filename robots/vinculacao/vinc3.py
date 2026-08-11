@@ -4,7 +4,7 @@ import getpass
 import os
 import time
 import re
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
@@ -407,8 +407,6 @@ def executar_vinculacao_2_0(headless=None, fator_pausa=0.8, credenciais_json=Non
         cabecalho = valores[0]
         linhas = valores[1:]
         agrupados = {}
-        hoje = date.today()
-
         def normalizar_header(valor):
             return re.sub(r"[^a-z0-9]+", "", str(valor or "").strip().lower())
 
@@ -468,10 +466,8 @@ def executar_vinculacao_2_0(headless=None, fator_pausa=0.8, credenciais_json=Non
                 for linha in linhas[:25]:
                     if len(linha) <= idx:
                         continue
-                    data_linha, _ = normalizar_data_planilha(linha[idx])
-                    if data_linha == hoje:
-                        pontuacao += 100
-                    elif data_linha:
+                    data_linha, data_ui = normalizar_data_planilha(linha[idx])
+                    if data_linha or data_ui:
                         pontuacao += 1
                 if pontuacao > melhor_pontuacao:
                     melhor_idx = idx
@@ -483,8 +479,8 @@ def executar_vinculacao_2_0(headless=None, fator_pausa=0.8, credenciais_json=Non
 
         idx_data = indice_coluna_data()
         print(
-            f"Filtro de data ativo: somente {hoje.strftime('%d/%m/%y')} "
-            f"(coluna {idx_data + 1})."
+            f"Comandos de todas as datas serao processados "
+            f"(coluna de data {idx_data + 1})."
         )
 
         for linha in linhas:
@@ -496,12 +492,12 @@ def executar_vinculacao_2_0(headless=None, fator_pausa=0.8, credenciais_json=Non
             c_s = str(linha[2]).strip().upper()
 
             data_in = str(linha[idx_data]).strip() if len(linha) > idx_data else ""
-            data_linha, data_ui = normalizar_data_planilha(data_in)
+            _, data_ui = normalizar_data_planilha(data_in)
 
-            if data_linha != hoje:
+            if not data_ui:
                 print(
                     f"Ignorando voucher {v_s or '(sem voucher)'}: "
-                    f"data da planilha '{data_in or 'vazia'}' nao e hoje."
+                    f"data da planilha '{data_in or 'vazia'}' e invalida."
                 )
                 continue
 
@@ -510,7 +506,7 @@ def executar_vinculacao_2_0(headless=None, fator_pausa=0.8, credenciais_json=Non
 
         total_linhas = sum(len(itens) for itens in agrupados.values())
         print(
-            f"Linhas validas para vinculacao hoje: {total_linhas} "
+            f"Linhas validas para vinculacao: {total_linhas} "
             f"em {len(agrupados)} voucher(s)."
         )
         return agrupados
@@ -1323,7 +1319,7 @@ def executar_vinculacao_2_0(headless=None, fator_pausa=0.8, credenciais_json=Non
     try:
         dados = obter_dados()
         if not dados:
-            print("Nenhuma linha de hoje encontrada em VINCULACAO_HOJE. Nada a vincular.")
+            print("Nenhuma linha valida encontrada em VINCULACAO_HOJE. Nada a vincular.")
             return
 
         driver.get(URL_HITS)
