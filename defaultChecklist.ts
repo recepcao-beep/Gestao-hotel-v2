@@ -7,6 +7,7 @@ export const DEFAULT_CHECKLIST: FormFieldConfig[] = [
   { id: 'moveisStatus', title: 'Mobiliário Geral', type: 'single_choice', options: ['Bom estado', 'Danificado'], color: 'text-slate-700', icon: 'Layout' },
   { id: 'banheiroType', title: 'Banheiro', type: 'single_choice', options: ['Reformado', 'Antigo'], color: 'text-indigo-600', icon: 'Layers' },
   { id: 'forroBanheiroStatus', title: 'Estado do Forro', type: 'single_choice', options: ['Bom estado', 'Tolerável', 'Reparo urgente'], color: 'text-indigo-600', icon: 'Layers' },
+  { id: 'espelhoBanheiroStatus', title: 'Espelho do Banheiro', type: 'single_choice', options: ['Bom estado', 'Manchado', 'Quebrado'], color: 'text-cyan-600', icon: 'Scan' },
   { id: 'acBrand', title: 'Marca do Ar', type: 'single_choice', options: ['Midea', 'LG', 'Gree'], color: 'text-cyan-600', icon: 'Wind' },
   { id: 'tvBrand', title: 'Marca da TV', type: 'single_choice', options: ['LG', 'Samsung', 'Philco', 'Smart Roku', 'Toshiba'], color: 'text-slate-800', icon: 'Tv' },
   { id: 'temCortina', title: 'Cortina', type: 'boolean', color: 'text-blue-600', icon: 'Box' },
