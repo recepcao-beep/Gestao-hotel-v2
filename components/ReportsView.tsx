@@ -200,6 +200,16 @@ const matchesBedFilters = (bed: NonNullable<Apartment['beds']>[number], bedFilte
   }));
 };
 
+const countBeds = (
+  beds: NonNullable<Apartment['beds']>,
+  type: 'Casal' | 'Solteiro',
+  part: 'base' | 'mattress',
+  status: 'Nova' | 'Antiga' | 'Novo' | 'Antigo'
+) => beds.filter(bed => {
+  if (bed.type !== type) return false;
+  return part === 'base' ? bed.baseStatus === status : bed.mattressStatus === status;
+}).length;
+
 const ReportsView: React.FC<ReportsViewProps> = ({ apartments, theme, onSelectApartment }) => {
   const [selectedFloors, setSelectedFloors] = useState<number[]>([]);
   const [activeReport, setActiveReport] = useState<string>('AVARIAS_GERAIS');
@@ -419,7 +429,14 @@ const ReportsView: React.FC<ReportsViewProps> = ({ apartments, theme, onSelectAp
     return Object.entries(totals).sort(([a], [b]) => a.localeCompare(b));
   }, [bedSummaryRows]);
 
-  const curtainTotal = useMemo(() => filteredData.filter(apt => apt.temCortina).length, [filteredData]);
+  const curtainTotals = useMemo(() => ({
+    total: filteredData.filter(apt => apt.temCortina).length,
+    novas: filteredData.filter(apt => apt.temCortina && apt.cortinaStatus === 'Nova').length,
+    antigas: filteredData.filter(apt => apt.temCortina && apt.cortinaStatus === 'Antiga').length,
+    doisLados: filteredData.filter(apt => apt.temCortina && apt.cortinaCoverage === 'Dois lados').length,
+    umLado: filteredData.filter(apt => apt.temCortina && apt.cortinaCoverage === 'Um lado').length,
+    comDescricao: filteredData.filter(apt => apt.temCortina && !!apt.cortinaSize?.trim()).length,
+  }), [filteredData]);
 
   const handlePrint = () => {
     window.print();
@@ -736,20 +753,36 @@ const ReportsView: React.FC<ReportsViewProps> = ({ apartments, theme, onSelectAp
         {hasBedReport && (
           <div className="p-5 space-y-4">
             <div className="overflow-x-auto">
-              <table className="w-full text-left print:text-[10px]">
+              <table className="w-full min-w-[980px] text-left print:text-[10px]">
                 <thead>
                   <tr className="bg-slate-50/50 print:bg-slate-100">
-                    <th className="px-5 py-4 text-[10px] font-black text-slate-700 uppercase tracking-widest">Apartamento</th>
-                    <th className="px-5 py-4 text-[10px] font-black text-slate-700 uppercase tracking-widest">Estado da cama</th>
+                    <th className="px-4 py-4 text-[10px] font-black text-slate-700 uppercase tracking-widest">Apartamento</th>
+                    <th className="px-3 py-4 text-center text-[10px] font-black text-slate-700 uppercase tracking-widest">Base casal nova</th>
+                    <th className="px-3 py-4 text-center text-[10px] font-black text-slate-700 uppercase tracking-widest">Base casal antiga</th>
+                    <th className="px-3 py-4 text-center text-[10px] font-black text-slate-700 uppercase tracking-widest">Colchão casal novo</th>
+                    <th className="px-3 py-4 text-center text-[10px] font-black text-slate-700 uppercase tracking-widest">Colchão casal antigo</th>
+                    <th className="px-3 py-4 text-center text-[10px] font-black text-slate-700 uppercase tracking-widest">Base solteiro nova</th>
+                    <th className="px-3 py-4 text-center text-[10px] font-black text-slate-700 uppercase tracking-widest">Base solteiro antiga</th>
+                    <th className="px-3 py-4 text-center text-[10px] font-black text-slate-700 uppercase tracking-widest">Colchão solteiro novo</th>
+                    <th className="px-3 py-4 text-center text-[10px] font-black text-slate-700 uppercase tracking-widest">Colchão solteiro antigo</th>
+                    <th className="px-4 py-4 text-[10px] font-black text-slate-700 uppercase tracking-widest">Resumo</th>
                     <th className="px-5 py-4 text-[10px] font-black text-slate-700 uppercase tracking-widest text-right no-print">Ação</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-50 print:divide-slate-200">
-                  {bedSummaryRows.map(({ apt, summary }) => (
-                    <tr key={apt.id}>
-                      <td className="px-5 py-4 text-base font-black text-slate-950">{apt.roomNumber}</td>
-                      <td className="px-5 py-4 text-sm font-black text-slate-900">{summary}</td>
-                      <td className="px-5 py-4 text-right no-print">
+                <tbody className="divide-y divide-slate-100 print:divide-slate-200">
+                  {bedSummaryRows.map(({ apt, matchingBeds, summary }) => (
+                    <tr key={apt.id} className="hover:bg-slate-50/70">
+                      <td className="px-4 py-4 text-base font-black text-slate-950">{apt.roomNumber}</td>
+                      <td className="px-3 py-4 text-center text-sm font-black text-slate-900">{countBeds(matchingBeds, 'Casal', 'base', 'Nova') || '-'}</td>
+                      <td className="px-3 py-4 text-center text-sm font-black text-slate-900">{countBeds(matchingBeds, 'Casal', 'base', 'Antiga') || '-'}</td>
+                      <td className="px-3 py-4 text-center text-sm font-black text-slate-900">{countBeds(matchingBeds, 'Casal', 'mattress', 'Novo') || '-'}</td>
+                      <td className="px-3 py-4 text-center text-sm font-black text-slate-900">{countBeds(matchingBeds, 'Casal', 'mattress', 'Antigo') || '-'}</td>
+                      <td className="px-3 py-4 text-center text-sm font-black text-slate-900">{countBeds(matchingBeds, 'Solteiro', 'base', 'Nova') || '-'}</td>
+                      <td className="px-3 py-4 text-center text-sm font-black text-slate-900">{countBeds(matchingBeds, 'Solteiro', 'base', 'Antiga') || '-'}</td>
+                      <td className="px-3 py-4 text-center text-sm font-black text-slate-900">{countBeds(matchingBeds, 'Solteiro', 'mattress', 'Novo') || '-'}</td>
+                      <td className="px-3 py-4 text-center text-sm font-black text-slate-900">{countBeds(matchingBeds, 'Solteiro', 'mattress', 'Antigo') || '-'}</td>
+                      <td className="px-4 py-4 text-xs font-bold text-slate-700">{summary}</td>
+                      <td className="px-4 py-4 text-right no-print">
                         <button onClick={() => onSelectApartment(apt.id)} className="p-2 text-slate-300 hover:text-blue-500 transition-colors bg-slate-50 rounded-xl">
                           <ChevronRight size={18} />
                         </button>
@@ -777,23 +810,25 @@ const ReportsView: React.FC<ReportsViewProps> = ({ apartments, theme, onSelectAp
         {!hasBedReport && hasCurtainReport && (
           <div className="p-5 space-y-4">
             <div className="overflow-x-auto">
-              <table className="w-full text-left print:text-[10px]">
+              <table className="w-full min-w-[760px] text-left print:text-[10px]">
                 <thead>
                   <tr className="bg-slate-50/50 print:bg-slate-100">
-                    <th className="px-5 py-4 text-[10px] font-black text-slate-700 uppercase tracking-widest">Apartamento</th>
-                    <th className="px-5 py-4 text-[10px] font-black text-slate-700 uppercase tracking-widest">Cortina</th>
+                    <th className="px-4 py-4 text-[10px] font-black text-slate-700 uppercase tracking-widest">Apartamento</th>
+                    <th className="px-4 py-4 text-[10px] font-black text-slate-700 uppercase tracking-widest">Possui</th>
+                    <th className="px-4 py-4 text-[10px] font-black text-slate-700 uppercase tracking-widest">Estado</th>
+                    <th className="px-4 py-4 text-[10px] font-black text-slate-700 uppercase tracking-widest">Lados</th>
+                    <th className="px-4 py-4 text-[10px] font-black text-slate-700 uppercase tracking-widest">Descrição</th>
                     <th className="px-5 py-4 text-[10px] font-black text-slate-700 uppercase tracking-widest text-right no-print">Ação</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-50 print:divide-slate-200">
+                <tbody className="divide-y divide-slate-100 print:divide-slate-200">
                   {filteredData.map(apt => (
-                    <tr key={apt.id}>
-                      <td className="px-5 py-4 text-base font-black text-slate-950">{apt.roomNumber}</td>
-                      <td className="px-5 py-4 text-sm font-black text-slate-900">
-                        {apt.temCortina
-                          ? `tem cortina${apt.cortinaStatus ? `, ${apt.cortinaStatus.toLowerCase()}` : ''}${apt.cortinaCoverage ? `, ${apt.cortinaCoverage.toLowerCase()}` : ''}${apt.cortinaSize ? ` - descrição: ${apt.cortinaSize}` : ''}`
-                          : 'não tem cortina'}
-                      </td>
+                    <tr key={apt.id} className="hover:bg-slate-50/70">
+                      <td className="px-4 py-4 text-base font-black text-slate-950">{apt.roomNumber}</td>
+                      <td className="px-4 py-4 text-sm font-black text-slate-900">{apt.temCortina ? 'Sim' : 'Não'}</td>
+                      <td className="px-4 py-4 text-sm font-black text-slate-900">{apt.temCortina ? (apt.cortinaStatus || 'Não informado') : '-'}</td>
+                      <td className="px-4 py-4 text-sm font-black text-slate-900">{apt.temCortina ? (apt.cortinaCoverage || 'Não informado') : '-'}</td>
+                      <td className="px-4 py-4 text-sm font-bold text-slate-800">{apt.cortinaSize?.trim() || '-'}</td>
                       <td className="px-5 py-4 text-right no-print">
                         <button onClick={() => onSelectApartment(apt.id)} className="p-2 text-slate-300 hover:text-blue-500 transition-colors bg-slate-50 rounded-xl">
                           <ChevronRight size={18} />
@@ -805,9 +840,21 @@ const ReportsView: React.FC<ReportsViewProps> = ({ apartments, theme, onSelectAp
               </table>
             </div>
             <div className="rounded-2xl bg-slate-50 p-4">
-              <span className="rounded-xl bg-white px-3 py-2 text-xs font-black text-slate-950 border border-slate-200 shadow-sm">
-                Total de cortinas: {curtainTotal}
-              </span>
+              <h5 className="text-[10px] font-black uppercase tracking-widest text-slate-700">Totais</h5>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {[
+                  ['Cortinas', curtainTotals.total],
+                  ['Novas', curtainTotals.novas],
+                  ['Antigas', curtainTotals.antigas],
+                  ['Dois lados', curtainTotals.doisLados],
+                  ['Um lado', curtainTotals.umLado],
+                  ['Com descrição', curtainTotals.comDescricao],
+                ].map(([label, total]) => (
+                  <span key={String(label)} className="rounded-xl bg-white px-3 py-2 text-xs font-black text-slate-950 border border-slate-200 shadow-sm">
+                    {label}: {total}
+                  </span>
+                ))}
+              </div>
             </div>
           </div>
         )}
