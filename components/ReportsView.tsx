@@ -75,7 +75,8 @@ const FILTER_SECTIONS = [
     color: 'text-indigo-600',
     filters: [
       { key: 'banheiroType', label: 'Tipo', options: ['Reformado', 'Antigo'] },
-      { key: 'banheiroStatus', label: 'Estado', options: ['Tolerável', 'Reparo urgente'] }
+      { key: 'banheiroStatus', label: 'Estado', options: ['Tolerável', 'Reparo urgente'] },
+      { key: 'espelhoBanheiroStatus', label: 'Espelho do Banheiro', options: ['Bom estado', 'Manchado', 'Quebrado'] }
     ]
   },
   {
@@ -153,6 +154,61 @@ const getApartmentOptions = (apartments: Record<string, Apartment>) => {
       .sort((a, b) => parseInt(a) - parseInt(b))
   }));
 };
+
+const formatYesNo = (value: boolean | undefined) => value === undefined ? 'Não informado' : (value ? 'Sim' : 'Não');
+
+const pluralizeBedLabel = (label: string, count: number) => {
+  if (count === 1) return label;
+  return label
+    .replace(/^base /, 'bases ')
+    .replace(/^colchão /, 'colchões ')
+    .replace(/ nova$/, ' novas')
+    .replace(/ antiga$/, ' antigas')
+    .replace(/ novo$/, ' novos')
+    .replace(/ antigo$/, ' antigos');
+};
+
+const summarizeCounts = (labels: string[]) => {
+  const counts = labels.reduce<Record<string, number>>((acc, label) => {
+    acc[label] = (acc[label] || 0) + 1;
+    return acc;
+  }, {});
+
+  return Object.entries(counts)
+    .map(([label, count]) => `${count} ${pluralizeBedLabel(label, count)}`)
+    .join(' e ');
+};
+
+const summarizeBeds = (beds: NonNullable<Apartment['beds']>) => {
+  const baseLabels = beds
+    .filter(bed => bed.baseStatus)
+    .map(bed => `base ${bed.type.toLowerCase()} ${bed.baseStatus!.toLowerCase()}`);
+  const mattressLabels = beds
+    .filter(bed => bed.mattressStatus)
+    .map(bed => `colchão ${bed.type.toLowerCase()} ${bed.mattressStatus!.toLowerCase()}`);
+  return [summarizeCounts(baseLabels), summarizeCounts(mattressLabels)].filter(Boolean).join(' e ') || 'Sem estado informado';
+};
+
+const matchesBedFilters = (bed: NonNullable<Apartment['beds']>[number], bedFilters: [string, string[]][]) => {
+  if (bedFilters.length === 0) return true;
+  return bedFilters.every(([key, values]) => values.some(strValue => {
+    if (key === 'bed_type') return bed.type === strValue;
+    if (key === 'bed_base_status') return bed.baseStatus === strValue;
+    if (key === 'bed_mattress_status') return bed.mattressStatus === strValue;
+    if (key === 'bed_has_skirt') return (strValue === 'Sim' ? bed.hasSkirt === true : !bed.hasSkirt);
+    return true;
+  }));
+};
+
+const countBeds = (
+  beds: NonNullable<Apartment['beds']>,
+  type: 'Casal' | 'Solteiro',
+  part: 'base' | 'mattress',
+  status: 'Nova' | 'Antiga' | 'Novo' | 'Antigo'
+) => beds.filter(bed => {
+  if (bed.type !== type) return false;
+  return part === 'base' ? bed.baseStatus === status : bed.mattressStatus === status;
+}).length;
 
 const ReportsView: React.FC<ReportsViewProps> = ({ apartments, theme, onSelectApartment }) => {
   const [selectedFloors, setSelectedFloors] = useState<number[]>([]);
@@ -342,6 +398,45 @@ const ReportsView: React.FC<ReportsViewProps> = ({ apartments, theme, onSelectAp
       percentage: Math.round((filteredData.length / Math.max(1, Object.keys(apartments).length)) * 100)
     };
   }, [filteredData, apartments]);
+
+  const activeBedFilters = useMemo(
+    () => Object.entries(activeFilters).filter(([key]) => key.startsWith('bed_')) as [string, string[]][],
+    [activeFilters]
+  );
+
+  const hasBedReport = activeBedFilters.length > 0;
+  const hasCurtainReport = ['temCortina', 'cortinaStatus', 'cortinaCoverage'].some(key => !!activeFilters[key]);
+
+  const bedSummaryRows = useMemo(() => filteredData.map(apt => {
+    const matchingBeds = (apt.beds || []).filter(bed => matchesBedFilters(bed, activeBedFilters));
+    return { apt, matchingBeds, summary: summarizeBeds(matchingBeds) };
+  }), [filteredData, activeBedFilters]);
+
+  const bedTotals = useMemo(() => {
+    const totals: Record<string, number> = {};
+    bedSummaryRows.forEach(row => {
+      row.matchingBeds.forEach(bed => {
+        if (bed.baseStatus) {
+          const key = pluralizeBedLabel(`base de ${bed.type.toLowerCase()} ${bed.baseStatus.toLowerCase()}`, 2);
+          totals[key] = (totals[key] || 0) + 1;
+        }
+        if (bed.mattressStatus) {
+          const key = pluralizeBedLabel(`colchão de ${bed.type.toLowerCase()} ${bed.mattressStatus.toLowerCase()}`, 2);
+          totals[key] = (totals[key] || 0) + 1;
+        }
+      });
+    });
+    return Object.entries(totals).sort(([a], [b]) => a.localeCompare(b));
+  }, [bedSummaryRows]);
+
+  const curtainTotals = useMemo(() => ({
+    total: filteredData.filter(apt => apt.temCortina).length,
+    novas: filteredData.filter(apt => apt.temCortina && apt.cortinaStatus === 'Nova').length,
+    antigas: filteredData.filter(apt => apt.temCortina && apt.cortinaStatus === 'Antiga').length,
+    doisLados: filteredData.filter(apt => apt.temCortina && apt.cortinaCoverage === 'Dois lados').length,
+    umLado: filteredData.filter(apt => apt.temCortina && apt.cortinaCoverage === 'Um lado').length,
+    comDescricao: filteredData.filter(apt => apt.temCortina && !!apt.cortinaSize?.trim()).length,
+  }), [filteredData]);
 
   const handlePrint = () => {
     window.print();
@@ -621,15 +716,15 @@ const ReportsView: React.FC<ReportsViewProps> = ({ apartments, theme, onSelectAp
               <FileBarChart size={28} className={hasActiveFilters ? 'text-blue-500' : (reportPresets.find(p => p.id === activeReport)?.color || 'text-slate-500')} />
             </div>
             <div>
-              <h4 className="text-xl font-black text-slate-800 uppercase tracking-tight print:text-lg">
+              <h4 className="text-xl font-black text-slate-950 uppercase tracking-tight print:text-lg">
                 {hasActiveFilters ? 'Relatório Personalizado' : `Relatório: ${reportPresets.find(p => p.id === activeReport)?.label}`}
               </h4>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center print:text-[8px]">
+              <p className="text-[10px] font-black text-slate-600 uppercase tracking-widest flex items-center print:text-[8px]">
                 <span>{selectedFloors.length === 0 ? 'Unidade Completa' : `Andares: ${selectedFloors.join(', ')}`}</span>
                 <span className="mx-2 opacity-30">|</span>
                 <span className="text-emerald-500">{stats.totalFound} Unidades Localizadas</span>
                 <span className="mx-2 opacity-30 no-print">|</span>
-                <span className="text-slate-300 no-print">{new Date().toLocaleDateString()}</span>
+                <span className="text-slate-500 no-print">{new Date().toLocaleDateString()}</span>
               </p>
             </div>
           </div>
@@ -655,16 +750,125 @@ const ReportsView: React.FC<ReportsViewProps> = ({ apartments, theme, onSelectAp
           </div>
         </div>
 
-        <div className="hidden md:block overflow-x-auto">
+        {hasBedReport && (
+          <div className="p-5 space-y-4">
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[980px] text-left print:text-[10px]">
+                <thead>
+                  <tr className="bg-slate-50/50 print:bg-slate-100">
+                    <th className="px-4 py-4 text-[10px] font-black text-slate-700 uppercase tracking-widest">Apartamento</th>
+                    <th className="px-3 py-4 text-center text-[10px] font-black text-slate-700 uppercase tracking-widest">Base casal nova</th>
+                    <th className="px-3 py-4 text-center text-[10px] font-black text-slate-700 uppercase tracking-widest">Base casal antiga</th>
+                    <th className="px-3 py-4 text-center text-[10px] font-black text-slate-700 uppercase tracking-widest">Colchão casal novo</th>
+                    <th className="px-3 py-4 text-center text-[10px] font-black text-slate-700 uppercase tracking-widest">Colchão casal antigo</th>
+                    <th className="px-3 py-4 text-center text-[10px] font-black text-slate-700 uppercase tracking-widest">Base solteiro nova</th>
+                    <th className="px-3 py-4 text-center text-[10px] font-black text-slate-700 uppercase tracking-widest">Base solteiro antiga</th>
+                    <th className="px-3 py-4 text-center text-[10px] font-black text-slate-700 uppercase tracking-widest">Colchão solteiro novo</th>
+                    <th className="px-3 py-4 text-center text-[10px] font-black text-slate-700 uppercase tracking-widest">Colchão solteiro antigo</th>
+                    <th className="px-4 py-4 text-[10px] font-black text-slate-700 uppercase tracking-widest">Resumo</th>
+                    <th className="px-5 py-4 text-[10px] font-black text-slate-700 uppercase tracking-widest text-right no-print">Ação</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 print:divide-slate-200">
+                  {bedSummaryRows.map(({ apt, matchingBeds, summary }) => (
+                    <tr key={apt.id} className="hover:bg-slate-50/70">
+                      <td className="px-4 py-4 text-base font-black text-slate-950">{apt.roomNumber}</td>
+                      <td className="px-3 py-4 text-center text-sm font-black text-slate-900">{countBeds(matchingBeds, 'Casal', 'base', 'Nova') || '-'}</td>
+                      <td className="px-3 py-4 text-center text-sm font-black text-slate-900">{countBeds(matchingBeds, 'Casal', 'base', 'Antiga') || '-'}</td>
+                      <td className="px-3 py-4 text-center text-sm font-black text-slate-900">{countBeds(matchingBeds, 'Casal', 'mattress', 'Novo') || '-'}</td>
+                      <td className="px-3 py-4 text-center text-sm font-black text-slate-900">{countBeds(matchingBeds, 'Casal', 'mattress', 'Antigo') || '-'}</td>
+                      <td className="px-3 py-4 text-center text-sm font-black text-slate-900">{countBeds(matchingBeds, 'Solteiro', 'base', 'Nova') || '-'}</td>
+                      <td className="px-3 py-4 text-center text-sm font-black text-slate-900">{countBeds(matchingBeds, 'Solteiro', 'base', 'Antiga') || '-'}</td>
+                      <td className="px-3 py-4 text-center text-sm font-black text-slate-900">{countBeds(matchingBeds, 'Solteiro', 'mattress', 'Novo') || '-'}</td>
+                      <td className="px-3 py-4 text-center text-sm font-black text-slate-900">{countBeds(matchingBeds, 'Solteiro', 'mattress', 'Antigo') || '-'}</td>
+                      <td className="px-4 py-4 text-xs font-bold text-slate-700">{summary}</td>
+                      <td className="px-4 py-4 text-right no-print">
+                        <button onClick={() => onSelectApartment(apt.id)} className="p-2 text-slate-300 hover:text-blue-500 transition-colors bg-slate-50 rounded-xl">
+                          <ChevronRight size={18} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="rounded-2xl bg-slate-50 p-4">
+              <h5 className="text-[10px] font-black uppercase tracking-widest text-slate-700">Totais</h5>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {bedTotals.length > 0 ? bedTotals.map(([label, total]) => (
+                  <span key={label} className="rounded-xl bg-white px-3 py-2 text-xs font-black text-slate-950 border border-slate-200 shadow-sm">
+                    {label}: {total}
+                  </span>
+                )) : (
+                  <span className="text-xs font-bold text-slate-400">Nenhuma cama encontrada para o filtro.</span>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {!hasBedReport && hasCurtainReport && (
+          <div className="p-5 space-y-4">
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[760px] text-left print:text-[10px]">
+                <thead>
+                  <tr className="bg-slate-50/50 print:bg-slate-100">
+                    <th className="px-4 py-4 text-[10px] font-black text-slate-700 uppercase tracking-widest">Apartamento</th>
+                    <th className="px-4 py-4 text-[10px] font-black text-slate-700 uppercase tracking-widest">Possui</th>
+                    <th className="px-4 py-4 text-[10px] font-black text-slate-700 uppercase tracking-widest">Estado</th>
+                    <th className="px-4 py-4 text-[10px] font-black text-slate-700 uppercase tracking-widest">Lados</th>
+                    <th className="px-4 py-4 text-[10px] font-black text-slate-700 uppercase tracking-widest">Descrição</th>
+                    <th className="px-5 py-4 text-[10px] font-black text-slate-700 uppercase tracking-widest text-right no-print">Ação</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 print:divide-slate-200">
+                  {filteredData.map(apt => (
+                    <tr key={apt.id} className="hover:bg-slate-50/70">
+                      <td className="px-4 py-4 text-base font-black text-slate-950">{apt.roomNumber}</td>
+                      <td className="px-4 py-4 text-sm font-black text-slate-900">{apt.temCortina ? 'Sim' : 'Não'}</td>
+                      <td className="px-4 py-4 text-sm font-black text-slate-900">{apt.temCortina ? (apt.cortinaStatus || 'Não informado') : '-'}</td>
+                      <td className="px-4 py-4 text-sm font-black text-slate-900">{apt.temCortina ? (apt.cortinaCoverage || 'Não informado') : '-'}</td>
+                      <td className="px-4 py-4 text-sm font-bold text-slate-800">{apt.cortinaSize?.trim() || '-'}</td>
+                      <td className="px-5 py-4 text-right no-print">
+                        <button onClick={() => onSelectApartment(apt.id)} className="p-2 text-slate-300 hover:text-blue-500 transition-colors bg-slate-50 rounded-xl">
+                          <ChevronRight size={18} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="rounded-2xl bg-slate-50 p-4">
+              <h5 className="text-[10px] font-black uppercase tracking-widest text-slate-700">Totais</h5>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {[
+                  ['Cortinas', curtainTotals.total],
+                  ['Novas', curtainTotals.novas],
+                  ['Antigas', curtainTotals.antigas],
+                  ['Dois lados', curtainTotals.doisLados],
+                  ['Um lado', curtainTotals.umLado],
+                  ['Com descrição', curtainTotals.comDescricao],
+                ].map(([label, total]) => (
+                  <span key={String(label)} className="rounded-xl bg-white px-3 py-2 text-xs font-black text-slate-950 border border-slate-200 shadow-sm">
+                    {label}: {total}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className={`${hasBedReport || hasCurtainReport ? 'hidden' : 'hidden md:block'} overflow-x-auto`}>
           <table className="w-full text-left print:text-[10px]">
              <thead>
               <tr className="bg-slate-50/50 print:bg-slate-100">
-                <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest print:px-2 print:py-2">U.H.</th>
-                <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest print:px-2 print:py-2">Detalhes do Item</th>
-                <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest print:px-2 print:py-2">Camas (Base/Colchão)</th>
-                <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest print:px-2 print:py-2">Banheiro/Acs</th>
-                <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest print:px-2 print:py-2">Observações</th>
-                <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right no-print">Ação</th>
+                <th className="px-8 py-5 text-[10px] font-black text-slate-700 uppercase tracking-widest print:px-2 print:py-2">U.H.</th>
+                <th className="px-8 py-5 text-[10px] font-black text-slate-700 uppercase tracking-widest print:px-2 print:py-2">Detalhes do Item</th>
+                <th className="px-8 py-5 text-[10px] font-black text-slate-700 uppercase tracking-widest print:px-2 print:py-2">Camas (Base/Colchão)</th>
+                <th className="px-8 py-5 text-[10px] font-black text-slate-700 uppercase tracking-widest print:px-2 print:py-2">Banheiro/Acs</th>
+                <th className="px-8 py-5 text-[10px] font-black text-slate-700 uppercase tracking-widest print:px-2 print:py-2">Observações</th>
+                <th className="px-8 py-5 text-[10px] font-black text-slate-700 uppercase tracking-widest text-right no-print">Ação</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50 print:divide-slate-200">
@@ -672,21 +876,25 @@ const ReportsView: React.FC<ReportsViewProps> = ({ apartments, theme, onSelectAp
                 <tr key={apt.id} className="group hover:bg-slate-50/50 transition-colors print:hover:bg-transparent">
                   <td className="px-8 py-5 print:px-2 print:py-3">
                     <div className="flex flex-col">
-                      <span className="text-lg font-black text-slate-800 print:text-sm">{apt.roomNumber}</span>
-                      <span className="text-[9px] font-black text-slate-400 uppercase print:text-[7px]">Andar {apt.floor}</span>
+                      <span className="text-lg font-black text-slate-950 print:text-sm">{apt.roomNumber}</span>
+                      <span className="text-[9px] font-black text-slate-600 uppercase print:text-[7px]">Andar {apt.floor}</span>
                     </div>
                   </td>
                   <td className="px-8 py-5 print:px-2 print:py-3">
                     <div className="space-y-1">
-                      <p className="text-[10px] font-bold text-slate-700">Piso: {apt.pisoType || '---'} ({apt.pisoStatus || 'OK'})</p>
-                      <p className="text-[10px] font-bold text-slate-700">Cortina: {apt.temCortina ? (apt.cortinaStatus || 'Sim') : 'Não'}</p>
-                      <p className="text-[10px] font-bold text-slate-700">TV: {apt.tvBrand || '---'} | AC: {apt.acBrand || '---'}</p>
+                      <p className="text-[11px] font-black text-slate-900">Piso: {apt.pisoType || '---'} ({apt.pisoStatus || 'OK'})</p>
+                      <p className="text-[11px] font-black text-slate-900">Frigobar: {apt.frigobarStatus || '---'}{apt.frigobarDetalhes ? ` - ${apt.frigobarDetalhes}` : ''}</p>
+                      <p className="text-[11px] font-black text-slate-900">Torneira monocomando: {formatYesNo(apt.torneiraMonocomando)}</p>
+                      <p className="text-[11px] font-black text-slate-900">Móveis: {apt.moveisStatus || '---'}{apt.moveisDetalhes?.length ? ` - ${apt.moveisDetalhes.join(', ')}` : ''}</p>
+                      <p className="text-[11px] font-black text-slate-900">Cortina: {apt.temCortina ? `${apt.cortinaStatus || 'Sim'}${apt.cortinaCoverage ? `, ${apt.cortinaCoverage}` : ''}${apt.cortinaSize ? ` - descrição: ${apt.cortinaSize}` : ''}` : 'Não'}</p>
+                      <p className="text-[11px] font-black text-slate-900">TV: {apt.tvBrand || '---'} | AC: {apt.acBrand || '---'}</p>
+                      <p className="text-[11px] font-black text-slate-900">Luminária: {apt.luminariaType || '---'}{apt.luminariaColor ? ` (${apt.luminariaColor})` : ''}</p>
                     </div>
                   </td>
                   <td className="px-8 py-5 print:px-2 print:py-3">
                     <div className="space-y-1">
                       {apt.beds?.map((b, i) => (
-                        <p key={`${apt.id}-bed-${i}`} className="text-[9px] text-slate-600">
+                        <p key={`${apt.id}-bed-${i}`} className="text-[10px] font-bold text-slate-800">
                           {i+1}: {b.type} (B: {b.baseStatus} | C: {b.mattressStatus})
                         </p>
                       ))}
@@ -695,9 +903,16 @@ const ReportsView: React.FC<ReportsViewProps> = ({ apartments, theme, onSelectAp
                   </td>
                   <td className="px-8 py-5 print:px-2 print:py-3">
                      <div className="space-y-1">
-                      <p className="text-[9px] text-slate-600">Tipo: {apt.banheiroType || '---'}</p>
-                      <p className="text-[9px] text-slate-600">Shampoo: {apt.temSuporteShampoo ? apt.suporteShampooStatus : 'Não'}</p>
-                      <p className="text-[9px] text-slate-600">Cofre: {apt.temCofre ? 'Sim' : 'Não'}</p>
+                      <p className="text-[10px] font-bold text-slate-800">Tipo: {apt.banheiroType || '---'}</p>
+                      <p className="text-[10px] font-bold text-slate-800">Estado: {apt.banheiroStatus || '---'}</p>
+                      <p className="text-[10px] font-bold text-slate-800">Forro: {apt.forroBanheiroStatus || '---'}</p>
+                      <p className="text-[10px] font-bold text-slate-800">Espelho banheiro: {apt.espelhoBanheiroStatus || '---'}</p>
+                      <p className="text-[10px] font-bold text-slate-800">Shampoo: {apt.temSuporteShampoo ? apt.suporteShampooStatus : 'Não'}</p>
+                      <p className="text-[10px] font-bold text-slate-800">Papel: {formatYesNo(apt.temSuportePapel)}</p>
+                      <p className="text-[10px] font-bold text-slate-800">Cofre: {apt.temCofre ? 'Sim' : 'Não'}</p>
+                      <p className="text-[10px] font-bold text-slate-800">Espelho corpo: {apt.temEspelhoCorpo ? (apt.espelhoCorpoStatus || 'Sim') : 'Não'}</p>
+                      <p className="text-[10px] font-bold text-slate-800">Cabides: {apt.temCabide ? (apt.cabideQuantity || 0) : 'Não'}</p>
+                      <p className="text-[10px] font-bold text-slate-800">Porta controle: {formatYesNo(apt.temPortaControle)}</p>
                     </div>
                   </td>
                   <td className="px-8 py-5 print:px-2 print:py-3 text-center">
@@ -760,7 +975,7 @@ const ReportsView: React.FC<ReportsViewProps> = ({ apartments, theme, onSelectAp
         </div>
 
         {/* Mobile View */}
-        <div className="md:hidden flex flex-col p-4 space-y-4 bg-slate-50">
+        <div className={`${hasBedReport || hasCurtainReport ? 'hidden' : 'md:hidden flex'} flex-col p-4 space-y-4 bg-slate-50`}>
           {filteredData.map(apt => (
             <div key={apt.id} className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex flex-col space-y-3 relative overflow-hidden">
               <div className="absolute top-0 left-0 w-1.5 h-full bg-slate-200" style={{ backgroundColor: theme.primary }}></div>

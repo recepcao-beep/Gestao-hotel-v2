@@ -365,6 +365,7 @@ export interface Apartment {
   banheiroType?: 'Reformado' | 'Antigo';
   banheiroStatus?: 'Tolerável' | 'Reparo urgente';
   forroBanheiroStatus?: 'Bom estado' | 'Tolerável' | 'Reparo urgente';
+  espelhoBanheiroStatus?: 'Bom estado' | 'Manchado' | 'Quebrado';
   temCofre?: boolean;
   temCortina?: boolean;
   cortinaStatus?: 'Nova' | 'Antiga';
