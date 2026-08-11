@@ -1402,7 +1402,7 @@ const INTERNAL_KEY_MAP: Record<string, string> = {
 };
 
 const GRID_COLUMNS: Record<string, string[]> = {
-  apartments: ['id', 'roomNumber', 'floor', 'pisoType', 'pisoStatus', 'banheiroType', 'banheiroStatus', 'temCofre', 'temCortina', 'cortinaStatus', 'cortinaSize', 'cortinaCoverage', 'temEspelhoCorpo', 'espelhoCorpoStatus', 'acBrand', 'moveisStatus', 'moveisDetalhes', 'beds', 'temPortaControle', 'temCabide', 'cabideQuantity', 'temSuportePapel', 'temSuporteShampoo', 'suporteShampooStatus', 'luminariaType', 'luminariaColor', 'tvBrand', 'defects', 'customAnswers'],
+  apartments: ['id', 'roomNumber', 'floor', 'pisoType', 'pisoStatus', 'banheiroType', 'banheiroStatus', 'temCofre', 'temCortina', 'cortinaStatus', 'cortinaSize', 'cortinaCoverage', 'temEspelhoCorpo', 'espelhoCorpoStatus', 'acBrand', 'moveisStatus', 'moveisDetalhes', 'beds', 'temPortaControle', 'temCabide', 'cabideQuantity', 'temSuportePapel', 'temSuporteShampoo', 'suporteShampooStatus', 'luminariaType', 'luminariaColor', 'tvBrand', 'defects', 'customAnswers', 'espelhoBanheiroStatus'],
   employees: ['id', 'name', 'role', 'gender', 'contact', 'salary', 'sectorId', 'fixedDayOff', 'sundayOffs', 'hourlyWorkDays', 'hourlyDaysOff', 'workingHours', 'shiftPeriod', 'status', 'startDate', 'scheduleType', 'vacationStatus', 'vacationStart', 'vacationEnd', 'vacationDays', 'vacationAccrualStart', 'vacationDeadline', 'uniforms', 'history', 'tagText', 'tagColor', 'photo'],
   budgets: ['id', 'title', 'objective', 'items', 'quotes', 'status', 'createdAt', 'files'],
   extras: ['id', 'name', 'phone', 'availability', 'serviceQuality', 'observation', 'sectorId', 'doNotCall'],
@@ -1927,6 +1927,7 @@ async function getSheetsOnlyData(hotel: string) {
                   else if (col === 'pisoStatus') idx = firstRow.findIndex(c => c.startsWith('pisos'));
                   else if (col === 'banheiroType') idx = firstRow.findIndex(c => c.startsWith('banht'));
                   else if (col === 'banheiroStatus') idx = firstRow.findIndex(c => c.startsWith('banhs'));
+                  else if (col === 'espelhoBanheiroStatus') idx = firstRow.findIndex(c => c.replace(/\s+/g,'').startsWith('espelhobanheiro') || c.replace(/\s+/g,'').startsWith('espelhodobanheiro') || c === 'espelho banheiro');
                   else if (col === 'temCofre') idx = firstRow.findIndex(c => c === 'cofre');
                   else if (col === 'temCortina') idx = firstRow.findIndex(c => c === 'cortina');
                   else if (col === 'cortinaStatus') idx = firstRow.findIndex(c => c.startsWith('cortinas') || c.replace(/\s+/g,'').startsWith('cortinas'));

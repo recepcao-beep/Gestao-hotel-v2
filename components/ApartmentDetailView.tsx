@@ -23,7 +23,8 @@ import {
   Plus,
   Minus,
   X,
-  Maximize2
+  Maximize2,
+  Scan
 } from 'lucide-react';
 
 interface ApartmentDetailViewProps {
@@ -58,6 +59,7 @@ const FIELD_STEPS: Record<string, number> = {
   beds: 1,
   banheiroType: 2,
   forroBanheiroStatus: 2,
+  espelhoBanheiroStatus: 2,
   temSuportePapel: 2,
   temSuporteShampoo: 2,
   defects: 3,
@@ -589,6 +591,17 @@ const ApartmentDetailView: React.FC<ApartmentDetailViewProps> = ({ apartment, th
             </div>
           </div>
 
+          {isFieldVisible('espelhoBanheiroStatus') && (
+            <div data-field-id="espelhoBanheiroStatus" tabIndex={-1} className="bg-white p-6 rounded-[2.5rem] border border-slate-50 shadow-sm space-y-4 outline-none">
+              <SectionTitle icon={Scan} title="Espelho do Banheiro" color="text-cyan-600" />
+              <div className="grid grid-cols-3 gap-2">
+                <button onClick={() => updateField('espelhoBanheiroStatus', 'Bom estado')} className={getStatusBtnClass(data.espelhoBanheiroStatus, 'Bom estado', 'bg-emerald-500')}>BOM</button>
+                <button onClick={() => updateField('espelhoBanheiroStatus', 'Manchado')} className={getStatusBtnClass(data.espelhoBanheiroStatus, 'Manchado', 'bg-amber-400 !text-slate-900')}>MANCHADO</button>
+                <button onClick={() => updateField('espelhoBanheiroStatus', 'Quebrado')} className={getStatusBtnClass(data.espelhoBanheiroStatus, 'Quebrado', 'bg-rose-500')}>QUEBRADO</button>
+              </div>
+            </div>
+          )}
+
           {/* Reformado ou Antigo */}
           {isFieldVisible('banheiroType') && (
             <div className="bg-white p-6 rounded-[2.5rem] border border-slate-50 shadow-sm space-y-4">
@@ -708,6 +721,7 @@ const ApartmentDetailView: React.FC<ApartmentDetailViewProps> = ({ apartment, th
               ['Torneira monocomando', data.torneiraMonocomando === undefined ? 'Nao informado' : (data.torneiraMonocomando ? 'Sim' : 'Nao')],
               ['Banheiro', data.banheiroType || 'Nao informado'],
               ['Forro do banheiro', data.forroBanheiroStatus || 'Nao informado'],
+              ['Espelho do banheiro', data.espelhoBanheiroStatus || 'Nao informado'],
               ['TV', data.tvBrand || 'Nao informado'],
               ['Avarias', (data.defects || []).length],
             ].map(([label, value]) => (

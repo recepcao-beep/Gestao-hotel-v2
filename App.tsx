@@ -619,6 +619,7 @@ const App: React.FC = () => {
             pisoStatus: apt.pisoStatus || apt.statusPiso,
             banheiroType: apt.banheiroType || apt.tipoBanheiro || apt.banheiro,
             banheiroStatus: apt.banheiroStatus || apt.statusBanheiro,
+            espelhoBanheiroStatus: apt.espelhoBanheiroStatus || apt.statusEspelhoBanheiro || apt.espelhoBanheiro,
             temCofre: apt.temCofre !== undefined ? apt.temCofre : apt.cofre,
             temCortina: apt.temCortina !== undefined ? apt.temCortina : apt.cortina,
             defects: safeJSONParse(apt.defects || apt.defeitos, []),
