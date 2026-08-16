@@ -778,7 +778,7 @@ const RobotsView: React.FC<RobotsViewProps> = ({ theme }) => {
     [observacoes]
   );
   const availableDates = useMemo(
-    () => Array.from(new Set(
+    () => Array.from(new Set<string>(
       allObservationItems.map((item) => item.date).filter(Boolean)
     )).sort((a, b) => dateToIso(a).localeCompare(dateToIso(b))),
     [allObservationItems]

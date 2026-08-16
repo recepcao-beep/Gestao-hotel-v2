@@ -763,7 +763,14 @@ const App: React.FC = () => {
     loadDataFromSheet(hotel);
   };
 
-  const handleSaveApartment = (apt: Apartment, newFiles?: any[]) => {
+  const handleSaveApartment = async (apt: Apartment, newFiles?: any[]) => {
+    const aptToSync = {
+      ...apt,
+      customAnswers: apt.customAnswers || {}
+    };
+    const synced = await syncToSheet('APARTMENT', aptToSync, newFiles);
+    if (!synced) return false;
+
     setState(prev => ({
       ...prev,
       hotels: {
@@ -774,12 +781,7 @@ const App: React.FC = () => {
         }
       }
     }));
-    
-    const aptToSync = {
-      ...apt,
-      customAnswers: JSON.stringify(apt.customAnswers || {})
-    };
-    syncToSheet('APARTMENT', aptToSync, newFiles);
+    return true;
   };
 
   const handleSaveBudget = (budget: Budget, newFiles?: any[]) => {

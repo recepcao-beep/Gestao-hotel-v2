@@ -31,7 +31,7 @@ interface ApartmentDetailViewProps {
   apartment: Apartment;
   theme: HotelTheme;
   onBack: () => void;
-  onSave: (apt: Apartment, files?: any[]) => void;
+  onSave: (apt: Apartment, files?: any[]) => void | boolean | Promise<void | boolean>;
   integrationUrl?: string;
   checklistConfig?: any[]; // FormFieldConfig[]
 }
@@ -131,11 +131,10 @@ const ApartmentDetailView: React.FC<ApartmentDetailViewProps> = ({ apartment, th
 
   const handleSaveAndExit = async () => {
     setIsSaving(true);
-    onSave(data, newFiles);
-    setTimeout(() => { 
-      setIsSaving(false); 
-      onBack(); 
-    }, 1200);
+    const saved = await onSave(data, newFiles);
+    setIsSaving(false);
+    if (saved === false) return;
+    onBack();
   };
 
   const SectionTitle = ({ icon: Icon, title, color = "text-slate-800" }: { icon: any, title: string, color?: string }) => (
