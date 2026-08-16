@@ -764,8 +764,21 @@ const App: React.FC = () => {
   };
 
   const handleSaveApartment = async (apt: Apartment, newFiles?: any[]) => {
+    const defects = Array.isArray(apt.defects)
+      ? apt.defects
+          .map(defect => ({
+            ...defect,
+            id: String(defect.id || `${apt.id}-${Date.now()}`),
+            description: String(defect.description || '').trim(),
+            timestamp: Number(defect.timestamp) || Date.now(),
+            driveLink: defect.driveLink || ''
+          }))
+          .filter(defect => defect.description || defect.driveLink || defect.data)
+      : [];
+
     const aptToSync = {
       ...apt,
+      defects,
       customAnswers: apt.customAnswers || {}
     };
     const synced = await syncToSheet('APARTMENT', aptToSync, newFiles);

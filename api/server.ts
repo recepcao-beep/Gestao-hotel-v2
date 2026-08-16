@@ -57,6 +57,29 @@ const normalizeApartment = (apt: any) => {
      }));
      delete normalized.defeitos;
   }
+  if (normalized.defects !== undefined) {
+    if (typeof normalized.defects === 'string') {
+      try {
+        normalized.defects = JSON.parse(normalized.defects);
+      } catch {
+        normalized.defects = [];
+      }
+    }
+    normalized.defects = Array.isArray(normalized.defects)
+      ? normalized.defects
+          .map((d: any) => ({
+            ...d,
+            id: d.id,
+            driveLink: d.driveLink || d.linkDrive || '',
+            description: d.description || d.descricao || '',
+            timestamp: d.timestamp || d.data || Date.now(),
+            fileName: d.fileName || d.nomeArquivo,
+            fileType: d.fileType,
+            data: d.data
+          }))
+          .filter((d: any) => d.description || d.driveLink || d.data)
+      : [];
+  }
   return normalized;
 };
 
