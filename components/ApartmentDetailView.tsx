@@ -102,6 +102,34 @@ const ApartmentDetailView: React.FC<ApartmentDetailViewProps> = ({ apartment, th
     updateField('moveisDetalhes', next);
   };
 
+  const createDefect = (description: string, file?: { name: string; type: string; data: string }): Defect => ({
+    id: `${data.id}-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+    description,
+    driveLink: file ? 'pendente' : '',
+    timestamp: Date.now(),
+    fileName: file?.name,
+    fileType: file?.type,
+    data: file?.data
+  });
+
+  const addTextDefect = () => {
+    const desc = newDefectText.trim();
+    if (!desc) return null;
+
+    const newDefect = createDefect(desc);
+    setData(prev => ({ ...prev, defects: [...(prev.defects || []), newDefect] }));
+    setNewDefectText('');
+    return newDefect;
+  };
+
+  const getDataWithPendingDefectText = () => {
+    const desc = newDefectText.trim();
+    if (!desc) return data;
+
+    const newDefect = createDefect(desc);
+    return { ...data, defects: [...(data.defects || []), newDefect] };
+  };
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -111,16 +139,7 @@ const ApartmentDetailView: React.FC<ApartmentDetailViewProps> = ({ apartment, th
       const base64Data = fullBase64.split(',')[1] || '';
       const mimeType = fullBase64.split(':')[1].split(';')[0] || file.type;
       const desc = newDefectText.trim() || 'Avaria fotografada';
-      
-      const newDefect: Defect = {
-        id: `${data.id}-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
-        description: desc,
-        driveLink: 'pendente',
-        timestamp: Date.now(),
-        fileName: file.name,
-        fileType: mimeType,
-        data: fullBase64
-      };
+      const newDefect = createDefect(desc, { name: file.name, type: mimeType, data: fullBase64 });
       
       setNewFiles(prev => [...prev, { data: base64Data, mimeType: mimeType, fileName: file.name }]);
       setData(prev => ({ ...prev, defects: [...(prev.defects || []), newDefect] }));
@@ -131,9 +150,12 @@ const ApartmentDetailView: React.FC<ApartmentDetailViewProps> = ({ apartment, th
 
   const handleSaveAndExit = async () => {
     setIsSaving(true);
-    const saved = await onSave(data, newFiles);
+    const dataToSave = getDataWithPendingDefectText();
+    const saved = await onSave(dataToSave, newFiles);
     setIsSaving(false);
     if (saved === false) return;
+    setData(dataToSave);
+    setNewDefectText('');
     onBack();
   };
 
@@ -740,6 +762,10 @@ const ApartmentDetailView: React.FC<ApartmentDetailViewProps> = ({ apartment, th
               placeholder="Descreva o problema..." 
               className="w-full p-4 rounded-2xl bg-slate-50 border-transparent focus:bg-white focus:border-rose-200 outline-none transition-all text-xs font-bold min-h-[100px] shadow-inner text-slate-700" 
             />
+            <button onClick={addTextDefect} disabled={!newDefectText.trim()} className="w-full bg-slate-900 text-white py-4 rounded-2xl font-black text-xs flex items-center justify-center space-x-3 active:scale-95 transition-all shadow-lg uppercase tracking-widest disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400">
+              <Plus size={20} />
+              <span>ADICIONAR RELATO</span>
+            </button>
             <button onClick={() => fileInputRef.current?.click()} className="w-full bg-rose-500 text-white py-4 rounded-2xl font-black text-xs flex items-center justify-center space-x-3 active:scale-95 transition-all shadow-lg uppercase tracking-widest">
               <ImageIcon size={20} />
               <span>FOTOGRAFAR AVARIA</span>
