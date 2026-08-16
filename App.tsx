@@ -191,10 +191,21 @@ const normalizeShiftPeriod = (value: any, workingHours?: string): Employee['shif
   return 'MANHA';
 };
 
+type AppNavigationState = {
+  __hotelAppNavigation: true;
+  currentHotel: HotelType;
+  currentView: ViewType;
+  selectedFloor: number | null;
+  selectedApartmentId: string | null;
+  selectedSectorId: string | null;
+};
+
 const App: React.FC = () => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const initialSyncRef = useRef(false);
+  const navigationHistoryReadyRef = useRef(false);
+  const isApplyingBrowserNavigationRef = useRef(false);
   
   const [state, setState] = useState<AppState>(() => {
     const saved = localStorage.getItem('hotel_village_state_v45');
@@ -240,6 +251,23 @@ const App: React.FC = () => {
     };
   });
 
+  const navigationState = useMemo<AppNavigationState>(() => ({
+    __hotelAppNavigation: true,
+    currentHotel: state.currentHotel,
+    currentView: state.currentView,
+    selectedFloor: state.selectedFloor ?? null,
+    selectedApartmentId: state.selectedApartmentId ?? null,
+    selectedSectorId: state.selectedSectorId ?? null
+  }), [state.currentHotel, state.currentView, state.selectedFloor, state.selectedApartmentId, state.selectedSectorId]);
+
+  const navigationKey = useMemo(() => [
+    navigationState.currentHotel,
+    navigationState.currentView,
+    navigationState.selectedFloor ?? '',
+    navigationState.selectedApartmentId ?? '',
+    navigationState.selectedSectorId ?? ''
+  ].join('|'), [navigationState]);
+
   const theme: HotelTheme = useMemo(() => {
     switch(state.currentHotel) {
       case 'VILLAGE': return { primary: '#26A6A6', secondary: '#34BFA6', accent: '#29D9A7', bg: '#F8FAFC', text: '#1E293B', chartColors: ['#26A6A6', '#34BFA6', '#29D9A7', '#737373'] };
@@ -248,6 +276,72 @@ const App: React.FC = () => {
       default: return { primary: '#26A6A6', secondary: '#34BFA6', accent: '#29D9A7', bg: '#F8FAFC', text: '#1E293B', chartColors: ['#26A6A6', '#34BFA6', '#29D9A7', '#737373'] };
     }
   }, [state.currentHotel]);
+
+  useEffect(() => {
+    const handlePopState = (event: PopStateEvent) => {
+      const nextNavigation = event.state as Partial<AppNavigationState> | null;
+      if (!nextNavigation?.__hotelAppNavigation) return;
+
+      isApplyingBrowserNavigationRef.current = true;
+      setState(prev => ({
+        ...prev,
+        currentHotel: nextNavigation.currentHotel || prev.currentHotel,
+        currentView: nextNavigation.currentView || ViewType.DASHBOARD,
+        selectedFloor: nextNavigation.selectedFloor ?? null,
+        selectedApartmentId: nextNavigation.selectedApartmentId ?? null,
+        selectedSectorId: nextNavigation.selectedSectorId ?? null
+      }));
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  useEffect(() => {
+    if (!state.currentUser) {
+      navigationHistoryReadyRef.current = false;
+      return;
+    }
+
+    const isNestedRoute = Boolean(
+      navigationState.selectedApartmentId ||
+      navigationState.selectedFloor !== null ||
+      navigationState.selectedSectorId ||
+      navigationState.currentView !== ViewType.DASHBOARD
+    );
+
+    const dashboardNavigation: AppNavigationState = {
+      ...navigationState,
+      currentView: ViewType.DASHBOARD,
+      selectedFloor: null,
+      selectedApartmentId: null,
+      selectedSectorId: null
+    };
+
+    if (!navigationHistoryReadyRef.current) {
+      window.history.replaceState(dashboardNavigation, '', window.location.href);
+      if (isNestedRoute) {
+        window.history.pushState(navigationState, '', window.location.href);
+      }
+      navigationHistoryReadyRef.current = true;
+      return;
+    }
+
+    if (isApplyingBrowserNavigationRef.current) {
+      isApplyingBrowserNavigationRef.current = false;
+      return;
+    }
+
+    window.history.pushState(navigationState, '', window.location.href);
+  }, [navigationKey, navigationState, state.currentUser]);
+
+  const goBackToPreviousAppScreen = (fallback: (prev: AppState) => AppState) => {
+    if (navigationHistoryReadyRef.current) {
+      window.history.back();
+      return;
+    }
+    setState(fallback);
+  };
 
   const loadDataFromSheet = useCallback(async (hotelOverride?: HotelType, forceSheets: boolean = false) => {
     const targetHotel = hotelOverride || state.currentHotel;
@@ -1360,7 +1454,7 @@ const App: React.FC = () => {
         <ApartmentDetailView 
           apartment={apt} 
           theme={theme} 
-          onBack={() => setState(prev => ({ ...prev, selectedApartmentId: null }))} 
+          onBack={() => goBackToPreviousAppScreen(prev => ({ ...prev, selectedApartmentId: null }))} 
           onSave={handleSaveApartment}
           checklistConfig={state.hotels[state.currentHotel].config?.apartmentChecklist || []}
         />
@@ -1373,7 +1467,7 @@ const App: React.FC = () => {
           floor={state.selectedFloor} 
           theme={theme} 
           apartments={currentHotelData.apartments} 
-          onBack={() => setState(prev => ({ ...prev, selectedFloor: null }))}
+          onBack={() => goBackToPreviousAppScreen(prev => ({ ...prev, selectedFloor: null }))}
           onSelectApartment={(id) => setState(prev => ({ ...prev, selectedApartmentId: id }))}
         />
       );
