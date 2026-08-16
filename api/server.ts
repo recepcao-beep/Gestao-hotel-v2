@@ -1898,9 +1898,10 @@ app.post('/api/supabase/migrate', async (req, res) => {
 
 // Helper to get data from a specific sheet/cell
 async function getSheetData(hotel: string, forceSheets: boolean = false) {
-  // Check cache first (ignore cache if forcing sheets)
+  // Check cache first only for the Sheets fallback. Supabase must remain the source of truth
+  // across multiple devices and serverless instances.
   const cached = dataCache[hotel];
-  if (!forceSheets && cached && Date.now() - cached.timestamp < CACHE_TTL) {
+  if (!supabase && !forceSheets && cached && Date.now() - cached.timestamp < CACHE_TTL) {
     return cached.data;
   }
 
@@ -2065,7 +2066,6 @@ async function getSheetData(hotel: string, forceSheets: boolean = false) {
       if (hasAnyData) {
         log(`Supabase Load Success for ${hotel}. Tables: ${Object.entries(hotelData).filter(([k,v]: any) => (Array.isArray(v) ? v.length > 0 : Object.keys(v).length > 0)).map(([k]) => k).join(', ')}`);
         const finalData = { ...hotelData, _logs: currentLogs };
-        dataCache[hotel] = { data: finalData, timestamp: Date.now() };
         return finalData;
       }
       log(`No data found in any table for ${hotel}`);
