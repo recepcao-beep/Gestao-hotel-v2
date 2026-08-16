@@ -85,9 +85,18 @@ const ApartmentDetailView: React.FC<ApartmentDetailViewProps> = ({ apartment, th
   const [currentStep, setCurrentStep] = useState(0);
   const [formError, setFormError] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const dataRef = useRef<Apartment>(data);
+
+  const updateData = (updater: Apartment | ((prev: Apartment) => Apartment)) => {
+    setData(prev => {
+      const next = typeof updater === 'function' ? (updater as (prev: Apartment) => Apartment)(prev) : updater;
+      dataRef.current = next;
+      return next;
+    });
+  };
 
   const updateField = (field: keyof Apartment, value: any) => {
-    setData(prev => ({ ...prev, [field]: value }));
+    updateData(prev => ({ ...prev, [field]: value }));
   };
 
   const updateBed = (index: number, bedUpdate: Partial<BedConfig>) => {
@@ -103,7 +112,7 @@ const ApartmentDetailView: React.FC<ApartmentDetailViewProps> = ({ apartment, th
   };
 
   const createDefect = (description: string, file?: { name: string; type: string; data: string }): Defect => ({
-    id: `${data.id}-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+    id: `${dataRef.current.id}-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
     description,
     driveLink: file ? 'pendente' : '',
     timestamp: Date.now(),
@@ -117,17 +126,19 @@ const ApartmentDetailView: React.FC<ApartmentDetailViewProps> = ({ apartment, th
     if (!desc) return null;
 
     const newDefect = createDefect(desc);
-    setData(prev => ({ ...prev, defects: [...(prev.defects || []), newDefect] }));
+    const nextData = { ...dataRef.current, defects: [...(dataRef.current.defects || []), newDefect] };
+    dataRef.current = nextData;
+    setData(nextData);
     setNewDefectText('');
     return newDefect;
   };
 
   const getDataWithPendingDefectText = () => {
     const desc = newDefectText.trim();
-    if (!desc) return data;
+    if (!desc) return dataRef.current;
 
     const newDefect = createDefect(desc);
-    return { ...data, defects: [...(data.defects || []), newDefect] };
+    return { ...dataRef.current, defects: [...(dataRef.current.defects || []), newDefect] };
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -142,7 +153,7 @@ const ApartmentDetailView: React.FC<ApartmentDetailViewProps> = ({ apartment, th
       const newDefect = createDefect(desc, { name: file.name, type: mimeType, data: fullBase64 });
       
       setNewFiles(prev => [...prev, { data: base64Data, mimeType: mimeType, fileName: file.name }]);
-      setData(prev => ({ ...prev, defects: [...(prev.defects || []), newDefect] }));
+      updateData(prev => ({ ...prev, defects: [...(prev.defects || []), newDefect] }));
       setNewDefectText('');
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
@@ -154,6 +165,7 @@ const ApartmentDetailView: React.FC<ApartmentDetailViewProps> = ({ apartment, th
     const saved = await onSave(dataToSave, newFiles);
     setIsSaving(false);
     if (saved === false) return;
+    dataRef.current = dataToSave;
     setData(dataToSave);
     setNewDefectText('');
     onBack();
@@ -803,7 +815,7 @@ const ApartmentDetailView: React.FC<ApartmentDetailViewProps> = ({ apartment, th
                           <p className="text-[11px] font-black text-slate-800 uppercase leading-tight">{defect.description}</p>
                         </div>
                      </div>
-                     <button onClick={() => setData(prev => ({ ...prev, defects: prev.defects.filter(d => d.id !== defect.id) }))} className="text-slate-300 hover:text-rose-500 transition-colors">
+                     <button onClick={() => updateData(prev => ({ ...prev, defects: prev.defects.filter(d => d.id !== defect.id) }))} className="text-slate-300 hover:text-rose-500 transition-colors">
                        <Trash2 size={20}/>
                      </button>
                   </div>
