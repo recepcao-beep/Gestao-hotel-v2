@@ -200,12 +200,23 @@ type AppNavigationState = {
   selectedSectorId: string | null;
 };
 
+const isSameNavigationState = (a?: AppNavigationState | null, b?: AppNavigationState | null) => (
+  Boolean(a && b) &&
+  a?.currentHotel === b?.currentHotel &&
+  a?.currentView === b?.currentView &&
+  (a?.selectedFloor ?? null) === (b?.selectedFloor ?? null) &&
+  (a?.selectedApartmentId ?? null) === (b?.selectedApartmentId ?? null) &&
+  (a?.selectedSectorId ?? null) === (b?.selectedSectorId ?? null)
+);
+
 const App: React.FC = () => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const initialSyncRef = useRef(false);
   const navigationHistoryReadyRef = useRef(false);
   const isApplyingBrowserNavigationRef = useRef(false);
+  const latestNavigationStateRef = useRef<AppNavigationState | null>(null);
+  const appNavigationStackRef = useRef<AppNavigationState[]>([]);
   
   const [state, setState] = useState<AppState>(() => {
     const saved = localStorage.getItem('hotel_village_state_v45');
@@ -279,14 +290,31 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const handlePopState = (event: PopStateEvent) => {
-      const nextNavigation = event.state as Partial<AppNavigationState> | null;
+      let nextNavigation = event.state as AppNavigationState | null;
+      const stack = appNavigationStackRef.current;
+
+      if (stack.length > 1) {
+        stack.pop();
+      }
+
+      if (!nextNavigation?.__hotelAppNavigation) {
+        nextNavigation = stack[stack.length - 1] || latestNavigationStateRef.current;
+        if (nextNavigation?.__hotelAppNavigation) {
+          window.history.pushState(nextNavigation, '', window.location.href);
+        }
+      }
+
       if (!nextNavigation?.__hotelAppNavigation) return;
+
+      if (stack.length === 0 || !isSameNavigationState(stack[stack.length - 1], nextNavigation)) {
+        stack.push(nextNavigation);
+      }
 
       isApplyingBrowserNavigationRef.current = true;
       setState(prev => ({
         ...prev,
-        currentHotel: nextNavigation.currentHotel || prev.currentHotel,
-        currentView: nextNavigation.currentView || ViewType.DASHBOARD,
+        currentHotel: nextNavigation.currentHotel,
+        currentView: nextNavigation.currentView,
         selectedFloor: nextNavigation.selectedFloor ?? null,
         selectedApartmentId: nextNavigation.selectedApartmentId ?? null,
         selectedSectorId: nextNavigation.selectedSectorId ?? null
@@ -298,8 +326,11 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    latestNavigationStateRef.current = navigationState;
+
     if (!state.currentUser) {
       navigationHistoryReadyRef.current = false;
+      appNavigationStackRef.current = [];
       return;
     }
 
@@ -319,9 +350,11 @@ const App: React.FC = () => {
     };
 
     if (!navigationHistoryReadyRef.current) {
+      appNavigationStackRef.current = [dashboardNavigation];
       window.history.replaceState(dashboardNavigation, '', window.location.href);
-      if (isNestedRoute) {
+      if (isNestedRoute || isSameNavigationState(navigationState, dashboardNavigation)) {
         window.history.pushState(navigationState, '', window.location.href);
+        appNavigationStackRef.current.push(navigationState);
       }
       navigationHistoryReadyRef.current = true;
       return;
@@ -332,6 +365,11 @@ const App: React.FC = () => {
       return;
     }
 
+    const stack = appNavigationStackRef.current;
+    const lastNavigation = stack[stack.length - 1];
+    if (isSameNavigationState(lastNavigation, navigationState)) return;
+
+    stack.push(navigationState);
     window.history.pushState(navigationState, '', window.location.href);
   }, [navigationKey, navigationState, state.currentUser]);
 
