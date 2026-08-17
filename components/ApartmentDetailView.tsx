@@ -162,10 +162,21 @@ const ApartmentDetailView: React.FC<ApartmentDetailViewProps> = ({ apartment, th
 
   const getDataWithPendingDefectText = () => {
     const desc = newDefectText.trim();
-    if (!desc) return dataRef.current;
+    let nextData = dataRef.current;
+
+    if (editingDefectId && editingDefectText.trim()) {
+      nextData = {
+        ...nextData,
+        defects: (nextData.defects || []).map(defect =>
+          defect.id === editingDefectId ? { ...defect, description: editingDefectText.trim() } : defect
+        )
+      };
+    }
+
+    if (!desc) return nextData;
 
     const newDefect = createDefect(desc);
-    return { ...dataRef.current, defects: [...(dataRef.current.defects || []), newDefect] };
+    return { ...nextData, defects: [...(nextData.defects || []), newDefect] };
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -195,6 +206,8 @@ const ApartmentDetailView: React.FC<ApartmentDetailViewProps> = ({ apartment, th
     dataRef.current = dataToSave;
     setData(dataToSave);
     setNewDefectText('');
+    setEditingDefectId(null);
+    setEditingDefectText('');
     onBack();
   };
 

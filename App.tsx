@@ -209,6 +209,37 @@ const isSameNavigationState = (a?: AppNavigationState | null, b?: AppNavigationS
   (a?.selectedSectorId ?? null) === (b?.selectedSectorId ?? null)
 );
 
+const appStateToNavigationState = (appState: AppState): AppNavigationState => ({
+  __hotelAppNavigation: true,
+  currentHotel: appState.currentHotel,
+  currentView: appState.currentView,
+  selectedFloor: appState.selectedFloor ?? null,
+  selectedApartmentId: appState.selectedApartmentId ?? null,
+  selectedSectorId: appState.selectedSectorId ?? null
+});
+
+const getPreviousAppState = (current: AppState): AppState | null => {
+  if (current.selectedApartmentId) {
+    return { ...current, selectedApartmentId: null };
+  }
+  if (current.selectedFloor !== null) {
+    return { ...current, selectedFloor: null };
+  }
+  if (current.selectedSectorId) {
+    return { ...current, selectedSectorId: null };
+  }
+  if (current.currentView !== ViewType.DASHBOARD) {
+    return {
+      ...current,
+      currentView: ViewType.DASHBOARD,
+      selectedFloor: null,
+      selectedApartmentId: null,
+      selectedSectorId: null
+    };
+  }
+  return null;
+};
+
 const App: React.FC = () => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
@@ -217,6 +248,7 @@ const App: React.FC = () => {
   const isApplyingBrowserNavigationRef = useRef(false);
   const latestNavigationStateRef = useRef<AppNavigationState | null>(null);
   const appNavigationStackRef = useRef<AppNavigationState[]>([]);
+  const currentStateRef = useRef<AppState | null>(null);
   
   const [state, setState] = useState<AppState>(() => {
     const saved = localStorage.getItem('hotel_village_state_v45');
@@ -261,15 +293,12 @@ const App: React.FC = () => {
       currentUser: null
     };
   });
+  currentStateRef.current = state;
 
-  const navigationState = useMemo<AppNavigationState>(() => ({
-    __hotelAppNavigation: true,
-    currentHotel: state.currentHotel,
-    currentView: state.currentView,
-    selectedFloor: state.selectedFloor ?? null,
-    selectedApartmentId: state.selectedApartmentId ?? null,
-    selectedSectorId: state.selectedSectorId ?? null
-  }), [state.currentHotel, state.currentView, state.selectedFloor, state.selectedApartmentId, state.selectedSectorId]);
+  const navigationState = useMemo<AppNavigationState>(
+    () => appStateToNavigationState(state),
+    [state.currentHotel, state.currentView, state.selectedFloor, state.selectedApartmentId, state.selectedSectorId]
+  );
 
   const navigationKey = useMemo(() => [
     navigationState.currentHotel,
@@ -289,36 +318,24 @@ const App: React.FC = () => {
   }, [state.currentHotel]);
 
   useEffect(() => {
-    const handlePopState = (event: PopStateEvent) => {
-      let nextNavigation = event.state as AppNavigationState | null;
-      const stack = appNavigationStackRef.current;
+    const handlePopState = () => {
+      const current = currentStateRef.current;
+      if (!current) return;
 
-      if (stack.length > 1) {
-        stack.pop();
-      }
-
-      if (!nextNavigation?.__hotelAppNavigation) {
-        nextNavigation = stack[stack.length - 1] || latestNavigationStateRef.current;
-        if (nextNavigation?.__hotelAppNavigation) {
-          window.history.pushState(nextNavigation, '', window.location.href);
-        }
-      }
-
-      if (!nextNavigation?.__hotelAppNavigation) return;
-
-      if (stack.length === 0 || !isSameNavigationState(stack[stack.length - 1], nextNavigation)) {
-        stack.push(nextNavigation);
-      }
+      const previousState = getPreviousAppState(current);
+      const nextNavigation = previousState
+        ? appStateToNavigationState(previousState)
+        : latestNavigationStateRef.current || appStateToNavigationState(current);
 
       isApplyingBrowserNavigationRef.current = true;
-      setState(prev => ({
-        ...prev,
-        currentHotel: nextNavigation.currentHotel,
-        currentView: nextNavigation.currentView,
-        selectedFloor: nextNavigation.selectedFloor ?? null,
-        selectedApartmentId: nextNavigation.selectedApartmentId ?? null,
-        selectedSectorId: nextNavigation.selectedSectorId ?? null
-      }));
+      if (previousState) {
+        currentStateRef.current = previousState;
+        latestNavigationStateRef.current = nextNavigation;
+        appNavigationStackRef.current = [nextNavigation];
+        setState(previousState);
+      }
+
+      window.history.pushState(nextNavigation, '', window.location.href);
     };
 
     window.addEventListener('popstate', handlePopState);
@@ -374,8 +391,15 @@ const App: React.FC = () => {
   }, [navigationKey, navigationState, state.currentUser]);
 
   const goBackToPreviousAppScreen = (fallback: (prev: AppState) => AppState) => {
-    if (navigationHistoryReadyRef.current) {
-      window.history.back();
+    const current = currentStateRef.current;
+    if (current) {
+      const previousState = getPreviousAppState(current) || fallback(current);
+      const nextNavigation = appStateToNavigationState(previousState);
+      currentStateRef.current = previousState;
+      latestNavigationStateRef.current = nextNavigation;
+      appNavigationStackRef.current = [nextNavigation];
+      setState(previousState);
+      window.history.pushState(nextNavigation, '', window.location.href);
       return;
     }
     setState(fallback);
