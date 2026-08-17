@@ -1,6 +1,6 @@
 {
-  "name": "Gestão Hotel - V3",
-  "description": "Sistema completo para gestão de unidades Nacional Inn, incluindo controle de apartamentos, orçamentos detalhados de manutenção e gestão de equipe.",
+  "name": "Gestão hotel",
+  "description": "Sistema de gestão hoteleira, incluindo controle de apartamentos, orçamentos detalhados de manutenção e gestão de equipe.",
   "requestFramePermissions": [
     "camera",
     "microphone",
