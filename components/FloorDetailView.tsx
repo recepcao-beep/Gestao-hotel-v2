@@ -33,6 +33,12 @@ const filterLabels: Record<FloorFilter, string> = {
   WOOD: 'Piso de madeira',
 };
 
+const REQUIRED_FLOOR_ROOMS: Record<number, number[]> = {
+  500: [517],
+  600: [601, 605, 606, 607, 620, 621, 622, 623],
+  700: [704, 705, 706, 707, 708, 709, 711, 712, 731],
+};
+
 const FloorDetailView: React.FC<FloorDetailViewProps> = ({ floor, theme, apartments, onBack, onSelectApartment }) => {
   const [floorFilter, setFloorFilter] = useState<FloorFilter>('ALL');
   const [showFilters, setShowFilters] = useState(false);
@@ -43,6 +49,10 @@ const FloorDetailView: React.FC<FloorDetailViewProps> = ({ floor, theme, apartme
       const apartmentFloor = resolveApartmentFloor(apartment, id);
       const roomNumber = resolveApartmentRoomNumber(apartment, id);
       if (apartmentFloor === floor && roomNumber) roomMap.set(roomNumber, { id, apartment });
+    });
+
+    (REQUIRED_FLOOR_ROOMS[floor] || []).forEach((roomNumber) => {
+      if (!roomMap.has(roomNumber)) roomMap.set(roomNumber, { id: String(roomNumber) });
     });
 
     if (roomMap.size === 0) {
