@@ -9,6 +9,7 @@ import {
   CheckCircle2,
   Save, 
   Trash2, 
+  Pencil,
   Wind,
   Bed,
   Tv,
@@ -84,6 +85,8 @@ const ApartmentDetailView: React.FC<ApartmentDetailViewProps> = ({ apartment, th
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [currentStep, setCurrentStep] = useState(0);
   const [formError, setFormError] = useState('');
+  const [editingDefectId, setEditingDefectId] = useState<string | null>(null);
+  const [editingDefectText, setEditingDefectText] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dataRef = useRef<Apartment>(data);
 
@@ -113,7 +116,7 @@ const ApartmentDetailView: React.FC<ApartmentDetailViewProps> = ({ apartment, th
 
   const createDefect = (description: string, file?: { name: string; type: string; data: string }): Defect => ({
     id: `${dataRef.current.id}-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
-    description,
+    description: description.trim(),
     driveLink: file ? 'pendente' : '',
     timestamp: Date.now(),
     fileName: file?.name,
@@ -131,6 +134,30 @@ const ApartmentDetailView: React.FC<ApartmentDetailViewProps> = ({ apartment, th
     setData(nextData);
     setNewDefectText('');
     return newDefect;
+  };
+
+  const startEditingDefect = (defect: Defect) => {
+    setEditingDefectId(defect.id);
+    setEditingDefectText(defect.description || '');
+  };
+
+  const saveEditingDefect = () => {
+    const desc = editingDefectText.trim();
+    if (!editingDefectId || !desc) return;
+
+    updateData(prev => ({
+      ...prev,
+      defects: (prev.defects || []).map(defect =>
+        defect.id === editingDefectId ? { ...defect, description: desc } : defect
+      )
+    }));
+    setEditingDefectId(null);
+    setEditingDefectText('');
+  };
+
+  const cancelEditingDefect = () => {
+    setEditingDefectId(null);
+    setEditingDefectText('');
   };
 
   const getDataWithPendingDefectText = () => {
@@ -776,7 +803,7 @@ const ApartmentDetailView: React.FC<ApartmentDetailViewProps> = ({ apartment, th
             />
             <button onClick={addTextDefect} disabled={!newDefectText.trim()} className="w-full bg-slate-900 text-white py-4 rounded-2xl font-black text-xs flex items-center justify-center space-x-3 active:scale-95 transition-all shadow-lg uppercase tracking-widest disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400">
               <Plus size={20} />
-              <span>ADICIONAR RELATO</span>
+              <span>SALVAR AVARIA SEM FOTOGRAFIA</span>
             </button>
             <button onClick={() => fileInputRef.current?.click()} className="w-full bg-rose-500 text-white py-4 rounded-2xl font-black text-xs flex items-center justify-center space-x-3 active:scale-95 transition-all shadow-lg uppercase tracking-widest">
               <ImageIcon size={20} />
@@ -812,12 +839,38 @@ const ApartmentDetailView: React.FC<ApartmentDetailViewProps> = ({ apartment, th
                           </div>
                         )}
                         <div className="flex-1">
-                          <p className="text-[11px] font-black text-slate-800 uppercase leading-tight">{defect.description}</p>
+                          <div className="mb-2 inline-flex rounded-full bg-white px-2 py-1 text-[8px] font-black uppercase tracking-widest text-slate-400">
+                            {defect.data || defect.driveLink ? 'Avaria com foto' : 'Avaria sem foto'}
+                          </div>
+                          {editingDefectId === defect.id ? (
+                            <div className="space-y-2">
+                              <textarea
+                                value={editingDefectText}
+                                onChange={(e) => setEditingDefectText(e.target.value)}
+                                className="w-full min-h-[82px] rounded-xl border border-slate-200 bg-white p-3 text-xs font-bold text-slate-800 outline-none focus:border-rose-200"
+                              />
+                              <div className="grid grid-cols-2 gap-2">
+                                <button type="button" onClick={saveEditingDefect} disabled={!editingDefectText.trim()} className="rounded-lg bg-slate-900 px-3 py-2 text-[10px] font-black uppercase text-white disabled:bg-slate-200 disabled:text-slate-400">
+                                  Salvar
+                                </button>
+                                <button type="button" onClick={cancelEditingDefect} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-[10px] font-black uppercase text-slate-500">
+                                  Cancelar
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <p className="whitespace-pre-wrap text-[11px] font-black text-slate-800 uppercase leading-tight">{defect.description}</p>
+                          )}
                         </div>
                      </div>
-                     <button onClick={() => updateData(prev => ({ ...prev, defects: prev.defects.filter(d => d.id !== defect.id) }))} className="text-slate-300 hover:text-rose-500 transition-colors">
-                       <Trash2 size={20}/>
-                     </button>
+                     <div className="flex shrink-0 flex-col gap-2">
+                       <button type="button" onClick={() => startEditingDefect(defect)} className="rounded-lg bg-white p-2 text-slate-400 transition-colors hover:text-slate-800">
+                         <Pencil size={18}/>
+                       </button>
+                       <button type="button" onClick={() => updateData(prev => ({ ...prev, defects: prev.defects.filter(d => d.id !== defect.id) }))} className="rounded-lg bg-white p-2 text-slate-400 transition-colors hover:text-rose-500">
+                         <Trash2 size={18}/>
+                       </button>
+                     </div>
                   </div>
                 </div>
               ))}
